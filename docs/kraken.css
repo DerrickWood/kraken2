@@ -1,0 +1,45 @@
+body {
+  background: #f0f0f0 url("bar-bg.png") top left repeat-y;
+  color: #333;
+  margin: 10px;
+  margin-left: 50px;
+  margin-bottom: 20px;
+  font-family: 'Ubuntu', sans-serif;
+}
+
+a         { color: #00b0f0; }
+a:visited { color: #0090f0; }
+a:hover   { color: #00d0ff; }
+a:active  { color: #00f0ff; }
+
+.pretoc {
+  text-align: center;
+  font-size: 1.2em;
+}
+.title {
+  font-size: 2em;
+  font-weight: bold;
+  margin-bottom: 0;
+}
+.version {
+  font-size: 0.9em;
+}
+h1 {
+  color: #0090f0;
+  border-bottom: 1px #0090f0 solid;
+  margin-left: -10px;
+  margin-bottom: 3px;
+}
+h1 a {
+  color: #0090f0;
+  text-decoration: none;
+}
+div#confidence-score-table table th {
+  width: 7em;
+}
+pre {
+  margin-left: 4em;
+}
+code {
+  font-size: 1.2em;
+}

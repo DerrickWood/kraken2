@@ -1,0 +1,285 @@
+#!/usr/bin/perl
+
+# Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+#
+# This file is part of the Kraken 2 taxonomic sequence classification system.
+
+# General build process wrapper for Kraken 2.
+
+use strict;
+use warnings;
+use File::Basename;
+use Getopt::Long;
+
+my $PROG = basename $0;
+my $KRAKEN2_DIR = "#####=KRAKEN2_DIR=#####";
+
+# Test to see if the executables got moved, try to recover if we can
+if (! -e "$KRAKEN2_DIR/classify") {
+  use Cwd 'abs_path';
+  $KRAKEN2_DIR = dirname abs_path($0);
+}
+
+$ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
+$ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
+
+my $DEF_AA_MINIMIZER_LEN = 15;
+my $DEF_AA_KMER_LEN = 15;
+my $DEF_AA_MINIMIZER_SPACES = 0;
+my $DEF_NT_MINIMIZER_LEN = 31;
+my $DEF_NT_KMER_LEN = 35;
+my $DEF_NT_MINIMIZER_SPACES = 6;
+my $DEF_THREAD_CT = 1;
+
+my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
+                             fungi human nr nt env_nr env_nt
+                             UniVec UniVec_Core/;
+my @VALID_SPECIAL_DB_TYPES = qw/greengenes silva rdp/;
+
+# Option/task option variables
+my (
+  $db,
+  $threads,
+  $minimizer_len,
+  $kmer_len,
+  $minimizer_spaces,
+  $is_protein,
+  $no_masking,
+
+  $dl_taxonomy,
+  $dl_library,
+  $add_to_library,
+  $build,
+  $standard,
+  $clean,
+  $special,
+);
+
+$threads = $DEF_THREAD_CT;
+$is_protein = 0;
+
+# variables corresponding to task options
+my @TASK_LIST = (
+  \$dl_taxonomy,
+  \$dl_library,
+  \$add_to_library,
+  \$build,
+  \$standard,
+  \$clean,
+  \$special,
+);
+
+GetOptions(
+  "help" => \&display_help,
+  "version" => \&display_version,
+
+  "db=s" => \$db,
+  "threads=i" => \$threads,
+  "minimizer-len=i" => \$minimizer_len,
+  "kmer-len=i" => \$kmer_len,
+  "minimizer-spaces=i", \$minimizer_spaces,
+  "protein" => \$is_protein,
+  "no-masking" => \$no_masking,
+
+  "download-taxonomy" => \$dl_taxonomy,
+  "download-library=s" => \$dl_library,
+  "add-to-library=s" => \$add_to_library,
+  "build" => \$build,
+  "standard" => \$standard,
+  "clean" => \$clean,
+  "special=s" => \$special,
+) or usage();
+
+if ($is_protein) {
+  $kmer_len = $DEF_AA_KMER_LEN if ! defined $kmer_len;
+  $minimizer_len = $DEF_AA_MINIMIZER_LEN if ! defined $minimizer_len;
+  $minimizer_spaces = $DEF_AA_MINIMIZER_SPACES if ! defined $minimizer_spaces;
+}
+else {
+  $kmer_len = $DEF_NT_KMER_LEN if ! defined $kmer_len;
+  $minimizer_len = $DEF_NT_MINIMIZER_LEN if ! defined $minimizer_len;
+  $minimizer_spaces = $DEF_NT_MINIMIZER_SPACES if ! defined $minimizer_spaces;
+}
+
+if (@ARGV) {
+  warn "Extra arguments on command line.\n";
+  usage();
+}
+my $task_options = scalar grep defined $$_, @TASK_LIST;
+if ($task_options > 1) {
+  warn "More than one task option selected.\n";
+  usage();
+}
+if ($task_options == 0) {
+  warn "Must select a task option.\n";
+  usage();
+}
+
+if (! defined $db) {
+  die "Must specify a database name\n";
+}
+if ($threads <= 0) {
+  die "Can't use nonpositive thread count of $threads\n";
+}
+if ($minimizer_len > $kmer_len) {
+  die "Minimizer length ($minimizer_len) must not be greater than k ($kmer_len)\n";
+}
+if ($minimizer_len <= 0) {
+  die "Can't use nonpositive minimizer length of $minimizer_len\n";
+}
+if ($minimizer_len > 31) {
+  die "Can't use minimizer len of $minimizer_len (must be <= 31)\n";
+}
+
+$ENV{"KRAKEN2_DB_NAME"} = $db;
+$ENV{"KRAKEN2_THREAD_CT"} = $threads;
+$ENV{"KRAKEN2_MINIMIZER_LEN"} = $minimizer_len;
+$ENV{"KRAKEN2_KMER_LEN"} = $kmer_len;
+$ENV{"KRAKEN2_MINIMIZER_SPACES"} = $minimizer_spaces;
+$ENV{"KRAKEN2_SEED_TEMPLATE"} = construct_seed_template();
+$ENV{"KRAKEN2_PROTEIN_DB"} = $is_protein ? 1 : "";
+$ENV{"KRAKEN2_MASK_LC"} = $no_masking ? "" : 1;
+
+if ($dl_taxonomy) {
+  download_taxonomy();
+}
+elsif (defined($dl_library)) {
+  download_library($dl_library);
+}
+elsif (defined($add_to_library)) {
+  add_to_library($add_to_library);
+}
+elsif ($standard) {
+  standard_installation();
+}
+elsif ($build) {
+  build_database();
+}
+elsif ($clean) {
+  clean_database();
+}
+elsif ($special) {
+  build_special_database($special);
+}
+else {
+  usage();
+}
+
+exit -1;
+# END OF MAIN CODE.
+
+sub usage {
+  my $exit_code = @_ ? shift : 64;
+  print STDERR <<EOF;
+Usage: $PROG [task option] [options]
+
+Task options (exactly one must be selected):
+  --download-taxonomy        Download NCBI taxonomic information
+  --download-library TYPE    Download partial library
+                             (TYPE = one of "archaea", "bacteria", "plasmid",
+                             "viral", "human", "fungi", "plant", "protozoa",
+                             "nr", "nt", "env_nr", "env_nt", "UniVec",
+                             "UniVec_Core")
+  --special TYPE             Download and build a special database
+                             (TYPE = one of "greengenes", "silva", "rdp")
+  --add-to-library FILE      Add FILE to library
+  --build                    Create DB from library
+                             (requires taxonomy d/l'ed and at least one file
+                             in library)
+  --clean                    Remove unneeded files from a built database
+  --standard                 Download and build default database
+  --help                     Print this message
+  --version                  Print version information
+
+Options:
+  --db NAME                  Kraken 2 DB/library name (mandatory except for
+                             --help/--version)
+  --threads #                Number of threads (def: $DEF_THREAD_CT)
+  --kmer-len NUM             K-mer length in bp/aa (build task only;
+                             def: $DEF_NT_KMER_LEN nt, $DEF_AA_KMER_LEN aa)
+  --minimizer-len NUM        Minimizer length in bp/aa (build task only;
+                             def: $DEF_NT_MINIMIZER_LEN nt, $DEF_AA_MINIMIZER_LEN aa)
+  --minimizer-spaces NUM     Number of characters in minimizer that are
+                             ignored in comparisons (build task only;
+                             def: $DEF_NT_MINIMIZER_SPACES nt, $DEF_AA_MINIMIZER_SPACES aa)
+  --protein                  Build a protein database for translated search
+  --no-masking               Used with --standard/--download-library/
+                             --add-to-library to avoid masking low-complexity
+                             sequences prior to building; masking requires
+                             dustmasker or segmasker to be installed in PATH,
+                             which some users might not have.
+EOF
+  exit $exit_code;
+}
+
+sub display_help {
+  usage(0);
+}
+
+sub display_version {
+  print "Kraken version #####=VERSION=#####\n";
+  print "Copyright 2013-2018, Derrick Wood (dwood\@cs.jhu.edu)\n";
+  exit 0;
+}
+
+sub download_taxonomy {
+  exec "download_taxonomy.sh";
+}
+
+sub download_library {
+  my $type = shift;
+  if (! grep $type eq $_, @VALID_LIBRARY_TYPES) {
+    warn "Unknown library type \"$type\"\n";
+    usage();
+  }
+  exec "download_genomic_library.sh", $type;
+}
+
+sub add_to_library {
+  my $arg = shift;
+  exec "add_to_library.sh", $arg;
+}
+
+sub standard_installation {
+  exec "standard_installation.sh";
+}
+
+sub build_database {
+  exec "build_kraken2_db.sh";
+}
+
+sub clean_database {
+  exec "clean_db.sh";
+}
+
+sub build_special_database {
+  my $type = shift;
+  if (! grep $type eq $_, @VALID_SPECIAL_DB_TYPES) {
+    warn "Unknown special DB type \"$type\"\n";
+    usage();
+  }
+
+  if ($type eq "greengenes") {
+    exec "16S_gg_installation.sh";
+  }
+  elsif ($type eq "silva") {
+    exec "16S_silva_installation.sh";
+  }
+  elsif ($type eq "rdp") {
+    exec "16S_rdp_installation.sh";
+  }
+  else {
+    die "$PROG: unrecognized special DB type, this is a Kraken error\n";
+  }
+}
+
+# Currently just supporting simple template with 0s every other position
+# can't have more than a quarter of positions be spaces
+sub construct_seed_template {
+  if (int($minimizer_len/4) < $minimizer_spaces) {
+    die "$PROG: number of minimizer spaces ($minimizer_spaces) exceeds max\n" .
+        "for minimizer len ($minimizer_len); max: @{[int($minimizer_len/4)]}\n";
+  }
+  return ("1" x ($minimizer_len - 2 * $minimizer_spaces)) .
+         ("10" x $minimizer_spaces);
+}

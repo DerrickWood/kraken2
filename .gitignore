@@ -1,0 +1,5 @@
+*.o
+src/build_db
+src/classify
+src/estimate_capacity
+src/dump_table

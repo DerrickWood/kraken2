@@ -1,0 +1,102 @@
+#!/usr/bin/perl
+
+# Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+#
+# This file is part of the Kraken 2 taxonomic sequence classification system.
+
+# Wrapper for the dump_table program to report minimizer counts per taxa
+
+use strict;
+use warnings;
+use Fcntl;
+use File::Basename;
+use Getopt::Long;
+
+my $PROG = basename $0;
+my $KRAKEN2_DIR = "#####=KRAKEN2_DIR=#####";
+
+# Test to see if the executables got moved, try to recover if we can
+if (! -e "$KRAKEN2_DIR/classify") {
+  use Cwd 'abs_path';
+  $KRAKEN2_DIR = dirname abs_path($0);
+}
+
+require "$KRAKEN2_DIR/kraken2lib.pm";
+$ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
+$ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
+
+my $DUMP_TABLE = "$KRAKEN2_DIR/dump_table";
+
+my $db_prefix;
+my $names_in_output = 0;
+my $use_mpa_style = 0;
+my $report_zero_counts = 0;
+my $skip_counts = 0;
+
+GetOptions(
+  "help" => \&display_help,
+  "version" => \&display_version,
+  "db=s" => \$db_prefix,
+  "skip-counts" => \$skip_counts,
+  "use-mpa-style" => \$use_mpa_style,
+  "report-zero-counts" => \$report_zero_counts,
+);
+
+if (@ARGV) {
+  usage();
+}
+eval { $db_prefix = kraken2lib::find_db($db_prefix); };
+if ($@) {
+  die "$PROG: $@";
+}
+
+my $taxonomy = "$db_prefix/taxo.k2d";
+my $kht_file = "$db_prefix/hash.k2d";
+my $opt_file = "$db_prefix/opts.k2d";
+for my $file ($taxonomy, $kht_file, $opt_file) {
+  if (! -e $file) {
+    die "$PROG: $file does not exist!\n";
+  }
+}
+
+# set flags for dump_table
+my @flags;
+push @flags, "-H", $kht_file;
+push @flags, "-t", $taxonomy;
+push @flags, "-o", $opt_file;
+push @flags, "-s" if $skip_counts;
+push @flags, "-m" if $use_mpa_style;
+push @flags, "-z" if $report_zero_counts;
+
+exec $DUMP_TABLE, @flags;
+die "$PROG: exec error: $!\n";
+
+sub usage {
+  my $exit_code = @_ ? shift : 64;
+  my $default_db = "none";
+  eval { $default_db = '"' . kraken2lib::find_db() . '"'; };
+  print STDERR <<EOF;
+Usage: $PROG [options] <filename(s)>
+
+Options:
+  --db NAME               Name for Kraken 2 DB
+                          (default: $default_db)
+  --skip-counts           Only print database summary statistics
+  --use-mpa-style         Format output like Kraken 1's kraken-mpa-report
+  --report-zero-counts    Report counts for ALL taxa, even if
+                          counts are zero
+  --help                  Print this message
+  --version               Print version information
+EOF
+  exit $exit_code;
+}
+
+sub display_help {
+  usage(0);
+}
+
+sub display_version {
+  print "Kraken version #####=VERSION=#####\n";
+  print "Copyright 2013-2018, Derrick Wood (dwood\@cs.jhu.edu)\n";
+  exit 0;
+}
