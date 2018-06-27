@@ -145,10 +145,10 @@ The `install_kraken2.sh` script should compile all of Kraken 2's code
 and setup your Kraken 2 program directory.  Installation is successful if
 you see the message "`Kraken 2 installation complete.`"
 
-Once installation is complete, you may want to copy the two main Kraken 2
+Once installation is complete, you may want to copy the main Kraken 2
 scripts into a directory found in your `PATH` variable (e.g., "`$HOME/bin`"):
 
-    cp $KRAKEN2_DIR/bin/kraken2{,-build} $HOME/bin
+    cp $KRAKEN2_DIR/bin/kraken2{,-build,-inspect} $HOME/bin
 
 After installation, you're ready to either create or download a database.
 
