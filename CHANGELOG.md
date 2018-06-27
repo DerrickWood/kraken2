@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Move to /usr/bin/env for perl scripts
+
 ## [2.0.6] - 2018-06-13 (beta)
 
 ### Changed

@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 # Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
 #
