@@ -32,7 +32,7 @@ my $DEF_NT_MINIMIZER_SPACES = 6;
 my $DEF_THREAD_CT = 1;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
-                             fungi human nr nt env_nr env_nt
+                             protozoa fungi human nr nt env_nr env_nt
                              UniVec UniVec_Core/;
 my @VALID_SPECIAL_DB_TYPES = qw/greengenes silva rdp/;
 
