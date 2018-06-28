@@ -115,6 +115,8 @@ int main(int argc, char **argv) {
 
   omp_set_num_threads(opts.num_threads);
 
+  cerr << "Loading database information...";
+
   IndexOptions idx_opts;
   ifstream idx_opt_fs(opts.options_filename);
   idx_opt_fs.read((char *) &idx_opts, sizeof(idx_opts));
@@ -122,6 +124,8 @@ int main(int argc, char **argv) {
 
   Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
   KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
+
+  cerr << " done." << endl;
 
   ClassificationStats stats = {0, 0, 0};
   taxon_counts_t call_counts;
