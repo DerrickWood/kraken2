@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## Added
+- Disk usage info to kraken2-build --clean
+
 ### Changed
 - Move to /usr/bin/env for perl scripts
 - Add DB loading message to keep people from killing processes early
