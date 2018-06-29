@@ -14,7 +14,7 @@ FTP_SERVER="ftp://ftp.arb-silva.de/"
 SILVA_VERSION="132"
 REMOTE_DIR="$FTP_SERVER/release_$SILVA_VERSION/Exports"
 FASTA_FILENAME="SILVA_${SILVA_VERSION}_SSURef_Nr99_tax_silva.fasta"
-TAXO_PREFIX="tax_slv_ssu_nr_$SILVA_VERSION"
+TAXO_PREFIX="tax_slv_ssu_$SILVA_VERSION"
 
 mkdir -p "$KRAKEN2_DB_NAME"
 pushd "$KRAKEN2_DB_NAME"

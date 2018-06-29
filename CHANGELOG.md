@@ -12,6 +12,7 @@
 
 ### Fixed
 - Allow d/l of protozoa library w/ kraken2-build script
+- Filenames for SILVA database taxonomy info
 
 ## [2.0.6] - 2018-06-13 (beta)
 
