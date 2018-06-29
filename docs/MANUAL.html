@@ -74,8 +74,8 @@
 <pre><code>./install_kraken2.sh $KRAKEN2_DIR</code></pre>
 <p>(Replace <code>$KRAKEN2_DIR</code> above with the directory where you want to install Kraken 2's programs/scripts.)</p>
 <p>The <code>install_kraken2.sh</code> script should compile all of Kraken 2's code and setup your Kraken 2 program directory. Installation is successful if you see the message &quot;<code>Kraken 2 installation complete.</code>&quot;</p>
-<p>Once installation is complete, you may want to copy the two main Kraken 2 scripts into a directory found in your <code>PATH</code> variable (e.g., &quot;<code>$HOME/bin</code>&quot;):</p>
-<pre><code>cp $KRAKEN2_DIR/bin/kraken2{,-build} $HOME/bin</code></pre>
+<p>Once installation is complete, you may want to copy the main Kraken 2 scripts into a directory found in your <code>PATH</code> variable (e.g., &quot;<code>$HOME/bin</code>&quot;):</p>
+<pre><code>cp $KRAKEN2_DIR/bin/kraken2{,-build,-inspect} $HOME/bin</code></pre>
 <p>After installation, you're ready to either create or download a database.</p>
 <h1 id="kraken-2-databases">Kraken 2 Databases</h1>
 <p>A Kraken 2 database is a directory containing at least 3 files:</p>
