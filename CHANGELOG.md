@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## Added
+### Added
 - Disk usage info to kraken2-build --clean
 
 ### Changed
