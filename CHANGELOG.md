@@ -5,6 +5,7 @@
 ### Changed
 - Move to /usr/bin/env for perl scripts
 - Add DB loading message to keep people from killing processes early
+- Add flag files for resuming download of nucleotide accession map data
 
 ### Fixed
 - Allow d/l of protozoa library w/ kraken2-build script

@@ -17,16 +17,31 @@ FTP_SERVER="ftp://$NCBI_SERVER"
 mkdir -p "$TAXONOMY_DIR"
 cd "$TAXONOMY_DIR"
 
+function wget_clobber() {
+  filename=$(basename $1)
+  rm -f $filename
+  wget $1
+}
+
+function check_and_download_nucl_accmap_file() {
+  flag_file="accmap_${1}.dlflag"
+  if [ ! -e "$flag_file" ]
+  then
+    wget_clobber $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_${1}.accession2taxid.gz
+    touch "$flag_file"
+  fi
+}
+
 if [ ! -e "accmap.dlflag" ]
 then
   if [ -z "$KRAKEN2_PROTEIN_DB" ]
   then
-    wget $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_est.accession2taxid.gz
-    wget $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_gb.accession2taxid.gz
-    wget $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_gss.accession2taxid.gz
-    wget $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_wgs.accession2taxid.gz
+    check_and_download_nucl_accmap_file "est"
+    check_and_download_nucl_accmap_file "gb"
+    check_and_download_nucl_accmap_file "gss"
+    check_and_download_nucl_accmap_file "wgs"
   else
-    wget $FTP_SERVER/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
+    wget_clobber $FTP_SERVER/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
   fi
   touch accmap.dlflag
   echo "Downloaded accession to taxon map(s)"
@@ -34,7 +49,7 @@ fi
 
 if [ ! -e "taxdump.dlflag" ]
 then
-  wget $FTP_SERVER/pub/taxonomy/taxdump.tar.gz
+  wget_clobber $FTP_SERVER/pub/taxonomy/taxdump.tar.gz
   touch taxdump.dlflag
   echo "Downloaded taxonomy tree data"
 fi
