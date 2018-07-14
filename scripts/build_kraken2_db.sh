@@ -78,7 +78,7 @@ else
   grep "^TAXID" taxonomy/prelim_map.txt | cut -f 2- > $seqid2taxid_map_file.tmp || true
   if grep "^ACCNUM" taxonomy/prelim_map.txt | cut -f 2- > accmap_file.tmp; then
     if compgen -G "taxonomy/*.accession2taxid" > /dev/null; then
-      lookup_accession_numbers.pl accmap_file.tmp taxonomy/*.accession2taxid > seqid2taxid_acc.tmp
+      lookup_accession_numbers accmap_file.tmp taxonomy/*.accession2taxid > seqid2taxid_acc.tmp
       cat seqid2taxid_acc.tmp >> $seqid2taxid_map_file.tmp
       rm seqid2taxid_acc.tmp
     else
