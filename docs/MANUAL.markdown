@@ -312,7 +312,7 @@ contain five tab-delimited fields; from left to right, they are:
    this will be a string containing the lengths of the two sequences in
    bp, separated by a pipe character, e.g. "98|94".
 5. A space-delimited list indicating the LCA mapping of each $k$-mer in
-   the sequence(s).  For example, "562:15 561:4 A:31 0:1 562:3" would
+   the sequence(s).  For example, "562:13 561:4 A:31 0:1 562:3" would
    indicate that:
      - the first 13 $k$-mers mapped to taxonomy ID #562
      - the next 4 $k$-mers mapped to taxonomy ID #561
