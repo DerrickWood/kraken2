@@ -64,7 +64,7 @@ struct CompactHashCell {
 
 class CompactHashTable : public KeyValueStore {
   public:
-  CompactHashTable(size_t minimum_capacity, size_t key_bits, size_t value_bits);
+  CompactHashTable(size_t capacity, size_t key_bits, size_t value_bits);
   CompactHashTable(const std::string &filename, bool memory_mapping=false);
   CompactHashTable(const char *filename, bool memory_mapping=false);
   ~CompactHashTable();

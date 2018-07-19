@@ -12,9 +12,9 @@ using std::unordered_map;
 
 namespace kraken2 {
 
-CompactHashTable::CompactHashTable(size_t minimum_capacity,
+CompactHashTable::CompactHashTable(size_t capacity,
     size_t key_bits, size_t value_bits)
-    : key_bits_(key_bits), value_bits_(value_bits),
+    : capacity_(capacity), key_bits_(key_bits), value_bits_(value_bits),
       file_backed_(false)
 {
   if (key_bits + value_bits != sizeof(*table_) * 8)
@@ -24,13 +24,18 @@ CompactHashTable::CompactHashTable(size_t minimum_capacity,
     errx(EX_SOFTWARE, "key bits cannot be zero");
   if (value_bits == 0)
     errx(EX_SOFTWARE, "value bits cannot be zero");
-  capacity_ = minimum_capacity;
-  //while (capacity_ < minimum_capacity)
-  //  capacity_ <<= 1;
   for (size_t i = 0; i < LOCK_ZONES; i++)
     omp_init_lock(&zone_locks_[i]);
   size_ = 0;
-  table_ = new CompactHashCell[capacity_];
+  try {
+    table_ = new CompactHashCell[capacity_];
+  } catch (std::bad_alloc ex) {
+    std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
+              << "you may not have enough free memory to build this database.\n"
+              << "Perhaps increasing the k-mer length, or reducing memory usage from\n"
+              << "other programs could help you build this database?" << std::endl;
+    errx(EX_OSERR, "unable to allocate hash table memory");
+  }
   memset(table_, 0, capacity_ * sizeof(*table_));
 }
 

@@ -4,6 +4,7 @@
 
 ### Added
 - Disk usage info to kraken2-build --clean
+- Memory allocation error message for hash table
 
 ### Changed
 - Move to /usr/bin/env for perl scripts
