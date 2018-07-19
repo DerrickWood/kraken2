@@ -413,8 +413,8 @@ To build a custom database:
     directory; you may also need to modify the `*.accession2taxid` files
     appropriately.
 
- 2. Install a reference library.  Several sets of standard genomes/proteins are
-    made easily available through `kraken-build`:
+ 2. Install one or more reference libraries.  Several sets of standard
+    genomes/proteins are made easily available through `kraken2-build`:
 
     - `archaea`: RefSeq complete archaeal genomes/proteins
     - `bacteria`: RefSeq complete bacterial genomes/proteins
@@ -440,6 +440,17 @@ To build a custom database:
     switch, e.g.:
 
         kraken2-build --download-library bacteria --db $DBNAME
+
+    Multiple libraries can be downloaded into a database prior to building
+    by issuing multiple `kraken2-build --download-library` commands, e.g.:
+
+        kraken2-build --download-library archaea --db $DBNAME
+        kraken2-build --download-library viral --db $DBNAME
+
+    The above commands would prepare a database that would contain archaeal
+    and viral genomes; the `--build` option (see below) will still need to
+    be used after downloading these libraries to actually build the database,
+    however.
 
     (Note that downloading `nr` or `env_nr` require use of the `--protein`
       option, and that `UniVec` and `UniVec_Core` are incompatible with
@@ -514,7 +525,7 @@ To build a custom database:
 
        111 1111 1111 1111 1111 1101 0101 0101
 
-   By default, $s$ = 5 for nucleotide databases, and $s$ = 0 for
+   By default, $s$ = 6 for nucleotide databases, and $s$ = 0 for
    protein databases.  This can be changed using the `--minimizer-spaces`
    option along with the `--build` task of `kraken2-build`.
 

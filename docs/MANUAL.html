@@ -166,7 +166,7 @@
 <li><p>Install a taxonomy. Usually, you will just use the NCBI taxonomy, which you can easily download using:</p>
 <pre><code>kraken2-build --download-taxonomy --db $DBNAME</code></pre>
 <p>This will download the accession number to taxon map, as well as the taxonomic name and tree information from NCBI. These files can be found in <code>$DBNAME/taxonomy/</code> . If you need to modify the taxonomy, edits can be made to the <code>names.dmp</code> and <code>nodes.dmp</code> files in this directory; you may also need to modify the <code>*.accession2taxid</code> files appropriately.</p></li>
-<li><p>Install a reference library. Several sets of standard genomes/proteins are made easily available through <code>kraken-build</code>:</p>
+<li><p>Install one or more reference libraries. Several sets of standard genomes/proteins are made easily available through <code>kraken2-build</code>:</p>
 <ul>
 <li><code>archaea</code>: RefSeq complete archaeal genomes/proteins</li>
 <li><code>bacteria</code>: RefSeq complete bacterial genomes/proteins</li>
@@ -185,6 +185,10 @@
 </ul>
 <p>To download and install any one of these, use the <code>--download-library</code> switch, e.g.:</p>
 <pre><code>kraken2-build --download-library bacteria --db $DBNAME</code></pre>
+<p>Multiple libraries can be downloaded into a database prior to building by issuing multiple <code>kraken2-build --download-library</code> commands, e.g.:</p>
+<pre><code>kraken2-build --download-library archaea --db $DBNAME
+kraken2-build --download-library viral --db $DBNAME</code></pre>
+<p>The above commands would prepare a database that would contain archaeal and viral genomes; the <code>--build</code> option (see below) will still need to be used after downloading these libraries to actually build the database, however.</p>
 <p>(Note that downloading <code>nr</code> or <code>env_nr</code> require use of the <code>--protein</code> option, and that <code>UniVec</code> and <code>UniVec_Core</code> are incompatible with the <code>--protein</code> option.)</p>
 Other genomes can also be added, but such genomes must meet certain requirements:
 <ul>
@@ -213,7 +217,7 @@ done</code></pre>
 <p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 15 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
 <p>Kraken 2 also utilizes a simple spaced seed approach to increase accuracy. A number <span class="math inline"><em>s</em></span> &lt; <span class="math inline">ℓ</span>/4 can be chosen, and <span class="math inline"><em>s</em></span> positions in the minimizer will be masked out during all comparisons. Masked positions are chosen to alternate from the second-to-last position in the minimizer; e.g., <span class="math inline"><em>s</em></span> = 5 and <span class="math inline">ℓ</span> = 31 will result in masking out the 0 positions shown here:</p>
 <pre><code>   111 1111 1111 1111 1111 1101 0101 0101</code></pre>
-<p>By default, <span class="math inline"><em>s</em></span> = 5 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
+<p>By default, <span class="math inline"><em>s</em></span> = 6 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
 <p>A full list of options for <code>kraken2-build</code> can be obtained using <code>kraken2-build --help</code>.</p>
 <p>After building a database, if you want to reduce the disk usage of the database, you can use the <code>--clean</code> option for <code>kraken2-build</code> to remove intermediate files from the database directory.</p>
 <h1 id="masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</h1>

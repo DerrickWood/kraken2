@@ -10,11 +10,13 @@
 - Add DB loading message to keep people from killing processes early
 - Add flag files for resuming download of nucleotide accession map data
 - Converted lookup_accession_numbers script into C++ program w/ memory mapping
+- Clarified in manual that one or more libraries allowed for custom DBs
 
 ### Fixed
 - Allow d/l of protozoa library w/ kraken2-build script
 - Filenames for SILVA database taxonomy info
 - Typo in manual for output format example
+- Corrected default space count in manual
 
 ## [2.0.6] - 2018-06-13 (beta)
 
