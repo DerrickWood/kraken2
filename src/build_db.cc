@@ -146,11 +146,15 @@ void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
           processed_ch_ct += sequence.seq.size();
         }
       }
-      #pragma omp critical(status_update)
-      std::cerr << "\rProcessed " << processed_seq_ct << " sequences (" << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << ")...";
+      if (isatty(fileno(stderr))) {
+        #pragma omp critical(status_update)
+        std::cerr << "\rProcessed " << processed_seq_ct << " sequences (" << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << ")...";
+      }
     }
   }
-  std::cerr << "\rCompleted processing of " << processed_seq_ct << " sequences, " << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << std::endl;
+  if (isatty(fileno(stderr)))
+    std::cerr << "\r";
+  std::cerr << "Completed processing of " << processed_seq_ct << " sequences, " << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << std::endl;
 }
 
 // This function exists to deal with NCBI's use of \x01 characters to denote

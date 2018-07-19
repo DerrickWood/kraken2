@@ -55,7 +55,8 @@ int main(int argc, char **argv) {
   auto initial_target_count = target_lists.size();
 
   MMapFile accmap_file;
-  std::cerr << "\rFound 0/" << initial_target_count << " targets...";
+  if (isatty(fileno(stderr)))
+    std::cerr << "\rFound 0/" << initial_target_count << " targets...";
   uint64_t accessions_searched = 0;
   for (int i = 2; i < argc; i++) {
     if (target_lists.empty())  // Stop processing files if we've found all we need
@@ -95,13 +96,14 @@ int main(int argc, char **argv) {
         for (auto &seqid : target_lists[accnum])
           std::cout << seqid << "\t" << taxid << std::endl;
         target_lists.erase(accnum);
-        std::cerr << "\rFound " << (initial_target_count - target_lists.size())
-            << "/" << initial_target_count << " targets, searched through "
-            << accessions_searched << " accession IDs...";
+        if (isatty(fileno(stderr)))
+          std::cerr << "\rFound " << (initial_target_count - target_lists.size())
+              << "/" << initial_target_count << " targets, searched through "
+              << accessions_searched << " accession IDs...";
         if (target_lists.empty())  // Stop processing file if we've found all we need
           break;
       }
-      if (accessions_searched % 10000000 == 0)
+      if (accessions_searched % 10000000 == 0 && isatty(fileno(stderr)))
         std::cerr << "\rFound " << (initial_target_count - target_lists.size())
             << "/" << initial_target_count << " targets, searched through "
             << accessions_searched << " accession IDs...";
@@ -109,7 +111,9 @@ int main(int argc, char **argv) {
     }
     accmap_file.CloseFile();
   }
-  std::cerr << "\rFound " << (initial_target_count - target_lists.size())
+  if (isatty(fileno(stderr)))
+    std::cerr << "\r";
+  std::cerr << "Found " << (initial_target_count - target_lists.size())
       << "/" << initial_target_count << " targets, searched through "
       << accessions_searched << " accession IDs, search complete." << std::endl;
 

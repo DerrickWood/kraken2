@@ -11,6 +11,7 @@
 - Add flag files for resuming download of nucleotide accession map data
 - Converted lookup_accession_numbers script into C++ program w/ memory mapping
 - Clarified in manual that one or more libraries allowed for custom DBs
+- Silenced progress messages in C++ programs for non-TTY stderr
 
 ### Fixed
 - Allow d/l of protozoa library w/ kraken2-build script

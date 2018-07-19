@@ -188,7 +188,8 @@ void ReportStats(struct timeval time1, struct timeval time2,
 
   uint64_t total_unclassified = stats.total_sequences - stats.total_classified;
 
-  cerr << "\r";
+  if (isatty(fileno(stderr)))
+    cerr << "\r";
   fprintf(stderr,
           "%llu sequences (%.2f Mbp) processed in %.3fs (%.1f Kseq/m, %.2f Mbp/m).\n",
           (unsigned long long) stats.total_sequences,
@@ -335,8 +336,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
 
       #pragma omp critical(output_stats)
       {
-        cerr << "\rProcessed " << stats.total_sequences
-             << " sequences (" << stats.total_bases << " bp) ...";
+        if (isatty(fileno(stderr)))
+          cerr << "\rProcessed " << stats.total_sequences
+               << " sequences (" << stats.total_bases << " bp) ...";
       }
 
       #pragma omp critical(update_calls)
