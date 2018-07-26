@@ -100,10 +100,10 @@ for my $in_filename (keys %manifest) {
   my $out_line = progress_line($projects_added, scalar keys %manifest, $sequences_added, $ch_added) . "...";
   $max_out_chars = max(length($out_line), $max_out_chars);
   my $space_line = " " x $max_out_chars;
-  print STDERR "\r$space_line\r$out_line";
+  print STDERR "\r$space_line\r$out_line" if -t STDERR;
 }
 close OUT;
-print STDERR " done.\n";
+print STDERR " done.\n" if -t STDERR;
 
 print STDERR "All files processed, cleaning up extra sequence files...";
 system("rm -rf all/") == 0
