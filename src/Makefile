@@ -32,4 +32,4 @@ estimate_capacity: estimate_capacity.cc seqreader.o mmscanner.o omp_hack.o utili
 
 dump_table: dump_table.cc mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o
 
-lookup_accession_numbers: lookup_accession_numbers.cc mmap_file.o omp_hack.o
+lookup_accession_numbers: lookup_accession_numbers.cc mmap_file.o omp_hack.o utilities.o

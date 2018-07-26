@@ -19,6 +19,9 @@ namespace kraken2 {
 // rather than actual bits in the internal representation
 void ExpandSpacedSeedMask(uint64_t &spaced_seed_mask, const int bit_expansion_factor);
 
+std::vector<std::string> SplitString(const std::string &str,
+  const std::string &delim = "\t", const size_t max_fields = (size_t) -1);
+
 }
 
 #endif

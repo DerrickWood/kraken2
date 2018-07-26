@@ -6,36 +6,12 @@
 
 #include "kraken2_headers.h"
 #include "mmap_file.h"
+#include "utilities.h"
 
 using namespace kraken2;
 using std::string;
 using std::unordered_map;
 using std::vector;
-
-vector<string> SplitString
-  (const string &str, const string &delim = "\t",
-   const size_t max_fields = (size_t) -1)
-{
-  vector<string> output;
-  size_t pos1, pos2;
-  pos1 = 0;
-  size_t field_ct = 0;
-  bool finished = false;
-  while (field_ct++ < max_fields && ! finished) {  // tokenizing loop
-    pos2 = str.find(delim, pos1);
-    string token;
-    if (pos2 == string::npos) {
-      token = str.substr(pos1);
-      finished = true;
-    }
-    else {
-      token = str.substr(pos1, pos2 - pos1);
-      pos1 = pos2 + delim.size();
-    }
-    output.push_back(token);
-  }
-  return output;
-}
 
 int main(int argc, char **argv) {
   if (argc < 3)
