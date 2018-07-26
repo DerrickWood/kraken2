@@ -13,6 +13,7 @@
 #include "kraken2_data.h"
 #include "aa_translate.h"
 #include "reports.h"
+#include "utilities.h"
 
 using std::cout;
 using std::cerr;
@@ -36,8 +37,8 @@ struct Options {
   string taxonomy_filename;
   string options_filename;
   string report_filename;
-  string classified_output_prefix;
-  string unclassified_output_prefix;
+  string classified_output_filename;
+  string unclassified_output_filename;
   string kraken_output_filename;
   bool mpa_style_report;
   bool quick_mode;
@@ -640,25 +641,40 @@ void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat 
   #pragma omp critical(output_init)
   {
     if (! outputs.initialized) {
-      string extension = format == FORMAT_FASTA ? ".fa" : ".fq";
-      if (! opts.classified_output_prefix.empty()) {
-        string prefix = opts.classified_output_prefix;
+      if (! opts.classified_output_filename.empty()) {
         if (opts.paired_end_processing) {
-          outputs.classified_output1 = new ofstream(prefix + "_1" + extension);
-          outputs.classified_output2 = new ofstream(prefix + "_2" + extension);
+          vector<string> fields = SplitString(opts.classified_output_filename, "#", 3);
+          if (fields.size() < 2) {
+            errx(EX_DATAERR, "Paired filename format missing # character: %s",
+                 opts.classified_output_filename.c_str());
+          }
+          else if (fields.size() > 2) {
+            errx(EX_DATAERR, "Paired filename format has >1 # character: %s",
+                 opts.classified_output_filename.c_str());
+          }
+          outputs.classified_output1 = new ofstream(fields[0] + "_1" + fields[1]);
+          outputs.classified_output2 = new ofstream(fields[0] + "_2" + fields[1]);
         }
         else
-          outputs.classified_output1 = new ofstream(prefix + extension);
+          outputs.classified_output1 = new ofstream(opts.classified_output_filename);
         outputs.printing_sequences = true;
       }
-      if (! opts.unclassified_output_prefix.empty()) {
-        string prefix = opts.unclassified_output_prefix;
+      if (! opts.unclassified_output_filename.empty()) {
         if (opts.paired_end_processing) {
-          outputs.unclassified_output1 = new ofstream(prefix + "_1" + extension);
-          outputs.unclassified_output2 = new ofstream(prefix + "_2" + extension);
+          vector<string> fields = SplitString(opts.unclassified_output_filename, "#", 3);
+          if (fields.size() < 2) {
+            errx(EX_DATAERR, "Paired filename format missing # character: %s",
+                 opts.unclassified_output_filename.c_str());
+          }
+          else if (fields.size() > 2) {
+            errx(EX_DATAERR, "Paired filename format has >1 # character: %s",
+                 opts.unclassified_output_filename.c_str());
+          }
+          outputs.unclassified_output1 = new ofstream(fields[0] + "_1" + fields[1]);
+          outputs.unclassified_output2 = new ofstream(fields[0] + "_2" + fields[1]);
         }
         else
-          outputs.unclassified_output1 = new ofstream(prefix + extension);
+          outputs.unclassified_output1 = new ofstream(opts.unclassified_output_filename);
         outputs.printing_sequences = true;
       }
       if (! opts.kraken_output_filename.empty()) {
@@ -732,10 +748,10 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
         opts.report_zero_counts = true;
         break;
       case 'C' :
-        opts.classified_output_prefix = optarg;
+        opts.classified_output_filename = optarg;
         break;
       case 'U' :
-        opts.unclassified_output_prefix = optarg;
+        opts.unclassified_output_filename = optarg;
         break;
       case 'O' :
         opts.kraken_output_filename = optarg;
@@ -784,8 +800,8 @@ void usage(int exit_code) {
        << "  -m               In comb. w/ -R, use mpa-style report" << endl
        << "  -z               In comb. w/ -R, report taxa w/ 0 count" << endl
        << "  -n               Print scientific name instead of taxid in Kraken output" << endl
-       << "  -C prefix        Prefix for file with classified sequences" << endl
-       << "  -U prefix        Prefix for file with unclassified sequences" << endl
+       << "  -C filename      Filename/format to have classified sequences" << endl
+       << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl;
   exit(exit_code);
 }

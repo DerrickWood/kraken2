@@ -26,7 +26,7 @@ utilities.o: utilities.cc utilities.h
 
 build_db: build_db.cc mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
 
-classify: classify.cc reports.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o
+classify: classify.cc reports.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
 
 estimate_capacity: estimate_capacity.cc seqreader.o mmscanner.o omp_hack.o utilities.o
 
