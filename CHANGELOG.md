@@ -19,6 +19,7 @@
 - Filenames for SILVA database taxonomy info
 - Typo in manual for output format example
 - Corrected default space count in manual
+- Removed obvious race condition in --add-to-library functionality
 
 ## [2.0.6] - 2018-06-13 (beta)
 
