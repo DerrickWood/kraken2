@@ -12,59 +12,52 @@ set -e  # Stop on error
 
 TAXONOMY_DIR="$KRAKEN2_DB_NAME/taxonomy"
 NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
+RSYNC_SERVER="rsync://$NCBI_SERVER"
 FTP_SERVER="ftp://$NCBI_SERVER"
+
+RSYNC="rsync --no-motd"
 
 mkdir -p "$TAXONOMY_DIR"
 cd "$TAXONOMY_DIR"
-
-function wget_clobber() {
-  filename=$(basename $1)
-  rm -f $filename
-  wget $1
-}
-
-function check_and_download_nucl_accmap_file() {
-  flag_file="accmap_${1}.dlflag"
-  if [ ! -e "$flag_file" ]
-  then
-    wget_clobber $FTP_SERVER/pub/taxonomy/accession2taxid/nucl_${1}.accession2taxid.gz
-    touch "$flag_file"
-  fi
-}
 
 if [ ! -e "accmap.dlflag" ]
 then
   if [ -z "$KRAKEN2_PROTEIN_DB" ]
   then
-    check_and_download_nucl_accmap_file "est"
-    check_and_download_nucl_accmap_file "gb"
-    check_and_download_nucl_accmap_file "gss"
-    check_and_download_nucl_accmap_file "wgs"
+    for subsection in est gb gss wgs
+    do
+      1>&2 echo -n "Downloading nucleotide ${subsection} accession to taxon map..."
+      $RSYNC $RSYNC_SERVER/pub/taxonomy/accession2taxid/nucl_${subsection}.accession2taxid.gz .
+      1>&2 echo " done."
+    done
   else
-    wget_clobber $FTP_SERVER/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
+    1>&2 echo -n "Downloading protein accession to taxon map..."
+    $RSYNC $RSYNC_SERVER/pub/taxonomy/accession2taxid/prot.accession2taxid.gz .
+    1>&2 echo " done."
   fi
   touch accmap.dlflag
-  echo "Downloaded accession to taxon map(s)"
+  1>&2 echo "Downloaded accession to taxon map(s)"
 fi
 
 if [ ! -e "taxdump.dlflag" ]
 then
-  wget_clobber $FTP_SERVER/pub/taxonomy/taxdump.tar.gz
+  1>&2 echo -n "Downloading taxonomy tree data..."
+  $RSYNC $RSYNC_SERVER/pub/taxonomy/taxdump.tar.gz .
   touch taxdump.dlflag
-  echo "Downloaded taxonomy tree data"
+  1>&2 echo " done."
 fi
 
 if ls | grep -q 'accession2taxid\.gz$'
 then
-  echo -n "Uncompressing taxonomy data... "
+  1>&2 echo -n "Uncompressing taxonomy data..."
   gunzip *accession2taxid.gz
-  echo "done."
+  1>&2 echo " done."
 fi
 
 if [ ! -e "taxdump.untarflag" ]
 then
-  echo -n "Untarring taxonomy tree data... "
+  1>&2 echo -n "Untarring taxonomy tree data..."
   tar zxf taxdump.tar.gz
   touch taxdump.untarflag
-  echo "done."
+  1>&2 echo " done."
 fi
