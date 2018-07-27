@@ -28,3 +28,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "omp_hack.h"
+
+#ifndef SIZE_MAX
+#define SIZE_MAX ((size_t) -1)
+#endif
+
+#ifndef UINT64_MAX
+#define UINT64_MAX ((uint64_t) -1)
+#endif
