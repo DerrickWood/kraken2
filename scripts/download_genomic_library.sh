@@ -35,7 +35,7 @@ case $library_name in
       remote_dir_name="vertebrate_mammalian/Homo_sapiens"
     fi
     if ! wget -q $FTP_SERVER/genomes/refseq/$remote_dir_name/assembly_summary.txt; then
-      echo "Error downloading assembly summary file for $library_name, exiting." >/dev/fd/2
+      1>&2 echo "Error downloading assembly summary file for $library_name, exiting."
       exit 1
     fi
     if [ "$library_name" = "human" ]; then
@@ -50,7 +50,7 @@ case $library_name in
     mkdir -p $LIBRARY_DIR/plasmid
     cd $LIBRARY_DIR/plasmid
     rm -f library.f* plasmid.*
-    echo -n "Downloading plasmid files from FTP..."
+    1>&2 echo -n "Downloading plasmid files from FTP..."
     wget -q --no-remove-listing --spider $FTP_SERVER/genomes/refseq/plasmid/
     if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
       awk '{ print $NF }' .listing | perl -ple 'tr/\r//d' | grep '\.faa\.gz' > manifest.txt
@@ -61,7 +61,7 @@ case $library_name in
     cat manifest.txt | xargs -n1 -I{} gunzip -c {} > $library_file
     rm -f plasmid.* .listing
     scan_fasta_file.pl $library_file > prelim_map.txt
-    echo " done."
+    1>&2 echo " done."
     ;;
   "env_nr" | "nr" | "env_nt" | "nt")
     protein_lib=0
@@ -69,52 +69,52 @@ case $library_name in
       protein_lib=1
     fi
     if (( protein_lib == 1 )) && [ -z "$KRAKEN2_PROTEIN_DB" ]; then
-      echo "$library_name is a protein database, and the Kraken DB specified is nucleotide"
+      1>&2 echo "$library_name is a protein database, and the Kraken DB specified is nucleotide"
       exit 1
     fi
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
     rm -f $library_name.gz
-    echo -n "Downloading $library_name database from FTP..."
+    1>&2 echo -n "Downloading $library_name database from FTP..."
     wget -q $FTP_SERVER/blast/db/FASTA/$library_name.gz
-    echo "done."
-    echo -n "Uncompressing $library_name database..."
+    1>&2 echo "done."
+    1>&2 echo -n "Uncompressing $library_name database..."
     gunzip $library_name.gz
     mv $library_name $library_file
-    echo "done."
-    echo -n "Parsing $library_name FASTA file..."
+    1>&2 echo "done."
+    1>&2 echo -n "Parsing $library_name FASTA file..."
     # The nr/nt files tend to have non-standard sequence IDs, so
     # --lenient is used here.
     scan_fasta_file.pl --lenient $library_file >> prelim_map.txt
-    echo "done."
+    1>&2 echo "done."
     ;;
   "UniVec" | "UniVec_Core")
     if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
-      echo "$library_name is for nucleotide databases only"
+      1>&2 echo "$library_name is for nucleotide databases only"
       exit 1
     fi
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
-    echo -n "Downloading $library_name data from FTP..."
+    1>&2 echo -n "Downloading $library_name data from FTP..."
     wget -q $FTP_SERVER/pub/UniVec/$library_name
-    echo "done."
+    1>&2 echo "done."
     # 28384: "other sequences"
     special_taxid=28384
-    echo -n "Adding taxonomy ID of $special_taxid to all sequences..."
+    1>&2 echo -n "Adding taxonomy ID of $special_taxid to all sequences..."
     sed -e "s/^>/>kraken:taxid|$special_taxid|/" $library_name > library.fna
     scan_fasta_file.pl library.fna > prelim_map.txt
-    echo "done."
+    1>&2 echo "done."
     ;;
   *)
-    echo "Unsupported library.  Valid options are: "
-    echo "  archaea bacteria viral fungi plant protozoa human plasmid"
-    echo "  nr nt env_nr env_nt UniVec UniVec_Core"
+    1>&2 echo "Unsupported library.  Valid options are: "
+    1>&2 echo "  archaea bacteria viral fungi plant protozoa human plasmid"
+    1>&2 echo "  nr nt env_nr env_nt UniVec UniVec_Core"
     exit 1
     ;;
 esac
 
 if [ -n "$KRAKEN2_MASK_LC" ]; then
-  echo -n "Masking low-complexity regions of downloaded library..."
+  1>&2 echo -n "Masking low-complexity regions of downloaded library..."
   mask_low_complexity.sh .
-  echo "done."
+  1>&2 echo " done."
 fi
