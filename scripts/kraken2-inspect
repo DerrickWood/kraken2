@@ -42,7 +42,7 @@ GetOptions(
   "report-zero-counts" => \$report_zero_counts,
 );
 
-if (@ARGV) {
+if (@ARGV < 1) {
   usage();
 }
 eval { $db_prefix = kraken2lib::find_db($db_prefix); };
