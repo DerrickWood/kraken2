@@ -23,6 +23,7 @@
 - Removed obvious race condition in --add-to-library functionality
 - Corrected behavior of --classified-out and --unclassified-out (no longer
   forcing .fq/.fa file extensions, respecting '#' in paired mode)
+- Usage message in kraken2-inspect
 
 ## [2.0.6] - 2018-06-13 (beta)
 

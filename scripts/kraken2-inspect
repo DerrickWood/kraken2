@@ -76,7 +76,7 @@ sub usage {
   my $default_db = "none";
   eval { $default_db = '"' . kraken2lib::find_db() . '"'; };
   print STDERR <<EOF;
-Usage: $PROG [options] <filename(s)>
+Usage: $PROG [options]
 
 Options:
   --db NAME               Name for Kraken 2 DB
