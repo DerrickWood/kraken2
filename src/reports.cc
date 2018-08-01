@@ -99,7 +99,7 @@ void PrintKrakenStyleReportLine(ofstream &ofs, uint64_t total_seqs, uint64_t cla
   const string &rank_str, uint32_t taxid, const string &sci_name, int depth)
 {
   char pct_buffer[10] = "";
-  sprintf(pct_buffer, "%6.2f%%", 100.0 * clade_count / total_seqs);
+  sprintf(pct_buffer, "%6.2f", 100.0 * clade_count / total_seqs);
 
   ofs << pct_buffer << "\t"
       << clade_count << "\t"

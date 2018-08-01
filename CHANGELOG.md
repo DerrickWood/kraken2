@@ -14,6 +14,7 @@
 - Clarified in manual that one or more libraries allowed for custom DBs
 - Silenced progress messages in C++ programs for non-TTY stderr
 - Taxonomy downloads switched to rsync from wget (ftp)
+- Removed '%' from reports
 
 ### Fixed
 - Allow d/l of protozoa library w/ kraken2-build script
