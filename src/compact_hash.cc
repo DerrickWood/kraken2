@@ -81,7 +81,15 @@ void CompactHashTable::LoadTable(const char *filename, bool memory_mapping) {
     ifs.read((char *) &size_, sizeof(size_));
     ifs.read((char *) &key_bits_, sizeof(key_bits_));
     ifs.read((char *) &value_bits_, sizeof(value_bits_));
-    table_ = new CompactHashCell[capacity_];
+    try {
+      table_ = new CompactHashCell[capacity_];
+    } catch (std::bad_alloc ex) {
+      std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
+                << "you may not have enough free memory to load this database.\n"
+                << "If your computer has enough RAM, perhaps reducing memory usage from\n"
+                << "other programs could help you load this database?" << std::endl;
+      errx(EX_OSERR, "unable to allocate hash table memory");
+    }
     ifs.read((char *) table_, capacity_ * sizeof(*table_));
     if (! ifs)
       errx(EX_OSERR, "Error reading in hash table");
