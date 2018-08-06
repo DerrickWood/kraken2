@@ -17,7 +17,7 @@ my %id_map = ("root" => 1);
 open NAMES, ">", "names.dmp" or die "$PROG: can't write names.dmp: $!\n";
 open NODES, ">", "nodes.dmp" or die "$PROG: can't write nodes.dmp: $!\n";
 print NAMES "1\t|\troot\t|\t-\t|\tscientific name\t|\n";
-print NODES "1\t|\t1\t|\tno rank\t|\t-\n";
+print NODES "1\t|\t1\t|\tno rank\t|\t-\t|\n";
 while (<>) {
   chomp;
   my ($taxo_str, $node_id, $rank) = split /\t/;
@@ -33,8 +33,8 @@ while (<>) {
       die "$PROG: orphan error, line $.\n";
     }
     $rank = "superkingdom" if $rank eq "domain";
-    print NAMES "$node_id\t|\t$display_name\t|\t-\t|\tscientific name\t|\t-\n";
-    print NODES "$node_id\t|\t$parent_id\t|\t$rank\t|\t-\n";
+    print NAMES "$node_id\t|\t$display_name\t|\t-\t|\tscientific name\t|\n";
+    print NODES "$node_id\t|\t$parent_id\t|\t$rank\t|\t-\t|\n";
   }
   else {
     die "$PROG: strange input, line $.\n";

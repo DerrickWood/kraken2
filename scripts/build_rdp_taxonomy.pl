@@ -53,7 +53,7 @@ while (@bfs_queue) {
   my $node_id = $next_node_id++;
   $id_map{$node} = $node_id;
   print NAMES "$node_id\t|\t$display_name\t|\t-\t|\tscientific name\t|\n";
-  print NODES "$node_id\t|\t$parent_id\t|\t$rank\t|\t-\n";
+  print NODES "$node_id\t|\t$parent_id\t|\t$rank\t|\t-\t|\n";
   my @children = sort keys %{ $child_data{$node} };
   push @bfs_queue, [$_, $node_id] for @children;
 }
