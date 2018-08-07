@@ -59,7 +59,8 @@ int main(int argc, char **argv) {
     << "# Toggle mask = " << mask2str(idx_opts.toggle_mask, 64) << "\n"
     << "# Total taxonomy nodes: " << taxonomy.node_count() << "\n"
     << "# Table size: " << kraken_index.size() << "\n"
-    << "# Table capacity: " << kraken_index.capacity() << std::endl;
+    << "# Table capacity: " << kraken_index.capacity() << "\n"
+    << "# Min clear hash value = " << idx_opts.minimum_acceptable_hash_value << std::endl;
 
   if (! opts.skip_counts) {
     taxon_counts_t taxid_counts = kraken_index.GetValueCounts();
