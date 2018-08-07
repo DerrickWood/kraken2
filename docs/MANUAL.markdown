@@ -112,12 +112,16 @@ System Requirements
     in order to get these commands to work properly.
 
 * **MiniKraken**: At present, users with low-memory computing environments
-    can replicate the "MiniKraken" functionality of Kraken 1 by increasing
+    can replicate the "MiniKraken" functionality of Kraken 1 in two ways:
+    first, by increasing
     the value of $k$ with respect to $\ell$ (using the `--kmer-len` and
-    `--minimizer-len` options to `kraken2-build`).  In a change from Kraken 1,
-    Kraken 2 does not yet provide the ability to specify a maximum database
-    size, but Kraken 2 also does not require building a full database and
-    then shrinking it to obtain a reduced database.
+    `--minimizer-len` options to `kraken2-build`); and secondly, through
+    downsampling of minimizers (from both the database and query sequences)
+    using a hash function.  This second option is performed if
+    the `--max-db-size` option to `kraken2-build` is used; however, the two
+    options are not mutually exclusive.
+    In a difference from Kraken 1, Kraken 2 does not require building a full
+    database and then shrinking it to obtain a reduced database.
 
 
 Installation
