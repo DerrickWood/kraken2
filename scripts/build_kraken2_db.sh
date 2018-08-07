@@ -104,9 +104,9 @@ required_capacity=$(perl -le 'print int(shift() / 0.7)' $estimate);
 echo "Estimated hash table requirement: $(( required_capacity * 4 )) bytes"
 
 max_db_flag=""
-if [ -z "$KRAKEN2_MAX_DB_SIZE" ]
+if [ -n "$KRAKEN2_MAX_DB_SIZE" ]
 then
-  if (( KRAKEN2_MAX_DB_SIZE > (required_capacity * 4) ))
+  if (( KRAKEN2_MAX_DB_SIZE < (required_capacity * 4) ))
   then
     max_db_flag="-M $(perl -le 'print int(shift() / 4)' $KRAKEN2_MAX_DB_SIZE)"
     echo "Specifying lower maximum hash table size of $KRAKEN2_MAX_DB_SIZE bytes"
