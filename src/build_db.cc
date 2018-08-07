@@ -337,7 +337,7 @@ void ProcessSequence(string &seq, uint64_t taxid,
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {
     if (min_clear_hash_value && MurmurHash3(*minimizer_ptr) < min_clear_hash_value)
-      break;
+      continue;
     hvalue_t existing_taxid = 0;
     hvalue_t new_taxid = taxid;
     while (! hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid)) {
