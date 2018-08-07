@@ -15,6 +15,7 @@ struct IndexOptions {
   uint64_t spaced_seed_mask;
   uint64_t toggle_mask;
   bool dna_db;
+  uint64_t minimum_acceptable_hash_value;
 };
 
 typedef uint64_t taxid_t;

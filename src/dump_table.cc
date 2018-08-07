@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
 
   CompactHashTable kraken_index(opts.hashtable_filename);
   Taxonomy taxonomy(opts.taxonomy_filename);
-  IndexOptions idx_opts;
+  IndexOptions idx_opts = {0};
   std::ifstream idx_opt_fs(opts.options_filename);
   idx_opt_fs.read((char *) &idx_opts, sizeof(idx_opts));
 

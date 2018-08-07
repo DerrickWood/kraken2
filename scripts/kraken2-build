@@ -45,6 +45,7 @@ my (
   $minimizer_spaces,
   $is_protein,
   $no_masking,
+  $max_db_size,
 
   $dl_taxonomy,
   $dl_library,
@@ -80,6 +81,7 @@ GetOptions(
   "minimizer-spaces=i", \$minimizer_spaces,
   "protein" => \$is_protein,
   "no-masking" => \$no_masking,
+  "max-db-size=i" => \$max_db_size,
 
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
@@ -139,6 +141,7 @@ $ENV{"KRAKEN2_MINIMIZER_SPACES"} = $minimizer_spaces;
 $ENV{"KRAKEN2_SEED_TEMPLATE"} = construct_seed_template();
 $ENV{"KRAKEN2_PROTEIN_DB"} = $is_protein ? 1 : "";
 $ENV{"KRAKEN2_MASK_LC"} = $no_masking ? "" : 1;
+$ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
 
 if ($dl_taxonomy) {
   download_taxonomy();
@@ -208,6 +211,10 @@ Options:
                              sequences prior to building; masking requires
                              dustmasker or segmasker to be installed in PATH,
                              which some users might not have.
+  --max-db-size NUM          Maximum number of bytes for Kraken 2 hash table;
+                             if the estimator determines more would normally be
+                             needed, the reference library will be downsampled
+                             to fit. (Used with --build/--standard/--special)
 EOF
   exit $exit_code;
 }

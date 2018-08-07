@@ -101,7 +101,18 @@ step_time=$(get_current_time)
 estimate=$(list_sequence_files | xargs -0 cat | estimate_capacity -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE -p $KRAKEN2_THREAD_CT $KRAKEN2XFLAG )
 required_capacity=$(perl -le 'print int(shift() / 0.7)' $estimate);
 
-echo "Estimated capacity requirement: $(( required_capacity * 4 )) bytes"
+echo "Estimated hash table requirement: $(( required_capacity * 4 )) bytes"
+
+max_db_flag=""
+if [ -z "$KRAKEN2_MAX_DB_SIZE" ]
+then
+  if (( KRAKEN2_MAX_DB_SIZE > (required_capacity * 4) ))
+  then
+    max_db_flag="-M $(perl -le 'print int(shift() / 4)' $KRAKEN2_MAX_DB_SIZE)"
+    echo "Specifying lower maximum hash table size of $KRAKEN2_MAX_DB_SIZE bytes"
+  fi
+fi
+
 echo "Capacity estimation complete. [$(report_time_elapsed $step_time)]"
 
 echo "Building database files (step 3)..."
@@ -114,7 +125,7 @@ else
   list_sequence_files | xargs -0 cat | \
     build_db -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE $KRAKEN2XFLAG \
              -H hash.k2d.tmp -t taxo.k2d.tmp -o opts.k2d.tmp -n taxonomy/ -m $seqid2taxid_map_file \
-             -c $required_capacity -p $KRAKEN2_THREAD_CT
+             -c $required_capacity -p $KRAKEN2_THREAD_CT $max_db_flag
   finalize_file taxo.k2d
   finalize_file opts.k2d
   finalize_file hash.k2d

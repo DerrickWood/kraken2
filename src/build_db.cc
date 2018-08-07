@@ -9,6 +9,7 @@
 #include "mmscanner.h"
 #include "seqreader.h"
 #include "compact_hash.h"
+#include "kv_store.h"
 #include "kraken2_data.h"
 #include "utilities.h"
 
@@ -37,15 +38,18 @@ struct Options {
   bool input_is_protein;
   ssize_t k, l;
   size_t capacity;
+  size_t maximum_capacity;
   uint64_t spaced_seed_mask;
   uint64_t toggle_mask;
+  uint64_t min_clear_hash_value;
 };
 
 void ParseCommandLine(int argc, char **argv, Options &opts);
 void usage(int exit_code = EX_USAGE);
 vector<string> ExtractNCBISequenceIDs(const string &header);
 void ProcessSequence(string &seq, uint64_t taxid,
-    CompactHashTable &hash, Taxonomy &tax, MinimizerScanner &scanner);
+    CompactHashTable &hash, Taxonomy &tax, MinimizerScanner &scanner,
+    uint64_t min_clear_hash_value);
 void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
     CompactHashTable &kraken_index, Taxonomy &taxonomy);
 void ReadIDToTaxonMap(map<string, uint64_t> &id_map, string &filename);
@@ -63,6 +67,8 @@ int main(int argc, char **argv) {
   opts.input_is_protein = false;
   opts.num_threads = 1;
   opts.block_size = DEFAULT_BLOCK_SIZE;
+  opts.min_clear_hash_value = 0;
+  opts.maximum_capacity = 0;
   ParseCommandLine(argc, argv, opts);
 
   omp_set_num_threads( opts.num_threads );
@@ -79,9 +85,18 @@ int main(int argc, char **argv) {
   size_t bits_needed_for_value = 1;
   while ((1 << bits_needed_for_value) < (ssize_t) taxonomy.node_count())
     bits_needed_for_value++;
-  CompactHashTable kraken_index(opts.capacity, 32 - bits_needed_for_value,
-      bits_needed_for_value);
 
+  auto actual_capacity = opts.capacity;
+  if (opts.maximum_capacity) {
+    double frac = opts.maximum_capacity * 1.0 / opts.capacity;
+    if (frac > 1)
+      errx(EX_DATAERR, "maximum capacity larger than requested capacity");
+    opts.min_clear_hash_value = (uint64_t) ((1 - frac) * UINT64_MAX);
+    actual_capacity = opts.maximum_capacity;
+  }
+
+  CompactHashTable kraken_index(actual_capacity, 32 - bits_needed_for_value,
+      bits_needed_for_value);
   std::cerr << "CHT created with " << bits_needed_for_value << " bits reserved for taxid." << std::endl;
 
   ProcessSequences(opts, ID_to_taxon_map, kraken_index, taxonomy);
@@ -95,6 +110,7 @@ int main(int argc, char **argv) {
   index_opts.spaced_seed_mask = opts.spaced_seed_mask;
   index_opts.toggle_mask = opts.toggle_mask;
   index_opts.dna_db = ! opts.input_is_protein;
+  index_opts.minimum_acceptable_hash_value = opts.min_clear_hash_value;
   ofstream opts_fs(opts.options_filename);
   opts_fs.write((char *) &index_opts, sizeof(index_opts));
   if (! opts_fs.good())
@@ -139,7 +155,8 @@ void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
           // Add terminator for protein sequences if not already there
           if (opts.input_is_protein && sequence.seq.back() != '*')
             sequence.seq.push_back('*');
-          ProcessSequence(sequence.seq, taxid, kraken_index, taxonomy, scanner);
+          ProcessSequence(sequence.seq, taxid, kraken_index, taxonomy, scanner,
+            opts.min_clear_hash_value);
           #pragma omp atomic
           processed_seq_ct++;
           #pragma omp atomic
@@ -195,7 +212,7 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
   long long sig;
 
-  while ((opt = getopt(argc, argv, "?hB:c:H:m:n:o:t:k:l:s:S:T:p:X")) != -1) {
+  while ((opt = getopt(argc, argv, "?hB:c:H:m:n:o:t:k:l:s:S:T:p:M:X")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -254,6 +271,12 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
           errx(EX_USAGE, "capacity must be positive integer");
         opts.capacity = sig;
         break;
+      case 'M' :
+        sig = atoll(optarg);
+        if (sig < 1)
+          errx(EX_USAGE, "max capacity must be positive integer");
+        opts.maximum_capacity = sig;
+        break;
       case 'X' :
         opts.input_is_protein = true;
         break;
@@ -279,34 +302,42 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
     cerr << "k cannot be less than l" << endl;
     usage();
   }
+  if (opts.maximum_capacity > opts.capacity) {
+    cerr << "maximum capacity option shouldn't specify larger capacity than normal" << endl;
+    usage();
+  }
 }
 
 void usage(int exit_code) {
-  cerr << "Usage: build_db <options>" << endl
-       << endl
-       << "Options (*mandatory):" << endl
-       << "* -H FILENAME   Kraken 2 hash table filename" << endl
-       << "* -m FILENAME   Sequence ID to taxon map filename" << endl
-       << "* -t FILENAME   Kraken 2 taxonomy filename" << endl
-       << "* -n DIR        NCBI taxonomy directory name" << endl
-       << "* -o FILENAME   Kraken 2 options filename" << endl
-       << "* -k INT        Set length of k-mers" << endl
-       << "* -l INT        Set length of minimizers" << endl
-       << "* -c INT        Set capacity of hash table" << endl
-       << "  -S BITSTRING  Spaced seed mask" << endl
-       << "  -T BITSTRING  Minimizer toggle mask" << endl
-       << "  -X            Input seqs. are proteins" << endl
-       << "  -p INT        Number of threads" << endl
+  cerr << "Usage: build_db <options>\n"
+       << "\n"
+       << "Options (*mandatory):\n"
+       << "* -H FILENAME   Kraken 2 hash table filename\n"
+       << "* -m FILENAME   Sequence ID to taxon map filename\n"
+       << "* -t FILENAME   Kraken 2 taxonomy filename\n"
+       << "* -n DIR        NCBI taxonomy directory name\n"
+       << "* -o FILENAME   Kraken 2 options filename\n"
+       << "* -k INT        Set length of k-mers\n"
+       << "* -l INT        Set length of minimizers\n"
+       << "* -c INT        Set capacity of hash table\n"
+       << "  -M INT        Set maximum capacity of hash table (MiniKraken)\n"
+       << "  -S BITSTRING  Spaced seed mask\n"
+       << "  -T BITSTRING  Minimizer toggle mask\n"
+       << "  -X            Input seqs. are proteins\n"
+       << "  -p INT        Number of threads\n"
        << "  -B INT        Read block size" << endl;
   exit(exit_code);
 }
 
 void ProcessSequence(string &seq, uint64_t taxid,
-    CompactHashTable &hash, Taxonomy &tax, MinimizerScanner &scanner)
+    CompactHashTable &hash, Taxonomy &tax, MinimizerScanner &scanner,
+    uint64_t min_clear_hash_value)
 {
   scanner.LoadSequence(seq);
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {
+    if (min_clear_hash_value && MurmurHash3(*minimizer_ptr) < min_clear_hash_value)
+      break;
     hvalue_t existing_taxid = 0;
     hvalue_t new_taxid = taxid;
     while (! hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid)) {

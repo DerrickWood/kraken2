@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
 
   cerr << "Loading database information...";
 
-  IndexOptions idx_opts;
+  IndexOptions idx_opts = {0};
   ifstream idx_opt_fs(opts.options_filename);
   idx_opt_fs.read((char *) &idx_opts, sizeof(idx_opts));
   opts.use_translated_search = ! idx_opts.dna_db;
@@ -515,7 +515,14 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
         }
         else {
           if (*minimizer_ptr != last_minimizer) {
-            taxon = hash->Get(*minimizer_ptr);
+            bool skip_lookup = false;
+            if (idx_opts.minimum_acceptable_hash_value) {
+              if (MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value)
+                skip_lookup = true;
+            }
+            taxon = 0;
+            if (! skip_lookup)
+              taxon = hash->Get(*minimizer_ptr);
             last_taxon = taxon;
             last_minimizer = *minimizer_ptr;
           }
