@@ -32,6 +32,7 @@ my $names_in_output = 0;
 my $use_mpa_style = 0;
 my $report_zero_counts = 0;
 my $skip_counts = 0;
+my $threads;
 
 GetOptions(
   "help" => \&display_help,
@@ -40,6 +41,7 @@ GetOptions(
   "skip-counts" => \$skip_counts,
   "use-mpa-style" => \$use_mpa_style,
   "report-zero-counts" => \$report_zero_counts,
+  "threads=i" => \$threads,
 );
 
 if (@ARGV) {
@@ -48,6 +50,10 @@ if (@ARGV) {
 eval { $db_prefix = kraken2lib::find_db($db_prefix); };
 if ($@) {
   die "$PROG: $@";
+}
+
+if (! defined $threads) {
+  $threads = $ENV{"KRAKEN2_NUM_THREADS"} || 1;
 }
 
 my $taxonomy = "$db_prefix/taxo.k2d";
@@ -67,6 +73,7 @@ push @flags, "-o", $opt_file;
 push @flags, "-s" if $skip_counts;
 push @flags, "-m" if $use_mpa_style;
 push @flags, "-z" if $report_zero_counts;
+push @flags, "-p", $threads;
 
 exec $DUMP_TABLE, @flags;
 die "$PROG: exec error: $!\n";
@@ -81,6 +88,7 @@ Usage: $PROG [options]
 Options:
   --db NAME               Name for Kraken 2 DB
                           (default: $default_db)
+  --threads NUM           Number of threads to use
   --skip-counts           Only print database summary statistics
   --use-mpa-style         Format output like Kraken 1's kraken-mpa-report
   --report-zero-counts    Report counts for ALL taxa, even if

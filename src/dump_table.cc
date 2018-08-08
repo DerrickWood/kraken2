@@ -25,6 +25,7 @@ struct Options {
   bool use_mpa_style;
   bool report_zeros;
   bool skip_counts;
+  unsigned int num_threads;
 };
 
 void ParseCommandLine(int argc, char **argv, Options &opts);
@@ -43,7 +44,10 @@ int main(int argc, char **argv) {
   opts.output_filename = "/dev/fd/1";
   opts.use_mpa_style = false;
   opts.skip_counts = false;
+  opts.num_threads = 1;
   ParseCommandLine(argc, argv, opts);
+
+  omp_set_num_threads(opts.num_threads);
 
   CompactHashTable kraken_index(opts.hashtable_filename);
   Taxonomy taxonomy(opts.taxonomy_filename);
@@ -81,7 +85,7 @@ int main(int argc, char **argv) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "?hH:t:o:O:zms")) != -1) {
+  while ((opt = getopt(argc, argv, "?hH:t:o:O:p:zms")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -106,6 +110,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
         break;
       case 's' :
         opts.skip_counts = true;
+        break;
+      case 'p' :
+        opts.num_threads = atoi(optarg);
         break;
     }
   }

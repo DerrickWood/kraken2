@@ -187,10 +187,17 @@ inline uint64_t CompactHashTable::second_hash(uint64_t first_hash) {
 
 taxon_counts_t CompactHashTable::GetValueCounts() {
   taxon_counts_t value_counts;
+  int thread_ct = omp_get_max_threads();
+  taxon_counts_t thread_value_counts[thread_ct];
+  #pragma omp parallel for
   for (auto i = 0u; i < capacity_; i++) {
     auto val = table_[i].value(value_bits_);
     if (val)
-      value_counts[val]++;
+      thread_value_counts[omp_get_thread_num()][val]++;
+  }
+  for (auto i = 0; i < thread_ct; i++) {
+    for (auto &kv_pair : thread_value_counts[i])
+      value_counts[kv_pair.first] += kv_pair.second;
   }
   return value_counts;
 }

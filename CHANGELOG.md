@@ -6,6 +6,7 @@
 - Disk usage info to kraken2-build --clean
 - Memory allocation error message for hash table
 - Option for --max-db-size and hash downsampling
+- Multithreading to kraken2-inspect
 
 ### Changed
 - Move to /usr/bin/env for perl scripts
