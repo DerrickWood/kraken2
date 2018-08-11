@@ -34,14 +34,14 @@ export -f mask_data_chunk
 if [ -d $target ]; then
   for file in $(find $target '(' -name '*.fna' -o -name '*.faa' ')'); do
     if [ ! -e "$file.masked" ]; then
-      cat $file | parallel --keep-order --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$file.tmp"
+      cat $file | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$file.tmp"
       mv "$file.tmp" $file
       touch "$file.masked"
     fi
   done
 elif [ -f $target ]; then
   if [ ! -e "$target.masked" ]; then
-    cat $target | parallel --keep-order --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$target.tmp"
+    cat $target | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$target.tmp"
     mv "$target.tmp" $target
     touch "$target.masked"
   fi
