@@ -6,7 +6,7 @@
 
 set -e
 
-VERSION="2.0.6-beta"
+VERSION="2.0.7-beta"
 
 if [ -z "$1" ] || [ -n "$2" ]
 then

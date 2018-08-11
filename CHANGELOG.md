@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [2.0.7] - 2018-08-11 (beta)
 
 ### Added
 - Disk usage info to kraken2-build --clean
