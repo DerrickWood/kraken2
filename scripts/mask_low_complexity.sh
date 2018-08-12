@@ -25,6 +25,7 @@ fi
 
 function mask_data_chunk () {
   # Removes empty records and performs masking, all in pipes
+  MASKER=$1
   awk -v RS=">" -v FS="\n" -v ORS="" ' { if ($2) print ">"$0 } ' |\
   $MASKER -in - -outfmt fasta |\
   sed -e '/^>/!s/[a-z]/x/g'
@@ -34,14 +35,14 @@ export -f mask_data_chunk
 if [ -d $target ]; then
   for file in $(find $target '(' -name '*.fna' -o -name '*.faa' ')'); do
     if [ ! -e "$file.masked" ]; then
-      cat $file | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$file.tmp"
+      cat $file | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk $MASKER > "$file.tmp"
       mv "$file.tmp" $file
       touch "$file.masked"
     fi
   done
 elif [ -f $target ]; then
   if [ ! -e "$target.masked" ]; then
-    cat $target | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk > "$target.tmp"
+    cat $target | parallel --pipe --recstart '>' --blocksize 100M mask_data_chunk $MASKER > "$target.tmp"
     mv "$target.tmp" $target
     touch "$target.masked"
   fi
