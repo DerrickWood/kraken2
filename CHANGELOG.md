@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Reporting of taxids in classified-out sequence files
+
 ## [2.0.7] - 2018-08-11 (beta)
 
 ### Added
