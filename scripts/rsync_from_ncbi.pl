@@ -12,11 +12,20 @@ use strict;
 use warnings;
 use File::Basename;
 use Getopt::Std;
+use Net::FTP;
 use List::Util qw/max/;
 
 my $PROG = basename $0;
+my $SERVER = "ftp.ncbi.nlm.nih.gov";
+my $SERVER_PATH = "/genomes";
+my $FTP_USER = "anonymous";
+my $FTP_PASS = "kraken2download";
+
+my $qm_server = quotemeta $SERVER;
+my $qm_server_path = quotemeta $SERVER_PATH;
 
 my $is_protein = $ENV{"KRAKEN2_PROTEIN_DB"};
+my $use_ftp = $ENV{"KRAKEN2_USE_FTP"};
 
 my $suffix = $is_protein ? "_protein.faa.gz" : "_genomic.fna.gz";
 
@@ -33,7 +42,7 @@ while (<>) {
   my $full_path = $ftp_path . "/" . basename($ftp_path) . $suffix;
   # strip off server/leading dir name to allow --files-from= to work w/ rsync
   # also allows filenames to just start with "all/", which is nice
-  if (! ($full_path =~ s#^ftp://ftp\.ncbi\.nlm\.nih\.gov/genomes/##)) {
+  if (! ($full_path =~ s#^ftp://${qm_server}${qm_server_path}/##)) {
     die "$PROG: unexpected FTP path (new server?) for $ftp_path\n";
   }
   $manifest{$full_path} = $taxid;
@@ -44,12 +53,12 @@ open MANIFEST, ">", "manifest.txt"
 print MANIFEST "$_\n" for keys %manifest;
 close MANIFEST;
 
-if ($is_protein) {
+if ($is_protein && ! $use_ftp) {
   print STDERR "Step 0/2: performing rsync dry run (only protein d/l requires this)...\n";
   # Protein files aren't always present, so we have to do this two-rsync run hack
   # First, do a dry run to find non-existent files, then delete them from the
   # manifest; after this, execution can proceed as usual.
-  system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://ftp.ncbi.nlm.nih.gov/genomes/ . 2> rsync.err");
+  system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH} . 2> rsync.err");
   open ERR_FILE, "<", "rsync.err"
     or die "$PROG: can't read rsync.err file: $!\n";
   while (<ERR_FILE>) {
@@ -68,10 +77,40 @@ if ($is_protein) {
   print MANIFEST "$_\n" for keys %manifest;
   close MANIFEST;
 }
-print STDERR "Step 1/2: Performing rsync file transfer of requested files\n";
-system("rsync --no-motd --files-from=manifest.txt rsync://ftp.ncbi.nlm.nih.gov/genomes/ .") == 0
-  or die "$PROG: rsync error, exiting: $?\n";
-print STDERR "Rsync file transfer complete.\n";
+
+if ($use_ftp) {
+  print STDERR "Step 1/2: Performing ftp file transfer of requested files\n";
+  my $ftp = Net::FTP->new($SERVER, Passive => 1)
+    or die "$PROG: FTP connection error: $@\n";
+  $ftp->login($FTP_USER, $FTP_PASS)
+    or die "$PROG: FTP login error: " . $ftp->message() . "\n";
+  $ftp->binary()
+    or die "$PROG: FTP binary mode error: " . $ftp->message() . "\n";
+  $ftp->cwd($SERVER_PATH)
+    or die "$PROG: FTP CD error: " . $ftp->message() . "\n";
+  open MANIFEST, "<", "manifest.txt"
+    or die "$PROG: can't open manifest: $!\n";
+  mkdir "all" or die "$PROG: can't create 'all' directory: $!\n";
+  chdir "all" or die "$PROG: can't chdir into 'all' directory: $!\n";
+  while (<MANIFEST>) {
+    chomp;
+    $ftp->get($_)
+      or do {
+        my $msg = $ftp->message();
+        if ($msg !~ /: No such file or directory$/) {
+          warn "$PROG: unable to download $_: $msg\n";
+        }
+      };
+  }
+  close MANIFEST;
+  chdir ".." or die "$PROG: can't return to correct directory: $!\n";
+}
+else {
+  print STDERR "Step 1/2: Performing rsync file transfer of requested files\n";
+  system("rsync --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH}/ .") == 0
+    or die "$PROG: rsync error, exiting: $?\n";
+  print STDERR "Rsync file transfer complete.\n";
+}
 print STDERR "Step 2/2: Assigning taxonomic IDs to sequences\n";
 my $output_file = $is_protein ? "library.faa" : "library.fna";
 open OUT, ">", $output_file
@@ -83,6 +122,9 @@ my $ch = $is_protein ? "aa" : "bp";
 my $max_out_chars = 0;
 for my $in_filename (keys %manifest) {
   my $taxid = $manifest{$in_filename};
+  if ($use_ftp) {  # FTP downloading doesn't create full path locally
+    $in_filename = "all/" . basename($in_filename);
+  }
   open IN, "gunzip -c $in_filename |" or die "$PROG: can't read $in_filename: $!\n";
   while (<IN>) {
     if (/^>/) {

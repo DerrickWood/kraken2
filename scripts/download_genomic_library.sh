@@ -25,6 +25,16 @@ if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
   library_file="library.faa"
 fi
 
+function download_file() {
+  file="$1"
+  if [ -n "$KRAKEN2_USE_FTP" ]
+  then
+    wget -q ${FTP_SERVER}${file}
+  else
+    rsync --no-motd ${RSYNC_SERVER}${file} .
+  fi
+}
+
 case $library_name in
   "archaea" | "bacteria" | "viral" | "fungi" | "plant" | "human" | "protozoa")
     mkdir -p $LIBRARY_DIR/$library_name
@@ -34,7 +44,7 @@ case $library_name in
     if [ "$library_name" = "human" ]; then
       remote_dir_name="vertebrate_mammalian/Homo_sapiens"
     fi
-    if ! wget -q $FTP_SERVER/genomes/refseq/$remote_dir_name/assembly_summary.txt; then
+    if ! download_file "/genomes/refseq/$remote_dir_name/assembly_summary.txt"; then
       1>&2 echo "Error downloading assembly summary file for $library_name, exiting."
       exit 1
     fi
@@ -50,6 +60,7 @@ case $library_name in
     mkdir -p $LIBRARY_DIR/plasmid
     cd $LIBRARY_DIR/plasmid
     rm -f library.f* plasmid.*
+    ## This is staying FTP only D/L for now
     1>&2 echo -n "Downloading plasmid files from FTP..."
     wget -q --no-remove-listing --spider $FTP_SERVER/genomes/refseq/plasmid/
     if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
@@ -76,7 +87,7 @@ case $library_name in
     cd $LIBRARY_DIR/$library_name
     rm -f $library_name.gz
     1>&2 echo -n "Downloading $library_name database from FTP..."
-    wget -q $FTP_SERVER/blast/db/FASTA/$library_name.gz
+    download_file $FTP_SERVER/blast/db/FASTA/$library_name.gz
     1>&2 echo "done."
     1>&2 echo -n "Uncompressing $library_name database..."
     gunzip $library_name.gz
@@ -96,7 +107,7 @@ case $library_name in
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
     1>&2 echo -n "Downloading $library_name data from FTP..."
-    wget -q $FTP_SERVER/pub/UniVec/$library_name
+    download_file $FTP_SERVER/pub/UniVec/$library_name
     1>&2 echo "done."
     # 28384: "other sequences"
     special_taxid=28384

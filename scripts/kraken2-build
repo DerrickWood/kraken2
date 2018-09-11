@@ -46,6 +46,8 @@ my (
   $is_protein,
   $no_masking,
   $max_db_size,
+  $use_ftp,
+  $skip_maps,
 
   $dl_taxonomy,
   $dl_library,
@@ -82,6 +84,8 @@ GetOptions(
   "protein" => \$is_protein,
   "no-masking" => \$no_masking,
   "max-db-size=i" => \$max_db_size,
+  "use-ftp" => \$use_ftp,
+  "skip-maps" => \$skip_maps,
 
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
@@ -142,6 +146,8 @@ $ENV{"KRAKEN2_SEED_TEMPLATE"} = construct_seed_template();
 $ENV{"KRAKEN2_PROTEIN_DB"} = $is_protein ? 1 : "";
 $ENV{"KRAKEN2_MASK_LC"} = $no_masking ? "" : 1;
 $ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
+$ENV{"KRAKEN2_USE_FTP"} = $use_ftp ? 1 : "";
+$ENV{"KRAKEN2_SKIP_MAPS"} = $skip_maps ? 1 : "";
 
 if ($dl_taxonomy) {
   download_taxonomy();
@@ -215,6 +221,10 @@ Options:
                              if the estimator determines more would normally be
                              needed, the reference library will be downsampled
                              to fit. (Used with --build/--standard/--special)
+  --use-ftp                  Use FTP for downloading instead of RSYNC; used with
+                             --download-library/--download-taxonomy/--standard.
+  --skip-maps                Avoids downloading accession number to taxid maps,
+                             used with --download-taxonomy.
 EOF
   exit $exit_code;
 }

@@ -15,24 +15,32 @@ NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
 RSYNC_SERVER="rsync://$NCBI_SERVER"
 FTP_SERVER="ftp://$NCBI_SERVER"
 
-RSYNC="rsync --no-motd"
-
 mkdir -p "$TAXONOMY_DIR"
 cd "$TAXONOMY_DIR"
 
-if [ ! -e "accmap.dlflag" ]
+function download_file() {
+  file="$1"
+  if [ -n "$KRAKEN2_USE_FTP" ]
+  then
+    wget -q ${FTP_SERVER}${file}
+  else
+    rsync --no-motd ${RSYNC_SERVER}${file} .
+  fi
+}
+
+if [ ! -e "accmap.dlflag" ] && [ -z "$KRAKEN2_SKIP_MAPS" ]
 then
   if [ -z "$KRAKEN2_PROTEIN_DB" ]
   then
     for subsection in est gb gss wgs
     do
       1>&2 echo -n "Downloading nucleotide ${subsection} accession to taxon map..."
-      $RSYNC $RSYNC_SERVER/pub/taxonomy/accession2taxid/nucl_${subsection}.accession2taxid.gz .
+      download_file "/pub/taxonomy/accession2taxid/nucl_${subsection}.accession2taxid.gz"
       1>&2 echo " done."
     done
   else
     1>&2 echo -n "Downloading protein accession to taxon map..."
-    $RSYNC $RSYNC_SERVER/pub/taxonomy/accession2taxid/prot.accession2taxid.gz .
+    download_file "/pub/taxonomy/accession2taxid/prot.accession2taxid.gz"
     1>&2 echo " done."
   fi
   touch accmap.dlflag
@@ -42,7 +50,7 @@ fi
 if [ ! -e "taxdump.dlflag" ]
 then
   1>&2 echo -n "Downloading taxonomy tree data..."
-  $RSYNC $RSYNC_SERVER/pub/taxonomy/taxdump.tar.gz .
+  download_file "/pub/taxonomy/taxdump.tar.gz"
   touch taxdump.dlflag
   1>&2 echo " done."
 fi

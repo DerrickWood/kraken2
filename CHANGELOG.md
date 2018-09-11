@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+- FTP downloading option for taxonomy/libraries (--use-ftp for kraken2-build)
+- Option to skip downloading taxonomy maps
+
 ### Fixed
 - Reporting of taxids in classified-out sequence files
 

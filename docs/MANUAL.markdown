@@ -111,6 +111,11 @@ System Requirements
     certain environment variables (such as `ftp_proxy` or `RSYNC_PROXY`)
     in order to get these commands to work properly.
 
+    Kraken 2's scripts default to using rsync for most downloads; however, you
+    may find that your network situation prevents use of rsync. In such cases,
+    you can try the `--use-ftp` option to `kraken2-build` to force the
+    downloads to occur via FTP.
+
 * **MiniKraken**: At present, users with low-memory computing environments
     can replicate the "MiniKraken" functionality of Kraken 1 in two ways:
     first, by increasing
@@ -410,12 +415,22 @@ To build a custom database:
 
         kraken2-build --download-taxonomy --db $DBNAME
 
-    This will download the accession number to taxon map, as well as the
+    This will download the accession number to taxon maps, as well as the
     taxonomic name and tree information from NCBI.  These files can
     be found in `$DBNAME/taxonomy/` .  If you need to modify the taxonomy,
     edits can be made to the `names.dmp` and `nodes.dmp` files in this
     directory; you may also need to modify the `*.accession2taxid` files
     appropriately.
+
+    Some of the standard sets of genomic libraries have taxonomic information
+    associated with them, and don't need the accession number to taxon maps
+    to build the database successfully.  These libraries include all those
+    available through the `--download-library` option (see next point), except
+    for the `plasmid` and non-redundant databases.  If you are not using
+    custom sequences (see the `--add-to-library` option) and are not using
+    one of the `plasmid` or non-redundant database libraries, you may want to
+    skip downloading of the accession number to taxon maps.  This can be done
+    by passing `--skip-maps` to the `kraken2-build --download-taxonomy` command.
 
  2. Install one or more reference libraries.  Several sets of standard
     genomes/proteins are made easily available through `kraken2-build`:

@@ -21,7 +21,7 @@ if [ -z "$KRAKEN2_MASK_LC" ]; then
   masking_flag="--no-mask"
 fi
 
-kraken2-build --db $KRAKEN2_DB_NAME --download-taxonomy $masking_flag $protein_flag
+kraken2-build --db $KRAKEN2_DB_NAME --download-taxonomy --skip-maps $masking_flag $protein_flag
 kraken2-build --db $KRAKEN2_DB_NAME --download-library archaea $masking_flag $protein_flag
 kraken2-build --db $KRAKEN2_DB_NAME --download-library bacteria $masking_flag $protein_flag
 kraken2-build --db $KRAKEN2_DB_NAME --download-library viral $masking_flag $protein_flag
