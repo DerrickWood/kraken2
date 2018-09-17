@@ -86,8 +86,8 @@ case $library_name in
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
     rm -f $library_name.gz
-    1>&2 echo -n "Downloading $library_name database from FTP..."
-    download_file $FTP_SERVER/blast/db/FASTA/$library_name.gz
+    1>&2 echo -n "Downloading $library_name database from server... "
+    download_file "/blast/db/FASTA/$library_name.gz"
     1>&2 echo "done."
     1>&2 echo -n "Uncompressing $library_name database..."
     gunzip $library_name.gz
@@ -106,12 +106,12 @@ case $library_name in
     fi
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
-    1>&2 echo -n "Downloading $library_name data from FTP..."
-    download_file $FTP_SERVER/pub/UniVec/$library_name
+    1>&2 echo -n "Downloading $library_name data from server... "
+    download_file "/pub/UniVec/$library_name"
     1>&2 echo "done."
     # 28384: "other sequences"
     special_taxid=28384
-    1>&2 echo -n "Adding taxonomy ID of $special_taxid to all sequences..."
+    1>&2 echo -n "Adding taxonomy ID of $special_taxid to all sequences... "
     sed -e "s/^>/>kraken:taxid|$special_taxid|/" $library_name > library.fna
     scan_fasta_file.pl library.fna > prelim_map.txt
     1>&2 echo "done."
