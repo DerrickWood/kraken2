@@ -425,7 +425,7 @@ taxid_t ResolveTree(taxon_counts_t &hit_counts,
   uint32_t max_score = 0;
   uint32_t required_score = ceil(opts.confidence_threshold * total_minimizers);
 
-  // Sum each taxon's LTR path
+  // Sum each taxon's LTR path, find taxon with highest LTR score
   for (auto &kv_pair : hit_counts) {
     taxid_t taxon = kv_pair.first;
     uint32_t score = 0;
@@ -447,17 +447,20 @@ taxid_t ResolveTree(taxon_counts_t &hit_counts,
     }
   }
 
+  // Reset max. score to be only hits at the called taxon
+  max_score = hit_counts[max_taxon];
   // We probably have a call w/o required support (unless LCA resolved tie)
   while (max_taxon && max_score < required_score) {
-    uint32_t score = 0;
+    max_score = 0;
     for (auto &kv_pair : hit_counts) {
       taxid_t taxon = kv_pair.first;
       // Add to score if taxon in max_taxon's clade
       if (taxonomy.IsAAncestorOfB(max_taxon, taxon)) {
-        score += kv_pair.second;
+        max_score += kv_pair.second;
       }
     }
-    if (score >= required_score)
+    // Score is now sum of hits at max_taxon and w/in max_taxon clade
+    if (max_score >= required_score)
       // Kill loop and return, we've got enough support here
       return max_taxon;
     else

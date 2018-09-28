@@ -8,6 +8,8 @@
 
 ### Fixed
 - Reporting of taxids in classified-out sequence files
+- Confidence scoring bug associated with failure to leave some sequences
+  unclassified
 
 ## [2.0.7] - 2018-08-11 (beta)
 
