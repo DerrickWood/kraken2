@@ -15,6 +15,11 @@ namespace kraken2 {
 #define BITS_PER_CHAR_DNA 2
 #define BITS_PER_CHAR_PRO 4
 
+void MinimizerScanner::set_lookup_table_character(char c, uint8_t val) {
+  lookup_table_[(int) c] = val;
+  lookup_table_[tolower(c)] = val;
+}
+
 MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
     uint64_t toggle_mask, bool dna_sequence, uint64_t spaced_seed_mask)
     : str_(nullptr), k_(k), l_(l), str_pos_(0), start_(0), finish_(0),
@@ -33,6 +38,63 @@ MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
     finish_ = str_->size();
   if ((ssize_t) (finish_ - start_) + 1 < l_)  // Invalidate scanner if interval < 1 l-mer
     str_pos_ = finish_;
+  for (int i = 0; i < UINT8_MAX + 1; i++)
+    lookup_table_[i] = UINT8_MAX;
+  if (dna_) {
+    set_lookup_table_character('A', 0x00);
+    set_lookup_table_character('C', 0x01);
+    set_lookup_table_character('G', 0x02);
+    set_lookup_table_character('T', 0x03);
+  }
+  else {
+    // Reduced alphabet uses 15-letter alphabet from AD Solis (2015),
+    // in Proteins (doi:10.1002/prot.24936)
+    // This means that the ambiguous codes B (N/D) and Z (E/Q) aren't
+    // usable here because they span multiple groups.  Although J (I/L)
+    // could be used because I & L are in the same group, we treat it as
+    // we do B, Z, and X for consistency and to ease future changes to
+    // the code base.
+
+    // stop codons/rare amino acids
+    set_lookup_table_character('*', 0x00);
+    set_lookup_table_character('U', 0x00);
+    set_lookup_table_character('O', 0x00);
+    // alanine
+    set_lookup_table_character('A', 0x01);
+    // asparagine, glutamine, serine
+    set_lookup_table_character('N', 0x02);
+    set_lookup_table_character('Q', 0x02);
+    set_lookup_table_character('S', 0x02);
+    // cysteine
+    set_lookup_table_character('C', 0x03);
+    // aspartic acid, glutamic acid
+    set_lookup_table_character('D', 0x04);
+    set_lookup_table_character('E', 0x04);
+    // phenylalanine
+    set_lookup_table_character('F', 0x05);
+    // glycine
+    set_lookup_table_character('G', 0x06);
+    // histidine
+    set_lookup_table_character('H', 0x07);
+    // isoleucine, leucine
+    set_lookup_table_character('I', 0x08);
+    set_lookup_table_character('L', 0x08);
+    // lysine
+    set_lookup_table_character('K', 0x09);
+    // proline
+    set_lookup_table_character('P', 0x0a);
+    // arginine
+    set_lookup_table_character('R', 0x0b);
+    // methionine, valine
+    set_lookup_table_character('M', 0x0c);
+    set_lookup_table_character('V', 0x0c);
+    // threonine
+    set_lookup_table_character('T', 0x0d);
+    // tryptophan
+    set_lookup_table_character('W', 0x0e);
+    // tyrosine
+    set_lookup_table_character('Y', 0x0f);
+  }
 }
 
 void MinimizerScanner::LoadSequence(string &seq, size_t start, size_t finish) {
@@ -55,87 +117,26 @@ uint64_t *MinimizerScanner::NextMinimizer(bool *ambig_flag) {
   if (str_pos_ >= finish_)  // Abort if we've exhausted string interval
     return nullptr;
   bool changed_minimizer = false;
+  auto bits_per_char = dna_ ? BITS_PER_CHAR_DNA : BITS_PER_CHAR_PRO;
+  auto ambig_code = (1u << bits_per_char) - 1;
   while (! changed_minimizer) {
     // Incorporate next character (and more if needed to fill l-mer)
     if (loaded_ch_ == l_)
       loaded_ch_--;
     while (loaded_ch_ < l_ && str_pos_ < finish_) {  // char loading loop
       loaded_ch_++;
-      if (dna_) {
-        lmer_ <<= BITS_PER_CHAR_DNA;
-        last_ambig_ <<= BITS_PER_CHAR_DNA;
-        switch ((*str_)[str_pos_++]) {
-          case 'A' : case 'a' :                break;
-          case 'C' : case 'c' : lmer_ |= 0x01; break;
-          case 'G' : case 'g' : lmer_ |= 0x02; break;
-          case 'T' : case 't' : lmer_ |= 0x03; break;
-          default:  // ambig code, dump nt from l-mer and wipe queue
-            queue_.clear();
-            queue_pos_ = 0;
-            lmer_ = 0;
-            loaded_ch_ = 0;
-            last_ambig_ |= 0x03;
-        }
+      lmer_ <<= bits_per_char;
+      last_ambig_ <<= bits_per_char;
+      auto lookup_code = lookup_table_[ (int) (*str_)[str_pos_++] ];
+      if (lookup_code == UINT8_MAX) {
+        queue_.clear();
+        queue_pos_ = 0;
+        lmer_ = 0;
+        loaded_ch_ = 0;
+        last_ambig_ |= ambig_code;
       }
-      else {
-        lmer_ <<= BITS_PER_CHAR_PRO;
-        last_ambig_ <<= BITS_PER_CHAR_PRO;
-        switch ((*str_)[str_pos_++]) {
-          // Reduced alphabet uses 15-letter alphabet from AD Solis (2015),
-          // in Proteins (doi:10.1002/prot.24936)
-          // This means that the ambiguous codes B (N/D) and Z (E/Q) aren't
-          // usable here because they span multiple groups.  Although J (I/L)
-          // could be used because I & L are in the same group, we treat it as
-          // we do B, Z, and X for consistency and to ease future changes to
-          // the code base.
-          case '*' :             // protein termination
-          case 'U' : case 'u' :  // selenocysteine (rare)
-          case 'O' : case 'o' :  // pyrrolysine (rare)
-            // stop codons/rare amino acids, just use zero
-            break;
-          case 'A' : case 'a' :  // alanine
-            lmer_ |= 0x01; break;
-          case 'N' : case 'n' :  // asparagine
-          case 'Q' : case 'q' :  // glutamine
-          case 'S' : case 's' :  // serine
-            lmer_ |= 0x02; break;
-          case 'C' : case 'c' :  // cysteine
-            lmer_ |= 0x03; break;
-          case 'D' : case 'd' :  // aspartic acid
-          case 'E' : case 'e' :  // glutamic acid
-            lmer_ |= 0x04; break;
-          case 'F' : case 'f' :  // phenylalanine
-            lmer_ |= 0x05; break;
-          case 'G' : case 'g' :  // glycine
-            lmer_ |= 0x06; break;
-          case 'H' : case 'h' :  // histidine
-            lmer_ |= 0x07; break;
-          case 'I' : case 'i' :  // isoleucine
-          case 'L' : case 'l' :  // leucine
-            lmer_ |= 0x08; break;
-          case 'K' : case 'k' :  // lysine
-            lmer_ |= 0x09; break;
-          case 'P' : case 'p' :  // proline
-            lmer_ |= 0x0a; break;
-          case 'R' : case 'r' :  // arginine
-            lmer_ |= 0x0b; break;
-          case 'M' : case 'm' :  // methionine
-          case 'V' : case 'v' :  // valine
-            lmer_ |= 0x0c; break;
-          case 'T' : case 't' :  // threonine
-            lmer_ |= 0x0d; break;
-          case 'W' : case 'w' :  // tryptophan
-            lmer_ |= 0x0e; break;
-          case 'Y' : case 'y' :  // tyrosine
-            lmer_ |= 0x0f; break;
-          default:  // ambig code, dump aa from l-mer and wipe queue
-            queue_.clear();
-            queue_pos_ = 0;
-            lmer_ = 0;
-            loaded_ch_ = 0;
-            last_ambig_ |= 0x0f;
-        }
-      }
+      else
+        lmer_ |= lookup_code;
       lmer_ &= lmer_mask_;
       last_ambig_ &= lmer_mask_;
       // non-null arg means we need to do some special handling

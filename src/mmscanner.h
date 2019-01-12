@@ -39,10 +39,11 @@ class MinimizerScanner {
   ssize_t k() { return k_; }
   ssize_t l() { return l_; }
   bool is_dna() { return dna_; }
-  
+
   private:
   uint64_t reverse_complement(uint64_t kmer, uint8_t n);
   uint64_t canonical_representation(uint64_t kmer, uint8_t n);
+  void set_lookup_table_character(char ch, uint8_t val);
 
   std::string *str_;  // pointer to sequence
   ssize_t k_;
@@ -58,6 +59,7 @@ class MinimizerScanner {
   std::vector<MinimizerData> queue_;
   ssize_t queue_pos_;
   uint64_t last_ambig_;
+  uint8_t lookup_table_[UINT8_MAX + 1];
 };
 
 }

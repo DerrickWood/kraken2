@@ -6,6 +6,9 @@
 - FTP downloading option for taxonomy/libraries (--use-ftp for kraken2-build)
 - Option to skip downloading taxonomy maps
 
+### Changed
+- Added lookup table to speed up parsing in MinimizerScanner class
+
 ### Fixed
 - Reporting of taxids in classified-out sequence files
 - Confidence scoring bug associated with failure to leave some sequences
