@@ -12,9 +12,6 @@ using std::vector;
 
 namespace kraken2 {
 
-#define BITS_PER_CHAR_DNA 2
-#define BITS_PER_CHAR_PRO 4
-
 void MinimizerScanner::set_lookup_table_character(char c, uint8_t val) {
   lookup_table_[(int) c] = val;
   lookup_table_[tolower(c)] = val;

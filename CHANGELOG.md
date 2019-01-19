@@ -10,6 +10,7 @@
 - Added lookup table to speed up parsing in MinimizerScanner class
 
 ### Fixed
+- Linked space expansion value for proteins to constant used by MinimizerScanner
 - Reporting of taxids in classified-out sequence files
 - Confidence scoring bug associated with failure to leave some sequences
   unclassified

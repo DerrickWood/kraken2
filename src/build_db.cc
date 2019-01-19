@@ -284,7 +284,8 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
   }
 
   if (opts.spaced_seed_mask != DEFAULT_SPACED_SEED_MASK)
-    ExpandSpacedSeedMask(opts.spaced_seed_mask, opts.input_is_protein ? 3 : 2);
+    ExpandSpacedSeedMask(opts.spaced_seed_mask,
+      opts.input_is_protein ? BITS_PER_CHAR_PRO : BITS_PER_CHAR_DNA);
   if (opts.hashtable_filename.empty() ||
       opts.ID_to_taxon_map_filename.empty() ||
       opts.ncbi_taxonomy_directory.empty() ||

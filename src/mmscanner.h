@@ -13,6 +13,8 @@ namespace kraken2 {
 
 const uint64_t DEFAULT_TOGGLE_MASK = 0xe37e28c4271b5a2dULL;
 const uint64_t DEFAULT_SPACED_SEED_MASK = 0;
+const int BITS_PER_CHAR_DNA = 2;
+const int BITS_PER_CHAR_PRO = 4;
 
 struct MinimizerData {
   uint64_t candidate;
