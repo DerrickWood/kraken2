@@ -111,6 +111,7 @@ int main(int argc, char **argv) {
   index_opts.toggle_mask = opts.toggle_mask;
   index_opts.dna_db = ! opts.input_is_protein;
   index_opts.minimum_acceptable_hash_value = opts.min_clear_hash_value;
+  index_opts.revcom_version = CURRENT_REVCOM_VERSION;
   ofstream opts_fs(opts.options_filename);
   opts_fs.write((char *) &index_opts, sizeof(index_opts));
   if (! opts_fs.good())
@@ -131,8 +132,8 @@ void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
   #pragma omp parallel
   {
     Sequence sequence;
-    MinimizerScanner scanner(opts.k, opts.l, opts.toggle_mask,
-                             ! opts.input_is_protein, opts.spaced_seed_mask);
+    MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask,
+                             ! opts.input_is_protein, opts.toggle_mask);
 
     BatchSequenceReader reader;
 

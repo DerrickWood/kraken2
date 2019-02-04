@@ -236,8 +236,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
 
   #pragma omp parallel
   {
-    MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.toggle_mask,
-                             idx_opts.dna_db, idx_opts.spaced_seed_mask);
+    MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.spaced_seed_mask,
+                             idx_opts.dna_db, idx_opts.toggle_mask,
+                             idx_opts.revcom_version);
     vector<taxid_t> taxa;
     taxon_counts_t hit_counts;
     ostringstream kraken_oss, c1_oss, c2_oss, u1_oss, u2_oss;

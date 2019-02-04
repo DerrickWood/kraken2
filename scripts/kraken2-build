@@ -298,5 +298,5 @@ sub construct_seed_template {
         "for minimizer len ($minimizer_len); max: @{[int($minimizer_len/4)]}\n";
   }
   return ("1" x ($minimizer_len - 2 * $minimizer_spaces)) .
-         ("10" x $minimizer_spaces);
+         ("01" x $minimizer_spaces);
 }

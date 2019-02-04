@@ -170,7 +170,7 @@ void usage(int exit_code) {
 void ProcessSequence(string &seq, Options &opts,
     vector<unordered_set<uint64_t>> &sets)
 {
-  MinimizerScanner scanner(opts.k, opts.l, opts.toggle_mask, ! opts.input_is_protein, opts.spaced_seed_mask);
+  MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask, ! opts.input_is_protein, opts.toggle_mask);
   scanner.LoadSequence(seq);
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {

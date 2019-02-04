@@ -14,6 +14,8 @@
 - Reporting of taxids in classified-out sequence files
 - Confidence scoring bug associated with failure to leave some sequences
   unclassified
+- Reverse complement shifting bug, code made backwards-compatible with
+  existing databases (newly created DBs will have fix)
 
 ## [2.0.7] - 2018-08-11 (beta)
 

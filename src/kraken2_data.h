@@ -16,6 +16,7 @@ struct IndexOptions {
   uint64_t toggle_mask;
   bool dna_db;
   uint64_t minimum_acceptable_hash_value;
+  int revcom_version;   // Fix bug from before K2.0.8
 };
 
 typedef uint64_t taxid_t;

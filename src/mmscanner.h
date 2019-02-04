@@ -15,6 +15,7 @@ const uint64_t DEFAULT_TOGGLE_MASK = 0xe37e28c4271b5a2dULL;
 const uint64_t DEFAULT_SPACED_SEED_MASK = 0;
 const int BITS_PER_CHAR_DNA = 2;
 const int BITS_PER_CHAR_PRO = 4;
+const int CURRENT_REVCOM_VERSION = 1;
 
 struct MinimizerData {
   uint64_t candidate;
@@ -28,9 +29,10 @@ class MinimizerScanner {
   // Minimizers ordered by XORing candidates w/ toggle_mask
   //   toggle_mask == 0 implies lexicographical ordering
   MinimizerScanner(ssize_t k, ssize_t l,
-                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,
+                   uint64_t spaced_seed_mask = DEFAULT_SPACED_SEED_MASK,
                    bool dna_sequence = true,
-                   uint64_t spaced_seed_mask = DEFAULT_SPACED_SEED_MASK);
+                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,                   
+                   int revcom_version = CURRENT_REVCOM_VERSION);
 
   void LoadSequence(std::string &seq, size_t start = 0,
       size_t finish = SIZE_MAX);
@@ -51,9 +53,9 @@ class MinimizerScanner {
   ssize_t k_;
   ssize_t l_;
   size_t str_pos_, start_, finish_;
-  uint64_t toggle_mask_;
-  bool dna_;
   uint64_t spaced_seed_mask_;
+  bool dna_;
+  uint64_t toggle_mask_;
   uint64_t lmer_;
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
@@ -62,6 +64,7 @@ class MinimizerScanner {
   ssize_t queue_pos_;
   uint64_t last_ambig_;
   uint8_t lookup_table_[UINT8_MAX + 1];
+  const int revcom_version_;
 };
 
 }

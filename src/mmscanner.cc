@@ -18,11 +18,12 @@ void MinimizerScanner::set_lookup_table_character(char c, uint8_t val) {
 }
 
 MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
-    uint64_t toggle_mask, bool dna_sequence, uint64_t spaced_seed_mask)
+    uint64_t spaced_seed_mask, bool dna_sequence, uint64_t toggle_mask,
+    int revcom_version)
     : str_(nullptr), k_(k), l_(l), str_pos_(0), start_(0), finish_(0),
-      toggle_mask_(toggle_mask), dna_(dna_sequence),
-      spaced_seed_mask_(spaced_seed_mask), loaded_ch_(0),
-      last_ambig_(0)
+      spaced_seed_mask_(spaced_seed_mask), dna_(dna_sequence),
+      toggle_mask_(toggle_mask), loaded_ch_(0),
+      last_ambig_(0), revcom_version_(revcom_version)
 {
   if (l_ > (ssize_t) ((sizeof(uint64_t) * 8 - 1) / (dna_ ? BITS_PER_CHAR_DNA : BITS_PER_CHAR_PRO)))
     errx(EX_SOFTWARE, "l exceeds size limits for minimizer %s scanner",
@@ -217,7 +218,11 @@ uint64_t MinimizerScanner::reverse_complement(uint64_t kmer, uint8_t n) {
   // swap halves of 64-bit word
   kmer = ( kmer >> 32 ) | ( kmer << 32);
   // Then complement
-  return (~kmer) & ((1ull << (n * 2)) - 1);
+  if (revcom_version_ == 0)
+    // This branch present to maintain backwards compatibility with old DBs
+    return (~kmer) & ((1ull << (n * 2)) - 1);
+  else
+    return ((~kmer) >> (sizeof(kmer) * CHAR_BIT - n * 2)) & ((1ull << (n * 2)) - 1);
 }
 
 uint64_t MinimizerScanner::canonical_representation(uint64_t kmer, uint8_t n) {
