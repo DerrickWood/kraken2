@@ -44,7 +44,7 @@ echo "Kraken 2 installation complete."
 echo
 echo "To make things easier for you, you may want to copy/symlink the following"
 echo "files into a directory in your PATH:"
-for file in $KRAKEN2_DIR/kraken2*
+for file in $KRAKEN2_DIR/kraken2 $KRAKEN2_DIR/kraken2-*
 do
   if [ -x "$file" ]
   then

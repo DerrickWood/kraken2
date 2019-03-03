@@ -25,7 +25,7 @@ require "$KRAKEN2_DIR/kraken2lib.pm";
 $ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
 $ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
 
-my $DUMP_TABLE = "$KRAKEN2_DIR/dump_table";
+my $DUMP_TABLE = "$KRAKEN2_DIR/kraken2_dump_table";
 
 my $db_prefix;
 my $names_in_output = 0;

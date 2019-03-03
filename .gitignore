@@ -1,6 +1,6 @@
 *.o
-src/build_db
-src/classify
-src/estimate_capacity
-src/dump_table
-src/lookup_accession_numbers
+src/kraken2_build_db
+src/kraken2_classify
+src/kraken2_estimate_capacity
+src/kraken2_dump_table
+src/kraken2_lookup_accession_numbers

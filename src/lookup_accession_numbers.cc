@@ -15,7 +15,7 @@ using std::vector;
 
 int main(int argc, char **argv) {
   if (argc < 3)
-    errx(EX_USAGE, "Usage: lookup_accession_numbers <lookup file> <accmaps>");
+    errx(EX_USAGE, "Usage: kraken2_lookup_accession_numbers <lookup file> <accmaps>");
 
   unordered_map<string, vector<string>> target_lists;
   std::ifstream lookup_list_file(argv[1]);
