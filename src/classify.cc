@@ -43,6 +43,7 @@ struct Options {
   bool mpa_style_report;
   bool quick_mode;
   bool report_zero_counts;
+  bool queries_are_proteins;
   bool use_translated_search;
   bool print_scientific_name;
   double confidence_threshold;
@@ -108,6 +109,7 @@ int main(int argc, char **argv) {
   opts.mpa_style_report = false;
   opts.report_zero_counts = false;
   opts.use_translated_search = false;
+  opts.queries_are_proteins = false;
   opts.print_scientific_name = false;
   opts.minimum_quality_score = 0;
   opts.use_memory_mapping = false;
@@ -121,7 +123,7 @@ int main(int argc, char **argv) {
   IndexOptions idx_opts = {0};
   ifstream idx_opt_fs(opts.options_filename);
   idx_opt_fs.read((char *) &idx_opts, sizeof(idx_opts));
-  opts.use_translated_search = ! idx_opts.dna_db;
+  opts.use_translated_search = !idx_opts.dna_db && !opts.queries_are_proteins;
 
   Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
   KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
@@ -138,6 +140,8 @@ int main(int argc, char **argv) {
   if (optind == argc) {
     if (opts.paired_end_processing && ! opts.single_file_pairs)
       errx(EX_USAGE, "paired end processing used with no files specified");
+    if (opts.queries_are_proteins && idx_opts.dna_db)
+      errx(EX_USAGE, "amino acid queries are incompatible with nucleotide databases.");
     ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts);
   }
   else {
@@ -492,7 +496,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   taxid_t call = 0;
   taxa.clear();
   hit_counts.clear();
-  auto frame_ct = opts.use_translated_search ? 6 : 1;
+  auto frame_ct = opts.use_translated_search && !opts.queries_are_proteins ? 6 : 1;
 
   for (int mate_num = 0; mate_num < 2; mate_num++) {
     if (mate_num == 1 && ! opts.paired_end_processing)
@@ -714,7 +718,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:nmzqPSM")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:nmzqPSMa")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -776,6 +780,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'M' :
         opts.use_memory_mapping = true;
         break;
+      case 'a' :
+        opts.queries_are_proteins = true;
+        break;
     }
   }
 
@@ -811,6 +818,7 @@ void usage(int exit_code) {
        << "  -m               In comb. w/ -R, use mpa-style report" << endl
        << "  -z               In comb. w/ -R, report taxa w/ 0 count" << endl
        << "  -n               Print scientific name instead of taxid in Kraken output" << endl
+       << "  -a               Input files contain protein sequences" << endl
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl;
