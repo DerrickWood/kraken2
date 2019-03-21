@@ -23,12 +23,12 @@ if (! -e "$KRAKEN2_DIR/classify") {
 $ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
 $ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
 
-my $DEF_AA_MINIMIZER_LEN = 15;
+my $DEF_AA_MINIMIZER_LEN = 12;
 my $DEF_AA_KMER_LEN = 15;
 my $DEF_AA_MINIMIZER_SPACES = 0;
 my $DEF_NT_MINIMIZER_LEN = 31;
 my $DEF_NT_KMER_LEN = 35;
-my $DEF_NT_MINIMIZER_SPACES = 6;
+my $DEF_NT_MINIMIZER_SPACES = 7;
 my $DEF_THREAD_CT = 1;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
@@ -201,7 +201,7 @@ Task options (exactly one must be selected):
   --version                  Print version information
 
 Options:
-  --db NAME                  Kraken 2 DB/library name (mandatory except for
+  --db NAME                  Kraken 2 DB name (mandatory except for
                              --help/--version)
   --threads #                Number of threads (def: $DEF_THREAD_CT)
   --kmer-len NUM             K-mer length in bp/aa (build task only;
