@@ -8,6 +8,8 @@
 
 ### Changed
 - Added lookup table to speed up parsing in MinimizerScanner class
+- Default parameters for minimizer lengths and spaces changed (spaces=7 for
+  nucleotide search, length=12 for translated search)
 
 ### Fixed
 - Linked space expansion value for proteins to constant used by MinimizerScanner
