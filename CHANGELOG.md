@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [2.0.8] - 2019-04-25 (beta)
+
 ### Added
 - FTP downloading option for taxonomy/libraries (--use-ftp for kraken2-build)
 - Option to skip downloading taxonomy maps
