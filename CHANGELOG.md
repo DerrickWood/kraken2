@@ -18,6 +18,7 @@
   unclassified
 - Reverse complement shifting bug, code made backwards-compatible with
   existing databases (newly created DBs will have fix)
+- NCBI taxonomy download error due to removal of EST/GSS files
 
 ## [2.0.7] - 2018-08-11 (beta)
 
