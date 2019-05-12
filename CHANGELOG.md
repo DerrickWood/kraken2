@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+### Changed
+
+### Fixed
+- Removed mention of --fastq-input from Manual
+
 ## [2.0.8] - 2019-04-25 (beta)
 
 ### Added

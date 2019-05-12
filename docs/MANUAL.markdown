@@ -265,18 +265,15 @@ The `kraken2` program allows several different options:
 * **Output redirection**: Output can be directed using standard shell
     redirection (`|` or `>`), or using the `--output` switch.
 
-* **FASTQ input**: Input is normally expected to be in FASTA format, but
-    you can classify FASTQ data using the `--fastq-input` switch.
-
 * **Compressed input**: Kraken 2 can handle gzip and bzip2 compressed
     files as input by specifying the proper switch of `--gzip-compressed`
     or `--bzip2-compressed`.
 
-* **Input format auto-detection**: If regular files are specified on
-    the command line as input, Kraken 2 will attempt to determine the
-    format of your input prior to classification.  You can disable this
-    by explicitly specifying `--fasta-input`, `--fastq-input`,
-    `--gzip-compressed`, and/or `--bzip2-compressed` as appropriate.
+* **Input format auto-detection**: If regular files (i.e., not pipes or device files)
+    are specified on the command line as input, Kraken 2 will attempt to
+    determine the format of your input prior to classification.
+    You can disable this by explicitly specifying
+    `--gzip-compressed` or `--bzip2-compressed` as appropriate.
     Note that use of the character device file `/dev/fd/0` to read
     from standard input (aka `stdin`) will **not** allow auto-detection.
 
