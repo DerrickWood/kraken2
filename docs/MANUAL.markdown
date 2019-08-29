@@ -157,7 +157,7 @@ you see the message "`Kraken 2 installation complete.`"
 Once installation is complete, you may want to copy the main Kraken 2
 scripts into a directory found in your `PATH` variable (e.g., "`$HOME/bin`"):
 
-    cp $KRAKEN2_DIR/bin/kraken2{,-build,-inspect} $HOME/bin
+    cp $KRAKEN2_DIR/kraken2{,-build,-inspect} $HOME/bin
 
 After installation, you're ready to either create or download a database.
 
