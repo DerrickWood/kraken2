@@ -12,7 +12,7 @@ $k$-mer/LCA pairs as its database.  While fast, the large memory
 requirements posed some problems for users, and so Kraken 2 was
 created to provide a solution to those problems.
 
-Kraken 2 differs from Kraken 1 in several important ways:
+[Kraken 2] differs from Kraken 1 in several important ways:
 
 1. Only minimizers of the $k$-mers in the query sequences are used
 as database queries.  Similarly, only minimizers of the $k$-mers in
@@ -47,12 +47,13 @@ Kraken 2 database to be quite similar to the full-sized Kraken 2 database,
 while Kraken 1's MiniKraken databases often resulted in a substantial loss
 of per-read sensitivity.
 
-The Kraken 2 paper is currently under preparation.  Until it is released,
-please cite the original [Kraken paper] if you use Kraken 2 in your research.
-Thank you!
+If you use Kraken 2 in your own work, please cite either the
+[Kraken 2 preprint] and/or the original [Kraken paper].  Thank you!
 
-[Kraken]: http://ccb.jhu.edu/software/kraken/
-[Kraken paper]: http://genomebiology.com/2014/15/3/R46
+[Kraken]: https://ccb.jhu.edu/software/kraken/
+[Kraken 2]: https://ccb.jhu.edu/software/kraken2/
+[Kraken paper]: https://genomebiology.biomedcentral.com/articles/10.1186/gb-2014-15-3-r46
+[Kraken 2 preprint]: https://www.biorxiv.org/content/10.1101/762302v1
 
 
 System Requirements
