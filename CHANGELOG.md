@@ -8,6 +8,7 @@
 
 ### Fixed
 - Removed mention of --fastq-input from Manual
+- Made PE read identifier suffix trimming more restrictive (only on /1 and /2)
 
 ## [2.0.8] - 2019-04-25 (beta)
 

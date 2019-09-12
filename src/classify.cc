@@ -477,7 +477,7 @@ std::string TrimPairInfo(std::string &id) {
   size_t sz = id.size();
   if (sz <= 2)
     return id;
-  if ( (id[sz - 2] == '_' || ispunct(id[sz - 2])) && isdigit(id[sz - 1]) )
+  if ( id[sz - 2] == '/' && (id[sz - 1] == '1' || id[sz - 1] == '2') )
     return id.substr(0, sz - 2);
   return id;
 }
