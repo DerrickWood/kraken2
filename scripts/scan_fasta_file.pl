@@ -32,8 +32,6 @@ while (<>) {
   # while (/.../g) needed because non-redundant DBs sometimes have multiple
   #   sequence IDs in the header; extra sequence IDs are prefixed by
   #   '\x01' characters (if downloaded in FASTA format from NCBI FTP directly).
-  s/^>gi\|/>/;
-  s/\| .*//;
   while (/(?:^>|\x01)(\S+)/g) {
     my $seqid = $1;
     my $taxid = kraken2lib::check_seqid($seqid);
