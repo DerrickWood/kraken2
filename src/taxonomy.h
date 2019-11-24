@@ -60,6 +60,8 @@ class Taxonomy {
 
   void GenerateExternalToInternalIDMap();
   uint64_t GetInternalID(uint64_t external_id) {
+    if (external_to_internal_id_map_.count(external_id) == 0)
+      return 0;
     return external_to_internal_id_map_[external_id];
   }
 
