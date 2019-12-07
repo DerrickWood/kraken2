@@ -16,7 +16,7 @@ my $PROG = basename $0;
 my $KRAKEN2_DIR = '#####=KRAKEN2_DIR=#####';
 
 # Test to see if the executables got moved, try to recover if we can
-if (! -e "$KRAKEN2_DIR/classify") {
+if (! -e "$KRAKEN2_DIR/kraken2_classify") {
   use Cwd 'abs_path';
   $KRAKEN2_DIR = dirname abs_path($0);
 }
@@ -25,7 +25,7 @@ require "$KRAKEN2_DIR/kraken2lib.pm";
 $ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
 $ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
 
-my $CLASSIFY = "$KRAKEN2_DIR/classify";
+my $CLASSIFY = "$KRAKEN2_DIR/kraken2_classify";
 my $GZIP_MAGIC = chr(hex "1f") . chr(hex "8b");
 my $BZIP2_MAGIC = "BZ";
 

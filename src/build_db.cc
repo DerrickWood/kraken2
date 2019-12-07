@@ -312,7 +312,7 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
 }
 
 void usage(int exit_code) {
-  cerr << "Usage: build_db <options>\n"
+  cerr << "Usage: kraken2_build_db <options>\n"
        << "\n"
        << "Options (*mandatory):\n"
        << "* -H FILENAME   Kraken 2 hash table filename\n"

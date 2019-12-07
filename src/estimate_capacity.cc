@@ -154,7 +154,7 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
 }
 
 void usage(int exit_code) {
-  cerr << "Usage: estimate_capacity <options>" << endl
+  cerr << "Usage: kraken2_estimate_capacity <options>" << endl
        << endl
        << "Options (*mandatory):" << endl
        << "* -k INT        Set length of k-mers" << endl

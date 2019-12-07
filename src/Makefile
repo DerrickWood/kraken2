@@ -4,7 +4,7 @@ CXXFLAGS += -DLINEAR_PROBING
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers
+PROGS = kraken2_estimate_capacity kraken2_build_db kraken2_classify kraken2_dump_table kraken2_lookup_accession_numbers
 
 all: $(PROGS)
 
@@ -24,12 +24,17 @@ reports.o: reports.cc reports.h
 aa_translate.o: aa_translate.cc aa_translate.h
 utilities.o: utilities.cc utilities.h
 
-build_db: build_db.cc mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
+kraken2_build_db: build_db.cc mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-classify: classify.cc reports.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
+kraken2_classify: classify.cc reports.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-estimate_capacity: estimate_capacity.cc seqreader.o mmscanner.o omp_hack.o utilities.o
+kraken2_estimate_capacity: estimate_capacity.cc seqreader.o mmscanner.o omp_hack.o utilities.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-dump_table: dump_table.cc mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o
+kraken2_dump_table: dump_table.cc mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-lookup_accession_numbers: lookup_accession_numbers.cc mmap_file.o omp_hack.o utilities.o
+kraken2_lookup_accession_numbers: lookup_accession_numbers.cc mmap_file.o omp_hack.o utilities.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@

@@ -81,7 +81,7 @@ else
   grep "^TAXID" taxonomy/prelim_map.txt | cut -f 2- > $seqid2taxid_map_file.tmp || true
   if grep "^ACCNUM" taxonomy/prelim_map.txt | cut -f 2- > accmap_file.tmp; then
     if compgen -G "taxonomy/*.accession2taxid" > /dev/null; then
-      lookup_accession_numbers accmap_file.tmp taxonomy/*.accession2taxid > seqid2taxid_acc.tmp
+      kraken2_lookup_accession_numbers accmap_file.tmp taxonomy/*.accession2taxid > seqid2taxid_acc.tmp
       cat seqid2taxid_acc.tmp >> $seqid2taxid_map_file.tmp
       rm seqid2taxid_acc.tmp
     else
@@ -98,7 +98,7 @@ fi
 echo "Estimating required capacity (step 2)..."
 
 step_time=$(get_current_time)
-estimate=$(list_sequence_files | xargs -0 cat | estimate_capacity -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE -p $KRAKEN2_THREAD_CT $KRAKEN2XFLAG )
+estimate=$(list_sequence_files | xargs -0 cat | kraken2_estimate_capacity -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE -p $KRAKEN2_THREAD_CT $KRAKEN2XFLAG )
 required_capacity=$(perl -le 'print int(shift() / 0.7)' $estimate);
 
 echo "Estimated hash table requirement: $(( required_capacity * 4 )) bytes"
@@ -123,7 +123,7 @@ then
 else
   step_time=$(get_current_time)
   list_sequence_files | xargs -0 cat | \
-    build_db -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE $KRAKEN2XFLAG \
+    kraken2_build_db -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE $KRAKEN2XFLAG \
              -H hash.k2d.tmp -t taxo.k2d.tmp -o opts.k2d.tmp -n taxonomy/ -m $seqid2taxid_map_file \
              -c $required_capacity -p $KRAKEN2_THREAD_CT $max_db_flag
   finalize_file taxo.k2d
