@@ -10,10 +10,10 @@ set -u  # Protect against uninitialized vars.
 set -e  # Stop on error
 set -o pipefail  # Stop on failures in non-final pipeline commands
 
-FTP_SERVER="ftp://ftp.arb-silva.de/"
+HTTPS_SERVER="https://ftp.arb-silva.de/"
 SILVA_VERSION="138"
-REMOTE_DIR="$FTP_SERVER/release_$SILVA_VERSION/Exports"
-FASTA_FILENAME="SILVA_${SILVA_VERSION}_SSURef_Nr99_tax_silva.fasta"
+REMOTE_DIR="$HTTPS_SERVER/release_$SILVA_VERSION/Exports"
+FASTA_FILENAME="SILVA_${SILVA_VERSION}_SSURef_NR99_tax_silva.fasta"
 TAXO_PREFIX="tax_slv_ssu_$SILVA_VERSION"
 
 mkdir -p "$KRAKEN2_DB_NAME"
