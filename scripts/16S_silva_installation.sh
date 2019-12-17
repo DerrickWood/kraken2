@@ -22,8 +22,10 @@ mkdir -p data taxonomy library
 pushd data
 wget "$REMOTE_DIR/${FASTA_FILENAME}.gz"
 gunzip "${FASTA_FILENAME}.gz"
-wget "$REMOTE_DIR/taxonomy/${TAXO_PREFIX}.acc_taxid"
-wget "$REMOTE_DIR/taxonomy/${TAXO_PREFIX}.txt"
+wget "$REMOTE_DIR/taxonomy/${TAXO_PREFIX}.acc_taxid.gz"
+gunzip "${TAXO_PREFIX}.acc_taxid.gz"
+wget "$REMOTE_DIR/taxonomy/${TAXO_PREFIX}.txt.gz"
+gunzip "${TAXO_PREFIX}.txt.gz"
 
 build_silva_taxonomy.pl "${TAXO_PREFIX}.txt"
 popd
