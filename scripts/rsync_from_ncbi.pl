@@ -80,7 +80,7 @@ if ($is_protein && ! $use_ftp) {
 
 if ($use_ftp) {
   print STDERR "Step 1/2: Performing ftp file transfer of requested files\n";
-  system("sed 's|^|ftp://${SERVER}${SERVER_PATH}/|' < manifest.txt | xargs -P 8 wget -q --backups=1 -t 2 --ftp-user $FTP_USER --ftp-password $FTP_PASS -P all");
+  system("sed 's|^|https://${SERVER}${SERVER_PATH}/|' < manifest.txt | xargs -n 20 -P 8 wget -q --backups=1 -t 2 --ftp-user $FTP_USER --ftp-password $FTP_PASS -P all");
 }
 else {
   print STDERR "Step 1/2: Performing rsync file transfer of requested files\n";
