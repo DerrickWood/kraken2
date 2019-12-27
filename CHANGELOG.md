@@ -4,8 +4,11 @@
 
 ### Added
 - Expose --load-factor setting to kraken2-build
+- New --minimum-hit-groups option to kraken2
 
 ### Changed
+- Require 2 hit groups (set of overlapping k-mers w/ same minimizer) to
+  make classification by default
 
 ### Fixed
 - Removed mention of --fastq-input from Manual
