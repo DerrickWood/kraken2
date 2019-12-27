@@ -30,6 +30,7 @@ my $DEF_NT_MINIMIZER_LEN = 31;
 my $DEF_NT_KMER_LEN = 35;
 my $DEF_NT_MINIMIZER_SPACES = 7;
 my $DEF_THREAD_CT = 1;
+my $DEF_LOAD_FACTOR = 0.7;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
                              protozoa fungi human nr nt env_nr env_nt
@@ -48,6 +49,7 @@ my (
   $max_db_size,
   $use_ftp,
   $skip_maps,
+  $load_factor,
 
   $dl_taxonomy,
   $dl_library,
@@ -59,6 +61,7 @@ my (
 );
 
 $threads = $DEF_THREAD_CT;
+$load_factor = $DEF_LOAD_FACTOR;
 $is_protein = 0;
 
 # variables corresponding to task options
@@ -86,6 +89,7 @@ GetOptions(
   "max-db-size=i" => \$max_db_size,
   "use-ftp" => \$use_ftp,
   "skip-maps" => \$skip_maps,
+  "load-factor=f" => \$load_factor,
 
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
@@ -136,6 +140,12 @@ if ($minimizer_len <= 0) {
 if ($minimizer_len > 31) {
   die "Can't use minimizer len of $minimizer_len (must be <= 31)\n";
 }
+if ($load_factor <= 0) {
+  die "Can't have nonnegative load factor of $load_factor\n";
+}
+if ($load_factor > 1) {
+  die "Can't have load factor of $load_factor (must be no more than 1.0).\n";
+}
 
 $ENV{"KRAKEN2_DB_NAME"} = $db;
 $ENV{"KRAKEN2_THREAD_CT"} = $threads;
@@ -148,6 +158,7 @@ $ENV{"KRAKEN2_MASK_LC"} = $no_masking ? "" : 1;
 $ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
 $ENV{"KRAKEN2_USE_FTP"} = $use_ftp ? 1 : "";
 $ENV{"KRAKEN2_SKIP_MAPS"} = $skip_maps ? 1 : "";
+$ENV{"KRAKEN2_LOAD_FACTOR"} = $load_factor;
 
 if ($dl_taxonomy) {
   download_taxonomy();
@@ -225,6 +236,9 @@ Options:
                              --download-library/--download-taxonomy/--standard.
   --skip-maps                Avoids downloading accession number to taxid maps,
                              used with --download-taxonomy.
+  --load-factor FRAC         Proportion of the hash table to be populated
+                             (build task only; def: $DEF_LOAD_FACTOR, must be
+                             between 0 and 1).
 EOF
   exit $exit_code;
 }

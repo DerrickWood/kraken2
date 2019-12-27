@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Expose --load-factor setting to kraken2-build
 
 ### Changed
 
