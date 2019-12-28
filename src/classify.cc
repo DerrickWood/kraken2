@@ -541,7 +541,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
             taxon = last_taxon;
           }
           if (taxon) {
-            if (opts.quick_mode) {
+            if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
               call = taxon;
               goto finished_searching;  // need to break 3 loops here
             }
@@ -564,8 +564,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     total_kmers--;  // account for the mate pair marker
   if (opts.use_translated_search)  // account for reading frame markers
     total_kmers -= opts.paired_end_processing ? 4 : 2;
-  if (! opts.quick_mode)
-    call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
+  call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
   // Void a call made by too few minimizer groups
   if (call && minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;

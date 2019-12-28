@@ -108,7 +108,8 @@
 <p>The <code>kraken2</code> program allows several different options:</p>
 <ul>
 <li><p><strong>Multithreading</strong>: Use the <code>--threads NUM</code> switch to use multiple threads.</p></li>
-<li><p><strong>Quick operation</strong>: Rather than searching all <span class="math inline">ℓ</span>-mers in a sequence, stop classification after the first database hit; use <code>--quick</code> to enable this mode. Note that <code>--min-hits</code> will allow you to require multiple hits before declaring a sequence classified, which can be especially useful with custom databases when testing to see if sequences either do or do not belong to a particular genome.</p></li>
+<li><p><strong>Quick operation</strong>: Rather than searching all <span class="math inline">ℓ</span>-mers in a sequence, stop classification after the first database hit; use <code>--quick</code> to enable this mode.</p></li>
+<li><p><strong>Hit group threshold</strong>: The option <code>--minimum-hit-groups</code> will allow you to require multiple hit groups (a group of overlapping k-mers that share a common minimizer that is found in the hash table) be found before declaring a sequence classified, which can be especially useful with custom databases when testing to see if sequences either do or do not belong to a particular genome.</p></li>
 <li><p><strong>Sequence filtering</strong>: Classified or unclassified sequences can be sent to a file for later processing, using the <code>--classified-out</code> and <code>--unclassified-out</code> switches, respectively.</p></li>
 <li><p><strong>Output redirection</strong>: Output can be directed using standard shell redirection (<code>|</code> or <code>&gt;</code>), or using the <code>--output</code> switch.</p></li>
 <li><p><strong>Compressed input</strong>: Kraken 2 can handle gzip and bzip2 compressed files as input by specifying the proper switch of <code>--gzip-compressed</code> or <code>--bzip2-compressed</code>.</p></li>
@@ -141,18 +142,14 @@
 <p>Kraken 1 offered a <code>kraken-translate</code> and <code>kraken-report</code> script to change the output into different formats. Through the use of <code>kraken2 --use-names</code>, Kraken 2 will replace the taxonomy ID column with the scientific name and the taxonomy ID in parenthesis (e.g., &quot;Bacteria (taxid 2)&quot; instead of &quot;2&quot;), yielding similar functionality to Kraken 1's <code>kraken-translate</code> script. The sample report functionality now exists as part of the <code>kraken2</code> script, with the use of the <code>--report</code> option; the sample report formats are described below.</p>
 <h2 id="sample-report-output-format">Sample Report Output Format</h2>
 <p>Like Kraken 1, Kraken 2 offers two formats of sample-wide results. Kraken 2's standard sample report format is tab-delimited with one line per taxon. The fields of the output, from left-to-right, are as follows:</p>
-<pre><code>1. Percentage of fragments covered by the clade rooted at this taxon
-2. Number of fragments covered by the clade rooted at this taxon
-3. Number of fragments assigned directly to this taxon
-4. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
-   (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
-   Taxa that are not at any of these 10 ranks have a rank code that is
-   formed by using the rank code of the closest ancestor rank with
-   a number indicating the distance from that rank.  E.g., &quot;G2&quot; is a
-   rank code indicating a taxon is between genus and species and the
-   grandparent taxon is at the genus rank.
-5. NCBI taxonomic ID number
-6. Indented scientific name</code></pre>
+<ol style="list-style-type: decimal">
+<li>Percentage of fragments covered by the clade rooted at this taxon</li>
+<li>Number of fragments covered by the clade rooted at this taxon</li>
+<li>Number of fragments assigned directly to this taxon</li>
+<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., &quot;G2&quot; is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
+<li>NCBI taxonomic ID number</li>
+<li>Indented scientific name</li>
+</ol>
 <p>The scientific names are indented using space, according to the tree structure specified by the taxonomy.</p>
 <p>By default, taxa with no reads assigned to (or under) them will not have any output produced. However, if you wish to have all taxa displayed, you can use the <code>--report-zero-counts</code> switch to do so. This can be useful if you are looking to do further downstream analysis of the reports, and want to compare samples. Sorting by the taxonomy ID (using <code>sort -k5,5n</code>) can provide a consistent line ordering between reports.</p>
 <p>In addition, we also provide the option <code>--use-mpa-style</code> that can be used in conjunction with <code>--report</code>. This option provides output in a format similar to MetaPhlAn's output. The output with this option provides one taxon per line, with a lowercase version of the rank codes in Kraken 2's standard sample report format (except for 'U' and 'R'), two underscores, and the scientific name of the taxon (e.g., &quot;d__Viruses&quot;). The full taxonomy of each taxon (at the eight ranks considered) is given, with each rank's name separated by a pipe character (e.g., &quot;d__Viruses|o_Caudovirales&quot;). Following this version of the taxon's scientific name is a tab and the number of fragments assigned to the clade rooted at that taxon.</p>
@@ -215,10 +212,10 @@ done</code></pre>
 <pre><code>kraken2-build --build --db $DBNAME</code></pre></li>
 </ol>
 <p>The <code>--threads</code> option is also helpful here to reduce build time.</p>
-<p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 15 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
+<p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 12 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
 <p>Kraken 2 also utilizes a simple spaced seed approach to increase accuracy. A number <span class="math inline"><em>s</em></span> &lt; <span class="math inline">ℓ</span>/4 can be chosen, and <span class="math inline"><em>s</em></span> positions in the minimizer will be masked out during all comparisons. Masked positions are chosen to alternate from the second-to-last position in the minimizer; e.g., <span class="math inline"><em>s</em></span> = 5 and <span class="math inline">ℓ</span> = 31 will result in masking out the 0 positions shown here:</p>
 <pre><code>   111 1111 1111 1111 1111 1101 0101 0101</code></pre>
-<p>By default, <span class="math inline"><em>s</em></span> = 6 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
+<p>By default, <span class="math inline"><em>s</em></span> = 7 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
 <p>A full list of options for <code>kraken2-build</code> can be obtained using <code>kraken2-build --help</code>.</p>
 <p>After building a database, if you want to reduce the disk usage of the database, you can use the <code>--clean</code> option for <code>kraken2-build</code> to remove intermediate files from the database directory.</p>
 <h1 id="masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</h1>

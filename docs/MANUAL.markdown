@@ -253,8 +253,12 @@ The `kraken2` program allows several different options:
 
 * **Quick operation**: Rather than searching all $\ell$-mers in a sequence,
     stop classification after the first database hit; use `--quick`
-    to enable this mode.  Note that `--min-hits` will allow you to
-    require multiple hits before declaring a sequence classified,
+    to enable this mode.
+
+* **Hit group threshold**: The option `--minimum-hit-groups` will allow
+    you to require multiple hit groups (a group of overlapping k-mers that
+    share a common minimizer that is found in the hash table) be found
+    before declaring a sequence classified,
     which can be especially useful with custom databases when testing
     to see if sequences either do or do not belong to a particular
     genome.
@@ -351,18 +355,18 @@ Kraken 2's standard sample report format is tab-delimited with one
 line per taxon.  The fields of the output, from left-to-right, are
 as follows:
 
-    1. Percentage of fragments covered by the clade rooted at this taxon
-    2. Number of fragments covered by the clade rooted at this taxon
-    3. Number of fragments assigned directly to this taxon
-    4. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
-       (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
-       Taxa that are not at any of these 10 ranks have a rank code that is
-       formed by using the rank code of the closest ancestor rank with
-       a number indicating the distance from that rank.  E.g., "G2" is a
-       rank code indicating a taxon is between genus and species and the
-       grandparent taxon is at the genus rank.
-    5. NCBI taxonomic ID number
-    6. Indented scientific name
+1. Percentage of fragments covered by the clade rooted at this taxon
+2. Number of fragments covered by the clade rooted at this taxon
+3. Number of fragments assigned directly to this taxon
+4. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
+   (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
+   Taxa that are not at any of these 10 ranks have a rank code that is
+   formed by using the rank code of the closest ancestor rank with
+   a number indicating the distance from that rank.  E.g., "G2" is a
+   rank code indicating a taxon is between genus and species and the
+   grandparent taxon is at the genus rank.
+5. NCBI taxonomic ID number
+6. Indented scientific name
 
 The scientific names are indented using space, according to the tree
 structure specified by the taxonomy.
@@ -525,7 +529,7 @@ To build a custom database:
    The `--threads` option is also helpful here to reduce build time.
 
    By default, the values of $k$ and $\ell$ are 35 and 31, respectively (or
-   15 and 15 for protein databases).  These values can be explicitly set
+   15 and 12 for protein databases).  These values can be explicitly set
    with the `--kmer-len` and `minimizer-len` options, however.  Note that
    the minimizer length must be no more than 31 for nucleotide databases,
    and 15 for protein databases.  Additionally, the minimizer length $\ell$
@@ -542,7 +546,7 @@ To build a custom database:
 
        111 1111 1111 1111 1111 1101 0101 0101
 
-   By default, $s$ = 6 for nucleotide databases, and $s$ = 0 for
+   By default, $s$ = 7 for nucleotide databases, and $s$ = 0 for
    protein databases.  This can be changed using the `--minimizer-spaces`
    option along with the `--build` task of `kraken2-build`.
 
