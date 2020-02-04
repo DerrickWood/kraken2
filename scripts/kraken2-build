@@ -45,7 +45,7 @@ my (
   $kmer_len,
   $minimizer_spaces,
   $is_protein,
-  $no_masking,
+  $masking,
   $max_db_size,
   $use_ftp,
   $skip_maps,
@@ -60,9 +60,17 @@ my (
   $special,
 );
 
-$threads = $DEF_THREAD_CT;
-$load_factor = $DEF_LOAD_FACTOR;
-$is_protein = 0;
+# Initialization of defaults and env. var checks
+$db = $ENV{"KRAKEN2_DB_NAME"};
+$threads = $ENV{"KRAKEN2_THREAD_CT"} || $DEF_THREAD_CT;
+$load_factor = $ENV{"KRAKEN2_LOAD_FACTOR"} || $DEF_LOAD_FACTOR;
+$kmer_len = $ENV{"KRAKEN2_KMER_LEN"};
+$minimizer_len = $ENV{"KRAKEN2_MINIMIZER_LEN"};
+$minimizer_spaces = $ENV{"KRAKEN2_MINIMIZER_SPACES"};
+$is_protein = $ENV{"KRAKEN2_PROTEIN_DB"} || 0;
+$use_ftp = $ENV{"KRAKEN2_USE_FTP"} || 0;
+$skip_maps = $ENV{"KRAKEN2_SKIP_MAPS"} || 0;
+$masking = exists $ENV{"KRAKEN2_MASK_LC"} ? $ENV{"KRAKEN2_MASK_LC"} : 1;
 
 # variables corresponding to task options
 my @TASK_LIST = (
@@ -85,7 +93,7 @@ GetOptions(
   "kmer-len=i" => \$kmer_len,
   "minimizer-spaces=i", \$minimizer_spaces,
   "protein" => \$is_protein,
-  "no-masking" => \$no_masking,
+  "masking!" => \$masking,
   "max-db-size=i" => \$max_db_size,
   "use-ftp" => \$use_ftp,
   "skip-maps" => \$skip_maps,
@@ -154,7 +162,7 @@ $ENV{"KRAKEN2_KMER_LEN"} = $kmer_len;
 $ENV{"KRAKEN2_MINIMIZER_SPACES"} = $minimizer_spaces;
 $ENV{"KRAKEN2_SEED_TEMPLATE"} = construct_seed_template();
 $ENV{"KRAKEN2_PROTEIN_DB"} = $is_protein ? 1 : "";
-$ENV{"KRAKEN2_MASK_LC"} = $no_masking ? "" : 1;
+$ENV{"KRAKEN2_MASK_LC"} = $masking ? 1 : "";
 $ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
 $ENV{"KRAKEN2_USE_FTP"} = $use_ftp ? 1 : "";
 $ENV{"KRAKEN2_SKIP_MAPS"} = $skip_maps ? 1 : "";

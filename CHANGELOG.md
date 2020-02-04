@@ -9,6 +9,8 @@
 ### Changed
 - Require 2 hit groups (set of overlapping k-mers w/ same minimizer) to
   make classification by default
+- Allow build options to pass through to subsequent invocations (e.g.,
+  k-mer length for 16S DBs)
 
 ### Fixed
 - Removed mention of --fastq-input from Manual
