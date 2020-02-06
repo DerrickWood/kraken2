@@ -313,7 +313,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
             taxa, hit_counts, translated_frames);
         if (call) {
           char buffer[1024] = "";
-          sprintf(buffer, " kraken:taxid|%lu", tax.nodes()[call].external_id);
+          sprintf(buffer, " kraken:taxid|%llu",
+			  (unsigned long long) tax.nodes()[call].external_id);
           seq1.header += buffer;
           seq2.header += buffer;
           c1_oss << seq1.to_string();
