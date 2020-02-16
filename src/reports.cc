@@ -114,7 +114,9 @@ void PrintKrakenStyleReportLine(ofstream &ofs, uint64_t total_seqs, uint64_t cla
 // Depth-first search of taxonomy tree, reporting info at each node
 void KrakenReportDFS(uint32_t taxid, ofstream &ofs, bool report_zeros,
     Taxonomy &taxonomy, taxon_counts_t &clade_counts,
-    taxon_counts_t &call_counts, uint64_t total_seqs,
+    taxon_counts_t &call_counts, 
+    std::unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& uniq_clade_counts, 
+    uint64_t total_seqs,
     char rank_code, int rank_depth, int depth)
 {
   // Clade count of 0 means all subtree nodes have clade count of 0
@@ -157,13 +159,15 @@ void KrakenReportDFS(uint32_t taxid, ofstream &ofs, bool report_zeros,
     );
     for (auto child : children) {
       KrakenReportDFS(child, ofs, report_zeros, taxonomy, clade_counts, call_counts,
-          total_seqs, rank_code, rank_depth, depth + 1);
+        uniq_clade_counts, total_seqs, rank_code, rank_depth, depth + 1);
     }
   }
 }
 
 void ReportKrakenStyle(string filename, bool report_zeros, Taxonomy &taxonomy,
-    taxon_counts_t &call_counts, uint64_t total_seqs, uint64_t total_unclassified)
+    taxon_counts_t &call_counts,                   
+    std::unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& uniq_clade_counts, 
+    uint64_t total_seqs, uint64_t total_unclassified)
 {
   taxon_counts_t clade_counts = GetCladeCounts(taxonomy, call_counts);
 
@@ -175,7 +179,7 @@ void ReportKrakenStyle(string filename, bool report_zeros, Taxonomy &taxonomy,
                                total_unclassified, "U", 0, "unclassified", 0);
   // DFS through the taxonomy, printing nodes as encountered
   KrakenReportDFS(1, ofs, report_zeros, taxonomy, clade_counts, call_counts,
-                  total_seqs, 'R', -1, 0);
+                  uniq_clade_counts, total_seqs, 'R', -1, 0);
 }
 
 }  // end namespace

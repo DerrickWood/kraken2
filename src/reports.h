@@ -7,9 +7,12 @@
 #ifndef KRAKEN2_REPORTS_H_
 #define KRAKEN2_REPORTS_H_
 
+#include <unordered_map>
 #include "kraken2_headers.h"
 #include "taxonomy.h"
 #include "kraken2_data.h"
+#include "hyperloglogplus.h"
+#include "readcounts.h"
 
 namespace kraken2 {
 
@@ -25,10 +28,12 @@ void PrintKrakenStyleReportLine(std::ofstream &ofs, uint64_t total_seqs, uint64_
     const std::string &rank_str, uint32_t taxid, const std::string &sci_name, int depth);
 void KrakenReportDFS(uint32_t taxid, std::ofstream &ofs, bool report_zeros,
     Taxonomy &taxonomy, taxon_counts_t &clade_counts,
-    taxon_counts_t &call_counts, uint64_t total_seqs,
-    char rank_code, int rank_depth, int depth);
+    unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& uniq_clade_counts, 
+    uint64_t total_seqs, char rank_code, int rank_depth, int depth);
 void ReportKrakenStyle(std::string filename, bool report_zeros, Taxonomy &taxonomy,
-    taxon_counts_t &call_counts, uint64_t total_seqs, uint64_t total_unclassified);
+    taxon_counts_t &call_counts, 
+    std::unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& total_taxon_counts, 
+    uint64_t total_seqs, uint64_t total_unclassified);
 
 }
 
