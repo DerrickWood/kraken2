@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -51,6 +51,7 @@ struct Options {
   bool paired_end_processing;
   bool single_file_pairs;
   int minimum_quality_score;
+  int minimum_hit_groups;
   bool use_memory_mapping;
 };
 
@@ -112,6 +113,7 @@ int main(int argc, char **argv) {
   opts.use_translated_search = false;
   opts.print_scientific_name = false;
   opts.minimum_quality_score = 0;
+  opts.minimum_hit_groups = 0;
   opts.use_memory_mapping = false;
   unordered_map<taxid_t, READCOUNTER> taxon_counts; // stats per taxon
   ParseCommandLine(argc, argv, opts);
@@ -316,7 +318,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
             taxa, hit_counts, translated_frames, curr_taxon_counts);
         if (call) {
           char buffer[1024] = "";
-          sprintf(buffer, " kraken:taxid|%lu", tax.nodes()[call].external_id);
+          sprintf(buffer, " kraken:taxid|%llu",
+			  (unsigned long long) tax.nodes()[call].external_id);
           seq1.header += buffer;
           seq2.header += buffer;
           c1_oss << seq1.to_string();
@@ -501,6 +504,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   taxa.clear();
   hit_counts.clear();
   auto frame_ct = opts.use_translated_search ? 6 : 1;
+  int64_t minimizer_hit_groups = 0;
 
   for (int mate_num = 0; mate_num < 2; mate_num++) {
     if (mate_num == 1 && ! opts.paired_end_processing)
@@ -537,12 +541,16 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
               taxon = hash->Get(*minimizer_ptr);
             last_taxon = taxon;
             last_minimizer = *minimizer_ptr;
+            // Increment this only if (a) we have DB hit and
+            // (b) minimizer != last minimizer
+            if (taxon)
+              minimizer_hit_groups++;
           }
           else {
             taxon = last_taxon;
           }
           if (taxon) {
-            if (opts.quick_mode) {
+            if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
               call = taxon;
               goto finished_searching;  // need to break 3 loops here
             }
@@ -566,8 +574,10 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     total_kmers--;  // account for the mate pair marker
   if (opts.use_translated_search)  // account for reading frame markers
     total_kmers -= opts.paired_end_processing ? 4 : 2;
-  if (! opts.quick_mode)
-    call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
+  call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
+  // Void a call made by too few minimizer groups
+  if (call && minimizer_hit_groups < opts.minimum_hit_groups)
+    call = 0;
 
   if (call) {
       stats.total_classified++;
@@ -725,7 +735,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:nmzqPSM")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSM")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -752,6 +762,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
         opts.num_threads = atoi(optarg);
         if (opts.num_threads < 1)
           errx(EX_USAGE, "number of threads can't be less than 1");
+        break;
+      case 'g' :
+        opts.minimum_hit_groups = atoi(optarg);
         break;
       case 'P' :
         opts.paired_end_processing = true;
@@ -822,6 +835,7 @@ void usage(int exit_code) {
        << "  -m               In comb. w/ -R, use mpa-style report" << endl
        << "  -z               In comb. w/ -R, report taxa w/ 0 count" << endl
        << "  -n               Print scientific name instead of taxid in Kraken output" << endl
+       << "  -g NUM           Minimum number of hit groups needed for call" << endl
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl;

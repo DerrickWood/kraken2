@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -60,6 +60,8 @@ class Taxonomy {
 
   void GenerateExternalToInternalIDMap();
   uint64_t GetInternalID(uint64_t external_id) {
+    if (external_to_internal_id_map_.count(external_id) == 0)
+      return 0;
     return external_to_internal_id_map_[external_id];
   }
 

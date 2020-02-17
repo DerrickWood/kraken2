@@ -3,12 +3,19 @@
 ## Unreleased
 
 ### Added
+- Expose --load-factor setting to kraken2-build
+- New --minimum-hit-groups option to kraken2
 
 ### Changed
+- Require 2 hit groups (set of overlapping k-mers w/ same minimizer) to
+  make classification by default
+- Allow build options to pass through to subsequent invocations (e.g.,
+  k-mer length for 16S DBs)
 
 ### Fixed
 - Removed mention of --fastq-input from Manual
 - Made PE read identifier suffix trimming more restrictive (only on /1 and /2)
+- Bug where some reads would be classified with taxid 0
 
 ## [2.0.8] - 2019-04-25 (beta)
 

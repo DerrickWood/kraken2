@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -286,6 +286,7 @@ void Taxonomy::WriteToDisk(const char *filename) {
 }
 
 void Taxonomy::GenerateExternalToInternalIDMap() {
+  external_to_internal_id_map_[0] = 0;
   for (size_t i = 1; i < node_count_; i++) {
     external_to_internal_id_map_[nodes_[i].external_id] = i;
   }

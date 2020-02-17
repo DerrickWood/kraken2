@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -149,6 +149,7 @@ void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
         auto all_sequence_ids = ExtractNCBISequenceIDs(sequence.header);
         uint64_t taxid = 0;
         for (auto &seqid : all_sequence_ids) {
+          if (ID_to_taxon_map.count(seqid) == 0) continue;
           auto ext_taxid = ID_to_taxon_map[seqid];
           taxid = taxonomy.LowestCommonAncestor(taxid, taxonomy.GetInternalID(ext_taxid));
         }

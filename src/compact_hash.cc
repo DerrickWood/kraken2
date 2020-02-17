@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -83,7 +83,7 @@ void CompactHashTable::LoadTable(const char *filename, bool memory_mapping) {
     ifs.read((char *) &value_bits_, sizeof(value_bits_));
     try {
       table_ = new CompactHashCell[capacity_];
-    } catch (std::bad_alloc ex) {
+    } catch (std::bad_alloc &ex) {
       std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
                 << "you may not have enough free memory to load this database.\n"
                 << "If your computer has enough RAM, perhaps reducing memory usage from\n"

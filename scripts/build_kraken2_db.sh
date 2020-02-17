@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2013-2019, Derrick Wood <dwood@cs.jhu.edu>
+# Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
 #
 # This file is part of the Kraken 2 taxonomic sequence classification system.
 
@@ -99,7 +99,7 @@ echo "Estimating required capacity (step 2)..."
 
 step_time=$(get_current_time)
 estimate=$(list_sequence_files | xargs -0 cat | estimate_capacity -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE -p $KRAKEN2_THREAD_CT $KRAKEN2XFLAG )
-required_capacity=$(perl -le 'print int(shift() / 0.7)' $estimate);
+required_capacity=$(perl -le 'print int(shift() / shift())' $estimate $KRAKEN2_LOAD_FACTOR);
 
 echo "Estimated hash table requirement: $(( required_capacity * 4 )) bytes"
 
