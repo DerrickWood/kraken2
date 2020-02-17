@@ -59,9 +59,9 @@ void ReportKrakenStyle(std::string filename, bool report_zeros, Taxonomy &taxono
                 }
             }
 
-//#ifdef _OPENMP
-//#pragma omp parallel for schedule(dynamic, 50)
-//#endif
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 50)
+#endif
             for (size_t i = 0; i < _children.size(); ++i) {
 
                 auto cit = _children.begin();
@@ -72,9 +72,9 @@ void ReportKrakenStyle(std::string filename, bool report_zeros, Taxonomy &taxono
                     rc += *counter;
                 }
 
-//#ifdef _OPENMP
-//#pragma omp critical(update_clade_counts)
-//#endif
+#ifdef _OPENMP
+#pragma omp critical(update_clade_counts)
+#endif
                 {
                     _cladeCounts.insert( std::make_pair( cit->first, std::move(rc) ) );
                 }
