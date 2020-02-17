@@ -555,7 +555,8 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
               goto finished_searching;  // need to break 3 loops here
             }
             hit_counts[taxon]++;
-            curr_taxon_counts[taxon].add_kmer(*minimizer_ptr);
+//            curr_taxon_counts[taxon].add_kmer(*minimizer_ptr);
+            curr_taxon_counts[taxon].add_kmer(scanner.lmer_);
           }
         }
         taxa.push_back(taxon);

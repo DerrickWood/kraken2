@@ -43,6 +43,7 @@ class MinimizerScanner {
   ssize_t k() { return k_; }
   ssize_t l() { return l_; }
   bool is_dna() { return dna_; }
+  uint64_t lmer_;
 
   private:
   uint64_t reverse_complement(uint64_t kmer, uint8_t n);
@@ -56,7 +57,6 @@ class MinimizerScanner {
   uint64_t spaced_seed_mask_;
   bool dna_;
   uint64_t toggle_mask_;
-  uint64_t lmer_;
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
   ssize_t loaded_ch_;
