@@ -40,8 +40,8 @@ namespace kraken2 {
     }
 
 
-    ReadCounts(uint64_t _n_reads, uint64_t _n_kmers, const CONTAINER& _kmers) :
-            n_reads(_n_reads), n_kmers(_n_kmers), kmers(_kmers) {
+    ReadCounts(uint64_t _n_reads, uint64_t _n_kmer) :
+            n_reads(_n_reads), n_kmers(_n_kmer) {
     }
 
     //ReadCounts(const ReadCounts& other) = delete;

@@ -31,6 +31,7 @@ static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
+using READCOUNTER = ReadCounts<HyperLogLogPlusMinus<uint64_t>>;
 
 struct Options {
   string index_filename;
@@ -84,12 +85,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs, taxon_counts_t &call_counts,
-    unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>&  total_taxon_counts);
+    unordered_map<taxid_t, READCOUNTER>&  total_taxon_counts);
 taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     KeyValueStore *hash, Taxonomy &tax, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
-    vector<string> &tx_frames, unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& my_taxon_counts);
+    vector<string> &tx_frames, unordered_map<taxid_t, READCOUNTER>& my_taxon_counts);
 void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy);
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
@@ -112,7 +113,7 @@ int main(int argc, char **argv) {
   opts.print_scientific_name = false;
   opts.minimum_quality_score = 0;
   opts.use_memory_mapping = false;
-  unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >> taxon_counts; // stats per taxon
+  unordered_map<taxid_t, READCOUNTER> taxon_counts; // stats per taxon
   ParseCommandLine(argc, argv, opts);
 
   omp_set_num_threads(opts.num_threads);
@@ -167,10 +168,10 @@ int main(int argc, char **argv) {
           call_counts);
     else {
       auto total_unclassified = stats.total_sequences - stats.total_classified;
-      //TaxReport<uint32_t,READCOUNTS> rep = TaxReport<uint32_t, READCOUNTS>(*opts.report_filename, taxonomy, taxon_counts, false);
-
-      ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
-         call_counts, taxon_counts, stats.total_sequences, total_unclassified);
+      TaxReport<READCOUNTER> taxreport(taxonomy, taxon_counts, opts.report_zero_counts);
+      taxreport.ReportKrakenStyle(opts.report_filename, stats.total_sequences, total_unclassified);
+       //ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
+      //   call_counts, taxon_counts, stats.total_sequences, total_unclassified);
     }
   }
 
@@ -213,7 +214,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs, taxon_counts_t &call_counts, 
-    unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>&  total_taxon_counts)
+    unordered_map<taxid_t, READCOUNTER>&  total_taxon_counts)
 {
   std::istream *fptr1 = nullptr, *fptr2 = nullptr;
 
@@ -293,7 +294,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
       c2_oss.str("");
       u1_oss.str("");
       u2_oss.str("");
-      unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >> curr_taxon_counts;
+      unordered_map<taxid_t, READCOUNTER> curr_taxon_counts;
       while (true) {
         auto valid_fragment = reader1.NextSequence(seq1);
         if (opts.paired_end_processing && valid_fragment) {
@@ -392,7 +393,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
           break;
         // Past this point in loop, we know lock is set
         for (auto it = curr_taxon_counts.begin(); it != curr_taxon_counts.end(); ++it) {
-          total_taxon_counts[it->first] += std::move(it->second);
+            total_taxon_counts[it->first] += std::move(it->second);
         }
         if (outputs.kraken_output != nullptr)
           (*outputs.kraken_output) << out_data.kraken_str;
@@ -493,7 +494,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames, 
-    unordered_map<uint32_t, ReadCounts<HyperLogLogPlusMinus<uint64_t> >>& curr_taxon_counts)
+    unordered_map<taxid_t, READCOUNTER >& curr_taxon_counts)
 {
   uint64_t *minimizer_ptr;
   taxid_t call = 0;
@@ -546,10 +547,10 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
               goto finished_searching;  // need to break 3 loops here
             }
             hit_counts[taxon]++;
+            curr_taxon_counts[taxon].add_kmer(*minimizer_ptr);
           }
         }
         taxa.push_back(taxon);
-        curr_taxon_counts[taxon].add_kmer(*minimizer_ptr);
       }
       if (opts.use_translated_search && frame_idx != 5)
         taxa.push_back(READING_FRAME_BORDER_TAXON);
@@ -568,8 +569,10 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   if (! opts.quick_mode)
     call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
 
-  if (call)
-    stats.total_classified++;
+  if (call) {
+      stats.total_classified++;
+      curr_taxon_counts[call].incrementReadCount();
+  }
 
   if (call)
     koss << "C\t";
