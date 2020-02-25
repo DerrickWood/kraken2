@@ -25,7 +25,6 @@
 #include <unordered_set>
 
 namespace kraken2 {
-  static size_t HLL_PRECISION = 14;
 
   template <typename CONTAINER>
   class ReadCounts {

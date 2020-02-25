@@ -3,7 +3,7 @@ CXXFLAGS += -DLINEAR_PROBING
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify lookup_accession_numbers
+PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers
 
 all: $(PROGS)
 
@@ -30,6 +30,6 @@ classify: classify.cc reports.o hyperloglogplus.o mmap_file.o compact_hash.o tax
 
 estimate_capacity: estimate_capacity.cc seqreader.o mmscanner.o omp_hack.o utilities.o
 
-#dump_table: dump_table.cc mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o
+dump_table: dump_table.cc mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o
 
 lookup_accession_numbers: lookup_accession_numbers.cc mmap_file.o omp_hack.o utilities.o
