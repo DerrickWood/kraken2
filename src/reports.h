@@ -160,7 +160,7 @@ void ReportKrakenStyle(std::string filename, bool report_zeros, Taxonomy &taxono
             const auto r_it = _taxCounts.find(taxid);
             const bool has_tax_data = r_it != _taxCounts.end();
 
-            ofs << setprecision(2) << 100.0*rc.readCount()/total_sequences << "\t"
+            ofs << setprecision(4) << 100.0*rc.readCount()/total_sequences << "\t"
                 << rc.readCount() << "\t"
                 << (has_tax_data? r_it->second.readCount() : 0) << "\t"
                 << rc.kmerCount() << "\t"
