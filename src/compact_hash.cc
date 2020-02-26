@@ -190,7 +190,7 @@ taxon_counts_t CompactHashTable::GetValueCounts() {
   int thread_ct = omp_get_max_threads();
   taxon_counts_t thread_value_counts[thread_ct];
   #pragma omp parallel for
-  for (auto i = 0u; i < capacity_; i++) {
+  for (size_t i = 0; i < capacity_; i++) {
     auto val = table_[i].value(value_bits_);
     if (val)
       thread_value_counts[omp_get_thread_num()][val]++;

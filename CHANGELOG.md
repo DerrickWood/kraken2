@@ -16,6 +16,7 @@
 - Removed mention of --fastq-input from Manual
 - Made PE read identifier suffix trimming more restrictive (only on /1 and /2)
 - Bug where some reads would be classified with taxid 0
+- Bug that didn't allow kraken2-inspect to work with large databases
 
 ## [2.0.8] - 2019-04-25 (beta)
 
