@@ -5,5 +5,5 @@ all:
 	       --from markdown --to html \
 	       --table-of-contents \
 	       --css kraken.css \
-	       --output MANUAL.html \
+	       --output index.html \
 	       < MANUAL.markdown
