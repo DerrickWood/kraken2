@@ -33,7 +33,7 @@ my $DEF_THREAD_CT = 1;
 my $DEF_LOAD_FACTOR = 0.7;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
-                             protozoa fungi human nr nt env_nr env_nt
+                             protozoa fungi human nr nt
                              UniVec UniVec_Core/;
 my @VALID_SPECIAL_DB_TYPES = qw/greengenes silva rdp/;
 
@@ -206,7 +206,7 @@ Task options (exactly one must be selected):
   --download-library TYPE    Download partial library
                              (TYPE = one of "archaea", "bacteria", "plasmid",
                              "viral", "human", "fungi", "plant", "protozoa",
-                             "nr", "nt", "env_nr", "env_nt", "UniVec",
+                             "nr", "nt", "UniVec",
                              "UniVec_Core")
   --special TYPE             Download and build a special database
                              (TYPE = one of "greengenes", "silva", "rdp")
