@@ -74,9 +74,9 @@ case $library_name in
     scan_fasta_file.pl $library_file > prelim_map.txt
     1>&2 echo " done."
     ;;
-  "env_nr" | "nr" | "env_nt" | "nt")
+  "nr" | "nt")
     protein_lib=0
-    if [ "$library_name" = "env_nr" ] || [ "$library_name" = "nr" ]; then
+    if [ "$library_name" = "nr" ]; then
       protein_lib=1
     fi
     if (( protein_lib == 1 )) && [ -z "$KRAKEN2_PROTEIN_DB" ]; then
@@ -119,7 +119,7 @@ case $library_name in
   *)
     1>&2 echo "Unsupported library.  Valid options are: "
     1>&2 echo "  archaea bacteria viral fungi plant protozoa human plasmid"
-    1>&2 echo "  nr nt env_nr env_nt UniVec UniVec_Core"
+    1>&2 echo "  nr nt UniVec UniVec_Core"
     exit 1
     ;;
 esac
