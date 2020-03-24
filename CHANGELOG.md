@@ -13,6 +13,7 @@
   k-mer length for 16S DBs)
 - Removed env options for library downloads (no longer available from
   same NCBI location)
+- Updated SILVA to release 138
 
 ### Fixed
 - Removed mention of --fastq-input from Manual
