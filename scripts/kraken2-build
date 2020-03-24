@@ -206,8 +206,7 @@ Task options (exactly one must be selected):
   --download-library TYPE    Download partial library
                              (TYPE = one of "archaea", "bacteria", "plasmid",
                              "viral", "human", "fungi", "plant", "protozoa",
-                             "nr", "nt", "UniVec",
-                             "UniVec_Core")
+                             "nr", "nt", "UniVec", "UniVec_Core")
   --special TYPE             Download and build a special database
                              (TYPE = one of "greengenes", "silva", "rdp")
   --add-to-library FILE      Add FILE to library
