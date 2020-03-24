@@ -11,6 +11,8 @@
   make classification by default
 - Allow build options to pass through to subsequent invocations (e.g.,
   k-mer length for 16S DBs)
+- Removed env options for library downloads (no longer available from
+  same NCBI location)
 
 ### Fixed
 - Removed mention of --fastq-input from Manual

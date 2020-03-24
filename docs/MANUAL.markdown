@@ -447,10 +447,6 @@ To build a custom database:
     - `protozoa`: RefSeq complete protozoan genomes/proteins
     - `nr`: NCBI non-redundant protein database
     - `nt`: NCBI non-redundant nucleotide database
-    - `env_nr`: NCBI non-redundant protein database with sequences from
-      large environmental sequencing projects
-    - `env_nt`: NCBI non-redundant nucleotide database with sequences from
-      large environmental sequencing projects
     - `UniVec`: NCBI-supplied database of vector, adapter, linker, and
       primer sequences that may be contaminating sequencing projects and/or
       assemblies
@@ -473,7 +469,7 @@ To build a custom database:
     be used after downloading these libraries to actually build the database,
     however.
 
-    (Note that downloading `nr` or `env_nr` require use of the `--protein`
+    (Note that downloading `nr` requires use of the `--protein`
       option, and that `UniVec` and `UniVec_Core` are incompatible with
       the `--protein` option.)
 

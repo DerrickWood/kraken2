@@ -176,8 +176,6 @@
 <li><code>protozoa</code>: RefSeq complete protozoan genomes/proteins</li>
 <li><code>nr</code>: NCBI non-redundant protein database</li>
 <li><code>nt</code>: NCBI non-redundant nucleotide database</li>
-<li><code>env_nr</code>: NCBI non-redundant protein database with sequences from large environmental sequencing projects</li>
-<li><code>env_nt</code>: NCBI non-redundant nucleotide database with sequences from large environmental sequencing projects</li>
 <li><code>UniVec</code>: NCBI-supplied database of vector, adapter, linker, and primer sequences that may be contaminating sequencing projects and/or assemblies</li>
 <li><code>UniVec_Core</code>: A subset of UniVec chosen to minimize false positive hits to the vector database</li>
 </ul>
@@ -187,7 +185,7 @@
 <pre><code>kraken2-build --download-library archaea --db $DBNAME
 kraken2-build --download-library viral --db $DBNAME</code></pre>
 <p>The above commands would prepare a database that would contain archaeal and viral genomes; the <code>--build</code> option (see below) will still need to be used after downloading these libraries to actually build the database, however.</p>
-<p>(Note that downloading <code>nr</code> or <code>env_nr</code> require use of the <code>--protein</code> option, and that <code>UniVec</code> and <code>UniVec_Core</code> are incompatible with the <code>--protein</code> option.)</p>
+<p>(Note that downloading <code>nr</code> requires use of the <code>--protein</code> option, and that <code>UniVec</code> and <code>UniVec_Core</code> are incompatible with the <code>--protein</code> option.)</p>
 Other genomes can also be added, but such genomes must meet certain requirements:
 <ul>
 <li>Sequences must be in a FASTA file (multi-FASTA is allowed)</li>
