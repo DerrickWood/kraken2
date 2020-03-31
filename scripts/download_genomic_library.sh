@@ -36,7 +36,7 @@ function download_file() {
 }
 
 case $library_name in
-  "archaea" | "bacteria" | "viral" | "fungi" | "plant" | "human" | "protozoa")
+  "archaea" | "bacteria" | "viral" | "fungi" | "plant" | "human" | "protozoa" | "invertebrate" | "vertebrate_mammalian" | "vertebrate_other")
     mkdir -p $LIBRARY_DIR/$library_name
     cd $LIBRARY_DIR/$library_name
     rm -f assembly_summary.txt
