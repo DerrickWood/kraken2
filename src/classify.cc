@@ -42,8 +42,8 @@ struct Options {
   string kraken_output_filename;
   bool mpa_style_report;
   bool quick_mode;
-  bool queries_are_proteins;
   bool report_zero_counts;
+  bool queries_are_proteins;
   bool use_translated_search;
   bool print_scientific_name;
   double confidence_threshold;
@@ -500,6 +500,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   taxa.clear();
   hit_counts.clear();
   auto frame_ct = opts.use_translated_search && !opts.queries_are_proteins ? 6 : 1;
+
   int64_t minimizer_hit_groups = 0;
 
   for (int mate_num = 0; mate_num < 2; mate_num++) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+# Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
 #
 # This file is part of the Kraken 2 taxonomic sequence classification system.
 
@@ -13,7 +13,7 @@ use File::Basename;
 use Getopt::Long;
 
 my $PROG = basename $0;
-my $KRAKEN2_DIR = "#####=KRAKEN2_DIR=#####";
+my $KRAKEN2_DIR = '#####=KRAKEN2_DIR=#####';
 
 # Test to see if the executables got moved, try to recover if we can
 if (! -e "$KRAKEN2_DIR/classify") {
@@ -105,6 +105,6 @@ sub display_help {
 
 sub display_version {
   print "Kraken version #####=VERSION=#####\n";
-  print "Copyright 2013-2018, Derrick Wood (dwood\@cs.jhu.edu)\n";
+  print "Copyright 2013-2020, Derrick Wood (dwood\@cs.jhu.edu)\n";
   exit 0;
 }

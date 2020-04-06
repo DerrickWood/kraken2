@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+ * Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
@@ -83,7 +83,7 @@ void CompactHashTable::LoadTable(const char *filename, bool memory_mapping) {
     ifs.read((char *) &value_bits_, sizeof(value_bits_));
     try {
       table_ = new CompactHashCell[capacity_];
-    } catch (std::bad_alloc ex) {
+    } catch (std::bad_alloc &ex) {
       std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
                 << "you may not have enough free memory to load this database.\n"
                 << "If your computer has enough RAM, perhaps reducing memory usage from\n"
@@ -190,7 +190,7 @@ taxon_counts_t CompactHashTable::GetValueCounts() {
   int thread_ct = omp_get_max_threads();
   taxon_counts_t thread_value_counts[thread_ct];
   #pragma omp parallel for
-  for (auto i = 0u; i < capacity_; i++) {
+  for (size_t i = 0; i < capacity_; i++) {
     auto val = table_[i].value(value_bits_);
     if (val)
       thread_value_counts[omp_get_thread_num()][val]++;

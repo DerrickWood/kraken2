@@ -3,11 +3,34 @@
 ## Unreleased
 
 ### Added
+- Expose --load-factor setting to kraken2-build
+- New --minimum-hit-groups option to kraken2
+
+### Changed
+- Require 2 hit groups (set of overlapping k-mers w/ same minimizer) to
+  make classification by default
+- Allow build options to pass through to subsequent invocations (e.g.,
+  k-mer length for 16S DBs)
+- Removed env options for library downloads (no longer available from
+  same NCBI location)
+- Updated SILVA to release 138
+
+### Fixed
+- Removed mention of --fastq-input from Manual
+- Made PE read identifier suffix trimming more restrictive (only on /1 and /2)
+- Bug where some reads would be classified with taxid 0
+- Bug that didn't allow kraken2-inspect to work with large databases
+
+## [2.0.8] - 2019-04-25 (beta)
+
+### Added
 - FTP downloading option for taxonomy/libraries (--use-ftp for kraken2-build)
 - Option to skip downloading taxonomy maps
 
 ### Changed
 - Added lookup table to speed up parsing in MinimizerScanner class
+- Default parameters for minimizer lengths and spaces changed (spaces=7 for
+  nucleotide search, length=12 for translated search)
 
 ### Fixed
 - Linked space expansion value for proteins to constant used by MinimizerScanner
@@ -16,6 +39,7 @@
   unclassified
 - Reverse complement shifting bug, code made backwards-compatible with
   existing databases (newly created DBs will have fix)
+- NCBI taxonomy download error due to removal of EST/GSS files
 
 ## [2.0.7] - 2018-08-11 (beta)
 

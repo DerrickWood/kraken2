@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+# Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
 #
 # This file is part of the Kraken 2 taxonomic sequence classification system.
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2013-2018, Derrick Wood <dwood@cs.jhu.edu>
+# Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
 #
 # This file is part of the Kraken 2 taxonomic sequence classification system.
 
@@ -32,7 +32,7 @@ if [ ! -e "accmap.dlflag" ] && [ -z "$KRAKEN2_SKIP_MAPS" ]
 then
   if [ -z "$KRAKEN2_PROTEIN_DB" ]
   then
-    for subsection in est gb gss wgs
+    for subsection in gb wgs
     do
       1>&2 echo -n "Downloading nucleotide ${subsection} accession to taxon map..."
       download_file "/pub/taxonomy/accession2taxid/nucl_${subsection}.accession2taxid.gz"

@@ -1,18 +1,18 @@
 Introduction
 ============
 
-[Kraken] is a taxonomic sequence classifier that assigns taxonomic
+Kraken is a taxonomic sequence classifier that assigns taxonomic
 labels to DNA sequences.  Kraken examines the $k$-mers within
 a query sequence and uses the information within those $k$-mers
 to query a database.  That database maps $k$-mers to the lowest
 common ancestor (LCA) of all genomes known to contain a given $k$-mer.
 
-The first version of Kraken used a large indexed and sorted list of
+The first version of [Kraken] used a large indexed and sorted list of
 $k$-mer/LCA pairs as its database.  While fast, the large memory
 requirements posed some problems for users, and so Kraken 2 was
 created to provide a solution to those problems.
 
-Kraken 2 differs from Kraken 1 in several important ways:
+[Kraken 2] differs from Kraken 1 in several important ways:
 
 1. Only minimizers of the $k$-mers in the query sequences are used
 as database queries.  Similarly, only minimizers of the $k$-mers in
@@ -47,12 +47,13 @@ Kraken 2 database to be quite similar to the full-sized Kraken 2 database,
 while Kraken 1's MiniKraken databases often resulted in a substantial loss
 of per-read sensitivity.
 
-The Kraken 2 paper is currently under preparation.  Until it is released,
-please cite the original [Kraken paper] if you use Kraken 2 in your research.
-Thank you!
+If you use Kraken 2 in your own work, please cite either the
+[Kraken 2 paper] and/or the original [Kraken paper] as appropriate.  Thank you!
 
-[Kraken]: http://ccb.jhu.edu/software/kraken/
-[Kraken paper]: http://genomebiology.com/2014/15/3/R46
+[Kraken]: https://ccb.jhu.edu/software/kraken/
+[Kraken 2]: https://ccb.jhu.edu/software/kraken2/
+[Kraken paper]: https://genomebiology.biomedcentral.com/articles/10.1186/gb-2014-15-3-r46
+[Kraken 2 paper]: https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1891-0
 
 
 System Requirements
@@ -157,7 +158,7 @@ you see the message "`Kraken 2 installation complete.`"
 Once installation is complete, you may want to copy the main Kraken 2
 scripts into a directory found in your `PATH` variable (e.g., "`$HOME/bin`"):
 
-    cp $KRAKEN2_DIR/bin/kraken2{,-build,-inspect} $HOME/bin
+    cp $KRAKEN2_DIR/kraken2{,-build,-inspect} $HOME/bin
 
 After installation, you're ready to either create or download a database.
 
@@ -252,8 +253,12 @@ The `kraken2` program allows several different options:
 
 * **Quick operation**: Rather than searching all $\ell$-mers in a sequence,
     stop classification after the first database hit; use `--quick`
-    to enable this mode.  Note that `--min-hits` will allow you to
-    require multiple hits before declaring a sequence classified,
+    to enable this mode.
+
+* **Hit group threshold**: The option `--minimum-hit-groups` will allow
+    you to require multiple hit groups (a group of overlapping k-mers that
+    share a common minimizer that is found in the hash table) be found
+    before declaring a sequence classified,
     which can be especially useful with custom databases when testing
     to see if sequences either do or do not belong to a particular
     genome.
@@ -265,18 +270,15 @@ The `kraken2` program allows several different options:
 * **Output redirection**: Output can be directed using standard shell
     redirection (`|` or `>`), or using the `--output` switch.
 
-* **FASTQ input**: Input is normally expected to be in FASTA format, but
-    you can classify FASTQ data using the `--fastq-input` switch.
-
 * **Compressed input**: Kraken 2 can handle gzip and bzip2 compressed
     files as input by specifying the proper switch of `--gzip-compressed`
     or `--bzip2-compressed`.
 
-* **Input format auto-detection**: If regular files are specified on
-    the command line as input, Kraken 2 will attempt to determine the
-    format of your input prior to classification.  You can disable this
-    by explicitly specifying `--fasta-input`, `--fastq-input`,
-    `--gzip-compressed`, and/or `--bzip2-compressed` as appropriate.
+* **Input format auto-detection**: If regular files (i.e., not pipes or device files)
+    are specified on the command line as input, Kraken 2 will attempt to
+    determine the format of your input prior to classification.
+    You can disable this by explicitly specifying
+    `--gzip-compressed` or `--bzip2-compressed` as appropriate.
     Note that use of the character device file `/dev/fd/0` to read
     from standard input (aka `stdin`) will **not** allow auto-detection.
 
@@ -353,18 +355,18 @@ Kraken 2's standard sample report format is tab-delimited with one
 line per taxon.  The fields of the output, from left-to-right, are
 as follows:
 
-    1. Percentage of fragments covered by the clade rooted at this taxon
-    2. Number of fragments covered by the clade rooted at this taxon
-    3. Number of fragments assigned directly to this taxon
-    4. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
-       (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
-       Taxa that are not at any of these 10 ranks have a rank code that is
-       formed by using the rank code of the closest ancestor rank with
-       a number indicating the distance from that rank.  E.g., "G2" is a
-       rank code indicating a taxon is between genus and species and the
-       grandparent taxon is at the genus rank.
-    5. NCBI taxonomic ID number
-    6. Indented scientific name
+1. Percentage of fragments covered by the clade rooted at this taxon
+2. Number of fragments covered by the clade rooted at this taxon
+3. Number of fragments assigned directly to this taxon
+4. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
+   (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
+   Taxa that are not at any of these 10 ranks have a rank code that is
+   formed by using the rank code of the closest ancestor rank with
+   a number indicating the distance from that rank.  E.g., "G2" is a
+   rank code indicating a taxon is between genus and species and the
+   grandparent taxon is at the genus rank.
+5. NCBI taxonomic ID number
+6. Indented scientific name
 
 The scientific names are indented using space, according to the tree
 structure specified by the taxonomy.
@@ -445,10 +447,6 @@ To build a custom database:
     - `protozoa`: RefSeq complete protozoan genomes/proteins
     - `nr`: NCBI non-redundant protein database
     - `nt`: NCBI non-redundant nucleotide database
-    - `env_nr`: NCBI non-redundant protein database with sequences from
-      large environmental sequencing projects
-    - `env_nt`: NCBI non-redundant nucleotide database with sequences from
-      large environmental sequencing projects
     - `UniVec`: NCBI-supplied database of vector, adapter, linker, and
       primer sequences that may be contaminating sequencing projects and/or
       assemblies
@@ -471,7 +469,7 @@ To build a custom database:
     be used after downloading these libraries to actually build the database,
     however.
 
-    (Note that downloading `nr` or `env_nr` require use of the `--protein`
+    (Note that downloading `nr` requires use of the `--protein`
       option, and that `UniVec` and `UniVec_Core` are incompatible with
       the `--protein` option.)
 
@@ -527,7 +525,7 @@ To build a custom database:
    The `--threads` option is also helpful here to reduce build time.
 
    By default, the values of $k$ and $\ell$ are 35 and 31, respectively (or
-   15 and 15 for protein databases).  These values can be explicitly set
+   15 and 12 for protein databases).  These values can be explicitly set
    with the `--kmer-len` and `minimizer-len` options, however.  Note that
    the minimizer length must be no more than 31 for nucleotide databases,
    and 15 for protein databases.  Additionally, the minimizer length $\ell$
@@ -544,7 +542,7 @@ To build a custom database:
 
        111 1111 1111 1111 1111 1101 0101 0101
 
-   By default, $s$ = 6 for nucleotide databases, and $s$ = 0 for
+   By default, $s$ = 7 for nucleotide databases, and $s$ = 0 for
    protein databases.  This can be changed using the `--minimizer-spaces`
    option along with the `--build` task of `kraken2-build`.
 
