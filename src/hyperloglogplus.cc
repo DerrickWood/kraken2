@@ -20,6 +20,7 @@
 
 #include "hyperloglogplus.h"
 
+#include<cassert>
 #include<vector>
 #include<stdexcept>
 #include<iostream>
@@ -30,7 +31,6 @@
 #include<numeric>   //accummulate
 
 #include "hyperloglogplus-bias.h"
-#include "assert_helpers.h"
 /////////////////////////////////////////////////////////////////////
 // Helper methods for bit operations
 
@@ -132,7 +132,7 @@ uint8_t getRank(const uint32_t hash_value, const uint8_t p) {
   uint32_t rank_bits (hash_value << p);
   uint8_t rank_val = clz(rank_bits, 32-p) + 1;
   //uint8_t rank_val = clz_p(hash_value, p) + 1;
-  assert_leq(rank_val,32-p+1);
+  assert(rank_val < 32-p+1);
   return rank_val;
 }
 
@@ -141,7 +141,7 @@ uint8_t getRank(const uint64_t hash_value, const uint8_t p) {
   uint64_t rank_bits (hash_value << p);
   uint8_t rank_val = clz(rank_bits, 64-p) + 1;
   //uint8_t rank_val = clz_p(hash_value, p) + 1;
-  assert_leq(rank_val,64-p+1);
+  assert(rank_val <= 64-p+1);
   return rank_val;
 }
 
@@ -197,7 +197,7 @@ uint32_t encodeHashIn32Bit(uint64_t hash_value, uint8_t pPrime, uint8_t p) {
       return idx | uint32_t(additional_rank<<1) | 1;
     } else {
       // else, return the idx, only - it has enough length to calculate the rank (left-shifted, last bit = 0)
-      assert_eq((idx & 1),0);
+      assert((idx & 1) == 0);
       return idx;
     }
 }
@@ -348,7 +348,7 @@ vector<int> registerHistogram(const vector<uint8_t>& M, uint8_t q) {
     }
     cerr << "}" << endl;
     #endif
-    assert_eq((size_t)std::accumulate(C.begin(), C.end(), 0), M.size());
+    assert((size_t)std::accumulate(C.begin(), C.end(), 0) == M.size());
     return C;
 }
 
@@ -502,8 +502,8 @@ void HyperLogLogPlusMinus<uint64_t>::insert(uint64_t item) {
 
 #ifdef HLL_DEBUG2
       cerr << "encoded hash:   " << bitset<32>(encoded_hash_value) << endl;
-      assert_eq(getIndex(encoded_hash_value,p),getIndex(hash_value, p));
-      assert_eq(getEncodedRank(encoded_hash_value,pPrime,p), getRank(hash_value, p));
+      assert(getIndex(encoded_hash_value,p) == getIndex(hash_value, p));
+      assert(getEncodedRank(encoded_hash_value,pPrime,p) == getRank(hash_value, p));
 #endif
 
       // if the sparseList is too large, switch to normal (register) representation
@@ -567,7 +567,7 @@ void HyperLogLogPlusMinus<T>::addToRegisters(const SparseListType &sparseList) {
     for (auto encoded_hash_value_ptr = sparseList.begin(); encoded_hash_value_ptr != sparseList.end(); ++encoded_hash_value_ptr) {
 
       size_t idx = getIndex(*encoded_hash_value_ptr, p);
-      assert_lt(idx,M.size());
+      assert(idx < M.size());
       uint8_t rank_val = getEncodedRank(*encoded_hash_value_ptr, pPrime, p);
       if (rank_val > this->M[idx]) {
         this->M[idx] = rank_val;
@@ -686,7 +686,7 @@ uint64_t HyperLogLogPlusMinus<uint64_t>::flajoletCardinality(bool use_sparse_pre
         M = vector<uint8_t>(m, 0);
         for (const auto& val : sparseList) {
           size_t idx = getIndex(val, p);
-          assert_lt(idx,M.size());
+          assert(idx < M.size());
           uint8_t rank_val = getEncodedRank(val, pPrime, p);
           if (rank_val > M[idx]) {
             M[idx] = rank_val;
