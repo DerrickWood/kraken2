@@ -14,7 +14,8 @@
 #include "aa_translate.h"
 #include "reports.h"
 #include "utilities.h"
-
+#include "readcounts.h"
+#include <unordered_map>
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -26,11 +27,11 @@ using std::set;
 using std::string;
 using std::vector;
 using namespace kraken2;
-
 static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
+using READCOUNTER = ReadCounts<HyperLogLogPlusMinus<uint64_t>>;
 
 struct Options {
   string index_filename;
@@ -84,12 +85,13 @@ void usage(int exit_code=EX_USAGE);
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
-    OutputStreamData &outputs, taxon_counts_t &call_counts);
+    OutputStreamData &outputs, taxon_counts_t &call_counts,
+    unordered_map<taxid_t, READCOUNTER>&  total_taxon_counts);
 taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     KeyValueStore *hash, Taxonomy &tax, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
-    vector<string> &tx_frames);
+    vector<string> &tx_frames, unordered_map<taxid_t, READCOUNTER>& my_taxon_counts);
 void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy);
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
@@ -113,7 +115,7 @@ int main(int argc, char **argv) {
   opts.minimum_quality_score = 0;
   opts.minimum_hit_groups = 0;
   opts.use_memory_mapping = false;
-
+  unordered_map<taxid_t, READCOUNTER> taxon_counts; // stats per taxon
   ParseCommandLine(argc, argv, opts);
 
   omp_set_num_threads(opts.num_threads);
@@ -140,7 +142,7 @@ int main(int argc, char **argv) {
   if (optind == argc) {
     if (opts.paired_end_processing && ! opts.single_file_pairs)
       errx(EX_USAGE, "paired end processing used with no files specified");
-    ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts);
+    ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts, taxon_counts);
   }
   else {
     for (int i = optind; i < argc; i++) {
@@ -148,11 +150,11 @@ int main(int argc, char **argv) {
         if (i + 1 == argc) {
           errx(EX_USAGE, "paired end processing used with unpaired file");
         }
-        ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts);
+        ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts, taxon_counts);
         i += 1;
       }
       else {
-        ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts);
+        ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, call_counts, taxon_counts);
       }
     }
   }
@@ -168,8 +170,10 @@ int main(int argc, char **argv) {
           call_counts);
     else {
       auto total_unclassified = stats.total_sequences - stats.total_classified;
-      ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
-          call_counts, stats.total_sequences, total_unclassified);
+      TaxReport<READCOUNTER> taxreport(taxonomy, taxon_counts, opts.report_zero_counts);
+      taxreport.ReportKrakenStyle(opts.report_filename, stats.total_sequences, total_unclassified);
+       //ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
+      //   call_counts, taxon_counts, stats.total_sequences, total_unclassified);
     }
   }
 
@@ -211,7 +215,8 @@ void ReportStats(struct timeval time1, struct timeval time2,
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
-    OutputStreamData &outputs, taxon_counts_t &call_counts)
+    OutputStreamData &outputs, taxon_counts_t &call_counts, 
+    unordered_map<taxid_t, READCOUNTER>&  total_taxon_counts)
 {
   std::istream *fptr1 = nullptr, *fptr2 = nullptr;
 
@@ -291,7 +296,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
       c2_oss.str("");
       u1_oss.str("");
       u2_oss.str("");
-
+      unordered_map<taxid_t, READCOUNTER> curr_taxon_counts;
       while (true) {
         auto valid_fragment = reader1.NextSequence(seq1);
         if (opts.paired_end_processing && valid_fragment) {
@@ -310,7 +315,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
         }
         auto call = ClassifySequence(seq1, seq2,
             kraken_oss, hash, tax, idx_opts, opts, thread_stats, scanner,
-            taxa, hit_counts, translated_frames);
+            taxa, hit_counts, translated_frames, curr_taxon_counts);
         if (call) {
           char buffer[1024] = "";
           sprintf(buffer, " kraken:taxid|%llu",
@@ -390,7 +395,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
         if (! output_loop)
           break;
         // Past this point in loop, we know lock is set
-
+        for (auto it = curr_taxon_counts.begin(); it != curr_taxon_counts.end(); ++it) {
+            total_taxon_counts[it->first] += std::move(it->second);
+        }
         if (outputs.kraken_output != nullptr)
           (*outputs.kraken_output) << out_data.kraken_str;
         if (outputs.classified_output1 != nullptr)
@@ -489,7 +496,8 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     KeyValueStore *hash, Taxonomy &taxonomy, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
-    vector<string> &tx_frames)
+    vector<string> &tx_frames, 
+    unordered_map<taxid_t, READCOUNTER >& curr_taxon_counts)
 {
   uint64_t *minimizer_ptr;
   taxid_t call = 0;
@@ -547,6 +555,8 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
               goto finished_searching;  // need to break 3 loops here
             }
             hit_counts[taxon]++;
+//            curr_taxon_counts[taxon].add_kmer(*minimizer_ptr);
+            curr_taxon_counts[taxon].add_kmer(scanner.lmer_);
           }
         }
         taxa.push_back(taxon);
@@ -570,8 +580,10 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   if (call && minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
 
-  if (call)
-    stats.total_classified++;
+  if (call) {
+      stats.total_classified++;
+      curr_taxon_counts[call].incrementReadCount();
+  }
 
   if (call)
     koss << "C\t";

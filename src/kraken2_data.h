@@ -8,7 +8,6 @@
 #define KRAKEN2_KRAKEN2_DATA_H_
 
 #include "kraken2_headers.h"
-
 struct IndexOptions {
   size_t k;
   size_t l;
