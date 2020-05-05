@@ -30,8 +30,7 @@ void KrakenReportDFS(uint32_t taxid, std::ofstream &ofs, bool report_zeros,
     Taxonomy &taxonomy, taxon_counts_t &clade_counts,
     uint64_t total_seqs, char rank_code, int rank_depth, int depth);
 void ReportKrakenStyle(std::string filename, bool report_zeros, Taxonomy &taxonomy,
-    taxon_counts_t &call_counts, 
-    uint64_t total_seqs, uint64_t total_unclassified);
+    taxon_counts_t &call_counts, uint64_t total_seqs, uint64_t total_unclassified);
 
     template<typename READCOUNTS>
     class TaxReport {

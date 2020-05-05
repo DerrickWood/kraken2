@@ -16,6 +16,8 @@
 #include "utilities.h"
 #include "readcounts.h"
 #include <unordered_map>
+using namespace kraken2;
+
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -27,11 +29,24 @@ using std::set;
 using std::string;
 using std::vector;
 using namespace kraken2;
+
 static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
-using READCOUNTER = ReadCounts<HyperLogLogPlusMinus<uint64_t>>;
+
+#ifdef EXACT_COUNTING
+#ifdef USE_KHSET_FOR_EXACT_COUNTING
+  // Note: khset and khash were intentionally left out of the KrakenUniq pull request into K2
+  #include "khset.h"
+  using READCOUNTER = ReadCounts< kh::khset64_t >;
+#else
+  #include <unordered_set>
+  using READCOUNTER = ReadCounts< unordered_set<uint64_t> >;
+#endif
+#else
+using READCOUNTER = ReadCounts<HyperLogLogPlusMinus<uint64_t> >;
+#endif
 
 struct Options {
   string index_filename;
@@ -42,6 +57,7 @@ struct Options {
   string unclassified_output_filename;
   string kraken_output_filename;
   bool mpa_style_report;
+  bool no_uniq;
   bool quick_mode;
   bool report_zero_counts;
   bool use_translated_search;
@@ -109,12 +125,14 @@ int main(int argc, char **argv) {
   opts.single_file_pairs = false;
   opts.num_threads = 1;
   opts.mpa_style_report = false;
+  opts.no_uniq = false;
   opts.report_zero_counts = false;
   opts.use_translated_search = false;
   opts.print_scientific_name = false;
   opts.minimum_quality_score = 0;
   opts.minimum_hit_groups = 0;
   opts.use_memory_mapping = false;
+
   unordered_map<taxid_t, READCOUNTER> taxon_counts; // stats per taxon
   ParseCommandLine(argc, argv, opts);
 
@@ -170,10 +188,13 @@ int main(int argc, char **argv) {
           call_counts);
     else {
       auto total_unclassified = stats.total_sequences - stats.total_classified;
-      TaxReport<READCOUNTER> taxreport(taxonomy, taxon_counts, opts.report_zero_counts);
-      taxreport.ReportKrakenStyle(opts.report_filename, stats.total_sequences, total_unclassified);
-       //ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
-      //   call_counts, taxon_counts, stats.total_sequences, total_unclassified);
+      if(opts.no_uniq) {
+        ReportKrakenStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
+                call_counts, stats.total_sequences, total_unclassified);
+      } else {
+        TaxReport<READCOUNTER> taxreport(taxonomy, taxon_counts, opts.report_zero_counts);
+        taxreport.ReportKrakenStyle(opts.report_filename, stats.total_sequences, total_unclassified);
+      }
     }
   }
 
@@ -215,7 +236,7 @@ void ReportStats(struct timeval time1, struct timeval time2,
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
-    OutputStreamData &outputs, taxon_counts_t &call_counts, 
+    OutputStreamData &outputs, taxon_counts_t &call_counts,
     unordered_map<taxid_t, READCOUNTER>&  total_taxon_counts)
 {
   std::istream *fptr1 = nullptr, *fptr2 = nullptr;
@@ -296,6 +317,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
       c2_oss.str("");
       u1_oss.str("");
       u2_oss.str("");
+
       unordered_map<taxid_t, READCOUNTER> curr_taxon_counts;
       while (true) {
         auto valid_fragment = reader1.NextSequence(seq1);
@@ -395,6 +417,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
         if (! output_loop)
           break;
         // Past this point in loop, we know lock is set
+
         for (auto it = curr_taxon_counts.begin(); it != curr_taxon_counts.end(); ++it) {
             total_taxon_counts[it->first] += std::move(it->second);
         }
@@ -496,7 +519,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     KeyValueStore *hash, Taxonomy &taxonomy, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
-    vector<string> &tx_frames, 
+    vector<string> &tx_frames,
     unordered_map<taxid_t, READCOUNTER >& curr_taxon_counts)
 {
   uint64_t *minimizer_ptr;
@@ -736,7 +759,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSM")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSMN")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -776,6 +799,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
         break;
       case 'm' :
         opts.mpa_style_report = true;
+        break;
+      case 'N':
+        opts.no_uniq = true;
         break;
       case 'R' :
         opts.report_filename = optarg;
@@ -839,6 +865,7 @@ void usage(int exit_code) {
        << "  -g NUM           Minimum number of hit groups needed for call" << endl
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
-       << "  -O filename      Output file for normal Kraken output" << endl;
+       << "  -O filename      Output file for normal Kraken output" << endl
+       << "  -N               Suppress KrakenUniq output; use orig. Kraken-like output" << endl;
   exit(exit_code);
 }

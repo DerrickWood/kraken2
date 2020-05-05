@@ -1,3 +1,4 @@
+CXX = g++
 CXXFLAGS = -fopenmp -Wall -std=c++11 -O3
 CXXFLAGS += -DLINEAR_PROBING
 
@@ -14,7 +15,7 @@ clean:
 	rm -f *.o $(PROGS)
 
 taxonomy.o: taxonomy.cc taxonomy.h mmap_file.h
-hyperloglogplus.o: hyperloglogplus.cc hyperloglogplus.h 
+hyperloglogplus.o: hyperloglogplus.cc hyperloglogplus.h
 mmap_file.o: mmap_file.cc mmap_file.h
 compact_hash.o: compact_hash.cc compact_hash.h kv_store.h mmap_file.h
 mmscanner.o: mmscanner.cc mmscanner.h

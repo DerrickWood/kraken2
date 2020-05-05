@@ -21,7 +21,6 @@
 #define READCOUNTS_HPP
 
 #include "hyperloglogplus.h"
-#include "khset.h"
 #include <unordered_set>
 
 namespace kraken2 {
