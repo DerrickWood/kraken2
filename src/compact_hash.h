@@ -33,11 +33,13 @@ struct CompactHashCell {
     if (max_value < val)
       errx(EX_SOFTWARE, "value len of %u too small for value of %llu",
            (unsigned int) value_bits, (unsigned long long int) val);
-    data = (uint32_t) (MurmurHash3(key) >> 32);
-    data &= ~((1 << value_bits) - 1);
-    data |= val;
+    data = (uint32_t) (MurmurHash3(key) >> 32); // why the shift?  why the hash?
+    data &= ~((1 << value_bits) - 1);           // keep only high bits
+    data |= val;                                // OR in value
   }
 
+  // value in the low bits
+  // hash of the key in the high bits
   uint32_t data;
 };
 
