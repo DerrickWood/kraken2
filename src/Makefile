@@ -9,7 +9,7 @@ PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers
 all: $(PROGS)
 
 install: $(PROGS)
-	cp $(PROGS) $(KRAKEN2_DIR)/
+	cp $(PROGS) "$(KRAKEN2_DIR)/"
 
 clean:
 	rm -f *.o $(PROGS)
