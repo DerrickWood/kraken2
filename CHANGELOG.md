@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Small viral reference set and read simulator for future testing
 
 ### Changed
 
