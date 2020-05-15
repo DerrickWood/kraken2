@@ -64,6 +64,7 @@ class Taxonomy {
       return 0;
     return external_to_internal_id_map_[external_id];
   }
+  std::set<uint64_t> priority_taxids;
 
   private:
   void Init(const char *filename, bool memory_mapping);
