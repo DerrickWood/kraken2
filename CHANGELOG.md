@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+### Changed
+
+### Fixed
+- Modified build code to prevent insertion of minimizers with ambiguous bases
+
 ## [2.0.9] - 2020-04-07 (beta)
 
 ### Added
