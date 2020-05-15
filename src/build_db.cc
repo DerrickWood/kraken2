@@ -27,6 +27,11 @@ using namespace kraken2;
 
 #define DEFAULT_BLOCK_SIZE (10 * 1024 * 1024)  // 10 MB
 
+// k-mers appearing in contaminant sequences will keep the contaminant
+//  sequence taxid, even if they also appear in a genome
+const uint64_t TID_CONTAMINANT1 = 32630; // 'synthetic construct'
+const uint64_t TID_CONTAMINANT2 = 81077; // 'artificial sequences'
+
 struct Options {
   string ID_to_taxon_map_filename;
   string ncbi_taxonomy_directory;
@@ -36,6 +41,7 @@ struct Options {
   size_t block_size;
   int num_threads;
   bool input_is_protein;
+  vector<uint64_t> priority_taxids;
   ssize_t k, l;
   size_t capacity;
   size_t maximum_capacity;
@@ -65,6 +71,8 @@ int main(int argc, char **argv) {
   opts.spaced_seed_mask = DEFAULT_SPACED_SEED_MASK;
   opts.toggle_mask = DEFAULT_TOGGLE_MASK;
   opts.input_is_protein = false;
+  opts.priority_taxids.push_back(TID_CONTAMINANT1);
+  opts.priority_taxids.push_back(TID_CONTAMINANT2);
   opts.num_threads = 1;
   opts.block_size = DEFAULT_BLOCK_SIZE;
   opts.min_clear_hash_value = 0;
@@ -82,6 +90,9 @@ int main(int argc, char **argv) {
 
   Taxonomy taxonomy(opts.taxonomy_filename.c_str());
   taxonomy.GenerateExternalToInternalIDMap();
+  for (auto taxid : opts.priority_taxids) {
+    taxonomy.priority_taxids.insert(taxonomy.GetInternalID(taxid));
+  }
   size_t bits_needed_for_value = 1;
   while ((1 << bits_needed_for_value) < (ssize_t) taxonomy.node_count())
     bits_needed_for_value++;
@@ -176,6 +187,23 @@ void ProcessSequences(Options &opts, map<string, uint64_t> &ID_to_taxon_map,
   std::cerr << "Completed processing of " << processed_seq_ct << " sequences, " << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << std::endl;
 }
 
+// Split string by any of delimiters, convert to long, and insert to iterator.
+template <typename OutIt>
+OutIt SplitInsert(char* input, string delimiters, OutIt out) {
+  std::string line(input);
+  std::size_t prev = 0, pos;
+  while ((pos = line.find_first_of(delimiters, prev)) != std::string::npos) {
+    if (pos > prev) {
+      *out++ = stol(line.substr(prev, pos-prev));
+    }
+    prev = pos+1;
+  }
+  if (prev < line.length()) {
+    *out++ = stol(line.substr(prev, std::string::npos));
+  }
+  return out;
+}
+
 // This function exists to deal with NCBI's use of \x01 characters to denote
 // the start of a new FASTA header in the same line (for non-redundant DBs).
 // We return all sequence IDs in a header line, not just the first.
@@ -213,8 +241,9 @@ vector<string> ExtractNCBISequenceIDs(const string &header) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
   long long sig;
+  bool priority_taxids_cleared = false;
 
-  while ((opt = getopt(argc, argv, "?hB:c:H:m:n:o:t:k:l:s:S:T:p:M:X")) != -1) {
+  while ((opt = getopt(argc, argv, "?hB:c:H:m:n:o:t:k:l:s:S:T:p:P:M:X")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -279,6 +308,13 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
           errx(EX_USAGE, "max capacity must be positive integer");
         opts.maximum_capacity = sig;
         break;
+      case 'P' :
+        if (!priority_taxids_cleared) {
+          opts.priority_taxids.clear();
+          priority_taxids_cleared = true;
+        }
+        SplitInsert(optarg, ",:", back_inserter(opts.priority_taxids));
+        break;
       case 'X' :
         opts.input_is_protein = true;
         break;
@@ -326,6 +362,7 @@ void usage(int exit_code) {
        << "  -M INT        Set maximum capacity of hash table (MiniKraken)\n"
        << "  -S BITSTRING  Spaced seed mask\n"
        << "  -T BITSTRING  Minimizer toggle mask\n"
+       << "  -A INT(:INT)  Priority taxids that don't get LCA'd\n"
        << "  -X            Input seqs. are proteins\n"
        << "  -p INT        Number of threads\n"
        << "  -B INT        Read block size" << endl;
@@ -336,6 +373,7 @@ void ProcessSequence(string &seq, uint64_t taxid,
     CompactHashTable &hash, Taxonomy &tax, MinimizerScanner &scanner,
     uint64_t min_clear_hash_value)
 {
+  bool seq_is_priority = tax.priority_taxids.count(taxid);
   scanner.LoadSequence(seq);
   uint64_t *minimizer_ptr;
   bool ambig_flag;
@@ -346,8 +384,18 @@ void ProcessSequence(string &seq, uint64_t taxid,
       continue;
     hvalue_t existing_taxid = 0;
     hvalue_t new_taxid = taxid;
-    while (! hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid)) {
-      new_taxid = tax.LowestCommonAncestor(new_taxid, existing_taxid);
+    if (seq_is_priority) {
+      hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid) ||
+        hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid);
+    }
+    else {
+      while (! hash.CompareAndSet(*minimizer_ptr, new_taxid, &existing_taxid)) {
+        if (! tax.priority_taxids.count(existing_taxid)) {
+          new_taxid = tax.LowestCommonAncestor(new_taxid, existing_taxid);
+        } else {
+          new_taxid = existing_taxid;
+        }
+      }
     }
   }
 }
