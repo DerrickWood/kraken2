@@ -338,7 +338,10 @@ void ProcessSequence(string &seq, uint64_t taxid,
 {
   scanner.LoadSequence(seq);
   uint64_t *minimizer_ptr;
-  while ((minimizer_ptr = scanner.NextMinimizer())) {
+  bool ambig_flag;
+  while ((minimizer_ptr = scanner.NextMinimizer(&ambig_flag))) {
+    if (ambig_flag)
+      continue;
     if (min_clear_hash_value && MurmurHash3(*minimizer_ptr) < min_clear_hash_value)
       continue;
     hvalue_t existing_taxid = 0;
