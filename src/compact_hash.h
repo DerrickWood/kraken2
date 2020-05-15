@@ -100,6 +100,7 @@ class CompactHashTable : public KeyValueStore {
   bool file_backed_;
   MMapFile backing_file_;
   omp_lock_t zone_locks_[LOCK_ZONES];
+  bool from_file_ = false;
 
   CompactHashTable(const CompactHashTable &rhs);
   CompactHashTable& operator=(const CompactHashTable &rhs);

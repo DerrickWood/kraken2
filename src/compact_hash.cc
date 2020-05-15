@@ -42,8 +42,10 @@ CompactHashTable::CompactHashTable(size_t capacity,
 CompactHashTable::~CompactHashTable() {
   if (! file_backed_) {
     delete[] table_;
-    for (size_t i = 0; i < LOCK_ZONES; i++)
-      omp_destroy_lock(&zone_locks_[i]);
+    if (! from_file_) {
+      for (size_t i = 0; i < LOCK_ZONES; i++)
+        omp_destroy_lock(&zone_locks_[i]);
+    }
   }
 }
 
@@ -56,6 +58,7 @@ CompactHashTable::CompactHashTable(const char *filename, bool memory_mapping) {
 }
 
 void CompactHashTable::LoadTable(const char *filename, bool memory_mapping) {
+  from_file_ = true;
   if (memory_mapping) {
     backing_file_.OpenFile(filename);
     char *ptr = backing_file_.fptr();
