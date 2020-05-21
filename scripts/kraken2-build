@@ -44,6 +44,7 @@ my (
   $minimizer_len,
   $kmer_len,
   $minimizer_spaces,
+  @priority_taxids,
   $is_protein,
   $masking,
   $max_db_size,
@@ -67,6 +68,7 @@ $load_factor = $ENV{"KRAKEN2_LOAD_FACTOR"} || $DEF_LOAD_FACTOR;
 $kmer_len = $ENV{"KRAKEN2_KMER_LEN"};
 $minimizer_len = $ENV{"KRAKEN2_MINIMIZER_LEN"};
 $minimizer_spaces = $ENV{"KRAKEN2_MINIMIZER_SPACES"};
+@priority_taxids = $ENV{"KRAKEN2_PRIORITY_TAXIDS"} || ();
 $is_protein = $ENV{"KRAKEN2_PROTEIN_DB"} || 0;
 $use_ftp = $ENV{"KRAKEN2_USE_FTP"} || 0;
 $skip_maps = $ENV{"KRAKEN2_SKIP_MAPS"} || 0;
@@ -92,6 +94,7 @@ GetOptions(
   "minimizer-len=i" => \$minimizer_len,
   "kmer-len=i" => \$kmer_len,
   "minimizer-spaces=i", \$minimizer_spaces,
+  "priority-taxids=s" => \@priority_taxid,
   "protein" => \$is_protein,
   "masking!" => \$masking,
   "max-db-size=i" => \$max_db_size,
@@ -161,6 +164,10 @@ $ENV{"KRAKEN2_MINIMIZER_LEN"} = $minimizer_len;
 $ENV{"KRAKEN2_KMER_LEN"} = $kmer_len;
 $ENV{"KRAKEN2_MINIMIZER_SPACES"} = $minimizer_spaces;
 $ENV{"KRAKEN2_SEED_TEMPLATE"} = construct_seed_template();
+$ENV{"KRAKEN2_PRIORITY_TAXIDS"} = "";
+if (@priority_taxids) {
+    $ENV{"KRAKEN2_PRIORITY_TAXIDS"} = "-P " . join(':', split(/,|:/,join(',',@priority_taxids)));
+}
 $ENV{"KRAKEN2_PROTEIN_DB"} = $is_protein ? 1 : "";
 $ENV{"KRAKEN2_MASK_LC"} = $masking ? 1 : "";
 $ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
@@ -230,6 +237,10 @@ Options:
                              ignored in comparisons (build task only;
                              def: $DEF_NT_MINIMIZER_SPACES nt, $DEF_AA_MINIMIZER_SPACES aa)
   --protein                  Build a protein database for translated search
+  --priority-taxids NUM      Taxids whose k-mers override other taxids. By default includes
+                             32630: synthetic construct and 81077: artifical sequences. Specifying
+                             any taxids will clear these two default taxids. Multiple taxids can be
+                             separated by colon (:), comma (,) or repeated args.
   --no-masking               Used with --standard/--download-library/
                              --add-to-library to avoid masking low-complexity
                              sequences prior to building; masking requires
