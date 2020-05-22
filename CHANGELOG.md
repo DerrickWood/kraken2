@@ -4,6 +4,7 @@
 
 ### Added
 - Small viral reference set and read simulator for future testing
+- Build options to aid testing
 
 ### Changed
 
