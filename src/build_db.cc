@@ -25,7 +25,10 @@ using std::ifstream;
 using std::ofstream;
 using namespace kraken2;
 
+// These will likely be overridden by wrapper script,
+// just keeping sane defaults in case they aren't
 #define DEFAULT_BLOCK_SIZE (10 * 1024 * 1024)  // 10 MB
+#define DEFAULT_SUBBLOCK_SIZE (1024)
 
 struct Options {
   string ID_to_taxon_map_filename;
@@ -34,6 +37,8 @@ struct Options {
   string options_filename;
   string taxonomy_filename;
   size_t block_size;
+  size_t subblock_size;
+  size_t requested_bits_for_taxid;
   int num_threads;
   bool input_is_protein;
   ssize_t k, l;
@@ -67,6 +72,8 @@ int main(int argc, char **argv) {
   opts.input_is_protein = false;
   opts.num_threads = 1;
   opts.block_size = DEFAULT_BLOCK_SIZE;
+  opts.subblock_size = DEFAULT_SUBBLOCK_SIZE;
+  opts.requested_bits_for_taxid = 0;
   opts.min_clear_hash_value = 0;
   opts.maximum_capacity = 0;
   ParseCommandLine(argc, argv, opts);
@@ -85,6 +92,13 @@ int main(int argc, char **argv) {
   size_t bits_needed_for_value = 1;
   while ((1 << bits_needed_for_value) < (ssize_t) taxonomy.node_count())
     bits_needed_for_value++;
+  if (opts.requested_bits_for_taxid > 0 &&
+      bits_needed_for_value > opts.requested_bits_for_taxid)
+    errx(EX_DATAERR, "more bits required for storing taxid");
+
+  size_t bits_for_taxid = bits_needed_for_value;
+  if (bits_for_taxid < opts.requested_bits_for_taxid)
+    bits_for_taxid = opts.requested_bits_for_taxid;
 
   auto actual_capacity = opts.capacity;
   if (opts.maximum_capacity) {
@@ -95,9 +109,9 @@ int main(int argc, char **argv) {
     actual_capacity = opts.maximum_capacity;
   }
 
-  CompactHashTable kraken_index(actual_capacity, 32 - bits_needed_for_value,
-      bits_needed_for_value);
-  std::cerr << "CHT created with " << bits_needed_for_value << " bits reserved for taxid." << std::endl;
+  CompactHashTable kraken_index(actual_capacity, 32 - bits_for_taxid,
+      bits_for_taxid);
+  std::cerr << "CHT created with " << bits_for_taxid << " bits reserved for taxid." << std::endl;
 
   ProcessSequences(opts, ID_to_taxon_map, kraken_index, taxonomy);
 
@@ -214,7 +228,7 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
   long long sig;
 
-  while ((opt = getopt(argc, argv, "?hB:c:H:m:n:o:t:k:l:s:S:T:p:M:X")) != -1) {
+  while ((opt = getopt(argc, argv, "?hB:b:c:H:m:n:o:t:k:l:M:p:r:s:S:T:X")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -222,8 +236,22 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'B' :
         sig = atoll(optarg);
         if (sig < 1)
-          errx(EX_USAGE, "can't have negative block size");
+          errx(EX_USAGE, "must have positive block size");
         opts.block_size = sig;
+        break;
+      case 'b' :
+        sig = atoll(optarg);
+        if (sig < 1)
+          errx(EX_USAGE, "must have positive subblock size");
+        opts.subblock_size = sig;
+        break;
+      case 'r' :
+        sig = atoll(optarg);
+        if (sig < 0)
+          errx(EX_USAGE, "can't have negative bit storage");
+        if (sig > 31)
+          errx(EX_USAGE, "can't have more than 31 bits of storage for taxid");
+        opts.requested_bits_for_taxid = sig;
         break;
       case 'p' :
         opts.num_threads = atoll(optarg);
@@ -305,6 +333,10 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
     cerr << "k cannot be less than l" << endl;
     usage();
   }
+  if (opts.block_size < opts.subblock_size) {
+    cerr << "block size cannot be less than subblock size\n";
+    usage();
+  }
   if (opts.maximum_capacity > opts.capacity) {
     cerr << "maximum capacity option shouldn't specify larger capacity than normal" << endl;
     usage();
@@ -328,7 +360,9 @@ void usage(int exit_code) {
        << "  -T BITSTRING  Minimizer toggle mask\n"
        << "  -X            Input seqs. are proteins\n"
        << "  -p INT        Number of threads\n"
-       << "  -B INT        Read block size" << endl;
+       << "  -B INT        Read block size\n"
+       << "  -b INT        Read subblock size\n"
+       << "  -r INT        Bit storage requested for taxid" << endl;
   exit(exit_code);
 }
 

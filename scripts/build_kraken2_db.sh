@@ -125,7 +125,8 @@ else
   list_sequence_files | xargs -0 cat | \
     build_db -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE $KRAKEN2XFLAG \
              -H hash.k2d.tmp -t taxo.k2d.tmp -o opts.k2d.tmp -n taxonomy/ -m $seqid2taxid_map_file \
-             -c $required_capacity -p $KRAKEN2_THREAD_CT $max_db_flag
+             -c $required_capacity -p $KRAKEN2_THREAD_CT $max_db_flag -B $KRAKEN2_BLOCK_SIZE -b $KRAKEN2_SUBBLOCK_SIZE \
+             -r $KRAKEN2_MIN_TAXID_BITS
   finalize_file taxo.k2d
   finalize_file opts.k2d
   finalize_file hash.k2d
