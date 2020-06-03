@@ -396,10 +396,18 @@ void ProcessFiles(const char *filename1, const char *filename2,
         output_queue.push(out_data);
       }
 
+      #pragma omp critical(update_taxon_count)
+      {
+        for (auto it = curr_taxon_counts.begin(); it != curr_taxon_counts.end(); ++it) {
+          total_taxon_counts[it->first] += std::move(it->second);
+        }
+      }
+
       bool output_loop = true;
       while (output_loop) {
         #pragma omp critical(output_queue)
         {
+
           output_loop = ! output_queue.empty();
           if (output_loop) {
             out_data = output_queue.top();
@@ -416,11 +424,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
         }
         if (! output_loop)
           break;
-        // Past this point in loop, we know lock is set
-
-        for (auto it = curr_taxon_counts.begin(); it != curr_taxon_counts.end(); ++it) {
-            total_taxon_counts[it->first] += std::move(it->second);
-        }
         if (outputs.kraken_output != nullptr)
           (*outputs.kraken_output) << out_data.kraken_str;
         if (outputs.classified_output1 != nullptr)
