@@ -16,7 +16,7 @@ typedef uint32_t hvalue_t;
 
 class KeyValueStore {
   public:
-  virtual hvalue_t Get(hkey_t key) = 0;
+  virtual hvalue_t Get(hkey_t key) const = 0;
   virtual ~KeyValueStore() { }
 };
 

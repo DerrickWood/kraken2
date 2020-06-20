@@ -31,25 +31,25 @@ class MinimizerScanner {
   MinimizerScanner(ssize_t k, ssize_t l,
                    uint64_t spaced_seed_mask = DEFAULT_SPACED_SEED_MASK,
                    bool dna_sequence = true,
-                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,                   
+                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,
                    int revcom_version = CURRENT_REVCOM_VERSION);
 
-  void LoadSequence(std::string &seq, size_t start = 0,
+  void LoadSequence(const std::string &seq, size_t start = 0,
       size_t finish = SIZE_MAX);
 
   uint64_t *NextMinimizer(bool *ambig_flag = nullptr);
   // Return last minimizer, only valid if NextMinimizer last returned non-NULL
-  uint64_t last_minimizer() { return last_minimizer_; }
-  ssize_t k() { return k_; }
-  ssize_t l() { return l_; }
-  bool is_dna() { return dna_; }
+  uint64_t last_minimizer() const { return last_minimizer_; }
+  ssize_t k() const { return k_; }
+  ssize_t l() const { return l_; }
+  bool is_dna() const { return dna_; }
 
   private:
   uint64_t reverse_complement(uint64_t kmer, uint8_t n);
   uint64_t canonical_representation(uint64_t kmer, uint8_t n);
   void set_lookup_table_character(char ch, uint8_t val);
 
-  std::string *str_;  // pointer to sequence
+  const std::string *str_;  // pointer to sequence
   ssize_t k_;
   ssize_t l_;
   size_t str_pos_, start_, finish_;

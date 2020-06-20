@@ -12,10 +12,9 @@ using std::unordered_map;
 
 namespace kraken2 {
 
-CompactHashTable::CompactHashTable(size_t capacity,
-    size_t key_bits, size_t value_bits)
-    : capacity_(capacity), key_bits_(key_bits), value_bits_(value_bits),
-      file_backed_(false)
+CompactHashTable::CompactHashTable(size_t capacity, size_t key_bits, size_t value_bits)
+    : capacity_(capacity), size_(0), key_bits_(key_bits), value_bits_(value_bits),
+      file_backed_(false), locks_initialized_(true)
 {
   if (key_bits + value_bits != sizeof(*table_) * 8)
     errx(EX_SOFTWARE, "sum of key bits and value bits must equal %u",
@@ -26,7 +25,6 @@ CompactHashTable::CompactHashTable(size_t capacity,
     errx(EX_SOFTWARE, "value bits cannot be zero");
   for (size_t i = 0; i < LOCK_ZONES; i++)
     omp_init_lock(&zone_locks_[i]);
-  size_ = 0;
   try {
     table_ = new CompactHashCell[capacity_];
   } catch (std::bad_alloc ex) {
@@ -39,14 +37,6 @@ CompactHashTable::CompactHashTable(size_t capacity,
   memset(table_, 0, capacity_ * sizeof(*table_));
 }
 
-CompactHashTable::~CompactHashTable() {
-  if (! file_backed_) {
-    delete[] table_;
-    for (size_t i = 0; i < LOCK_ZONES; i++)
-      omp_destroy_lock(&zone_locks_[i]);
-  }
-}
-
 CompactHashTable::CompactHashTable(const string &filename, bool memory_mapping) {
   LoadTable(filename.c_str(), memory_mapping);
 }
@@ -55,7 +45,16 @@ CompactHashTable::CompactHashTable(const char *filename, bool memory_mapping) {
   LoadTable(filename, memory_mapping);
 }
 
+CompactHashTable::~CompactHashTable() {
+  if (! file_backed_)
+    delete[] table_;
+  if (locks_initialized_)
+    for (size_t i = 0; i < LOCK_ZONES; i++)
+      omp_destroy_lock(&zone_locks_[i]);
+}
+
 void CompactHashTable::LoadTable(const char *filename, bool memory_mapping) {
+  locks_initialized_ = false;
   if (memory_mapping) {
     backing_file_.OpenFile(filename);
     char *ptr = backing_file_.fptr();
@@ -107,7 +106,7 @@ void CompactHashTable::WriteTable(const char *filename) {
   ofs.close();
 }
 
-hvalue_t CompactHashTable::Get(hkey_t key) {
+hvalue_t CompactHashTable::Get(hkey_t key) const {
   uint64_t hc = MurmurHash3(key);
   uint64_t compacted_key = hc >> (32 + value_bits_);
   size_t idx = hc % capacity_;
@@ -151,7 +150,7 @@ bool CompactHashTable::CompareAndSet
       search_successful = true;
       #pragma omp flush
       if (*old_value == table_[idx].value(value_bits_)) {
-        table_[idx].populate(key, new_value, key_bits_, value_bits_);
+        table_[idx].populate(compacted_key, new_value, key_bits_, value_bits_);
         if (! *old_value) {
           #pragma omp atomic
           size_++;
@@ -177,7 +176,7 @@ bool CompactHashTable::CompareAndSet
 // Linear probing leads to more clustering, longer probing paths, and
 //   higher probability of a false answer
 // Double hashing can have shorter probing paths, but less cache efficiency
-inline uint64_t CompactHashTable::second_hash(uint64_t first_hash) {
+inline uint64_t CompactHashTable::second_hash(uint64_t first_hash) const {
 #ifdef LINEAR_PROBING
   return 1;
 #else  // Double hashing
@@ -185,7 +184,7 @@ inline uint64_t CompactHashTable::second_hash(uint64_t first_hash) {
 #endif
 }
 
-taxon_counts_t CompactHashTable::GetValueCounts() {
+taxon_counts_t CompactHashTable::GetValueCounts() const {
   taxon_counts_t value_counts;
   int thread_ct = omp_get_max_threads();
   taxon_counts_t thread_value_counts[thread_ct];
