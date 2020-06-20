@@ -51,18 +51,18 @@ class Taxonomy {
   inline const TaxonomyNode *nodes() const { return nodes_; }
   inline const char *name_data() const { return name_data_; }
   inline const char *rank_data() const { return rank_data_; }
-  inline const size_t node_count() { return node_count_; }
+  inline const size_t node_count() const { return node_count_; }
 
-  bool IsAAncestorOfB(uint64_t a, uint64_t b);
-  uint64_t LowestCommonAncestor(uint64_t a, uint64_t b);
-  void WriteToDisk(const char *filename);
+  bool IsAAncestorOfB(uint64_t a, uint64_t b) const;
+  uint64_t LowestCommonAncestor(uint64_t a, uint64_t b) const;
+  void WriteToDisk(const char *filename) const;
   void MoveToMemory();
 
   void GenerateExternalToInternalIDMap();
-  uint64_t GetInternalID(uint64_t external_id) {
+  uint64_t GetInternalID(uint64_t external_id) const {
     if (external_to_internal_id_map_.count(external_id) == 0)
       return 0;
-    return external_to_internal_id_map_[external_id];
+    return external_to_internal_id_map_.at(external_id);
   }
 
   private:

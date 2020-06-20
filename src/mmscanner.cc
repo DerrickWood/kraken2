@@ -95,12 +95,12 @@ MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
   }
 }
 
-void MinimizerScanner::LoadSequence(string &seq, size_t start, size_t finish) {
+void MinimizerScanner::LoadSequence(const string &seq, size_t start, size_t finish) {
   str_ = &seq;
   start_ = start;
   finish_ = finish;
   str_pos_ = start_;
-  if (finish_ == SIZE_MAX)
+  if (finish_ > str_->size())
     finish_ = str_->size();
   if ((ssize_t) (finish_ - start_) + 1 < l_)  // Invalidate scanner if interval < 1 l-mer
     str_pos_ = finish_;
@@ -146,7 +146,7 @@ uint64_t *MinimizerScanner::NextMinimizer(bool *ambig_flag) {
         // Ambig flag being non-null means we're expecting a return for each
         // k-mer, and if we don't have a full l-mer, there's no point in
         // queue management for minimizer calculation
-        if (str_pos_ >= (size_t) k_ && loaded_ch_ < l_)
+        if ((str_pos_ - start_) >= (size_t) k_ && loaded_ch_ < l_)
           return &last_minimizer_;
       }
     }  // end character loading loop

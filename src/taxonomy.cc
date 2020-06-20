@@ -247,7 +247,7 @@ Taxonomy::~Taxonomy() {
 
 // Logic here depends on higher nodes having smaller IDs
 // Idea: advance B tracker up tree, A is ancestor iff B tracker hits A
-bool Taxonomy::IsAAncestorOfB(uint64_t a, uint64_t b) {
+bool Taxonomy::IsAAncestorOfB(uint64_t a, uint64_t b) const {
   if (! a || ! b)
     return false;
   while (b > a) {
@@ -258,7 +258,7 @@ bool Taxonomy::IsAAncestorOfB(uint64_t a, uint64_t b) {
 
 // Logic here depends on higher nodes having smaller IDs
 // Idea: track two nodes, advance lower tracker up tree, trackers meet @ LCA
-uint64_t Taxonomy::LowestCommonAncestor(uint64_t a, uint64_t b) {
+uint64_t Taxonomy::LowestCommonAncestor(uint64_t a, uint64_t b) const {
   if (! a || ! b)  // LCA(x,0) = LCA(0,x) = x
     return a ? a : b;
   while (a != b) {
@@ -271,7 +271,7 @@ uint64_t Taxonomy::LowestCommonAncestor(uint64_t a, uint64_t b) {
 }
 
 // Dump binary data to file
-void Taxonomy::WriteToDisk(const char *filename) {
+void Taxonomy::WriteToDisk(const char *filename) const {
   ofstream taxo_file(filename);
   taxo_file.write(FILE_MAGIC, strlen(FILE_MAGIC));
   taxo_file.write((char *) &node_count_, sizeof(node_count_));

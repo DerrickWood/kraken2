@@ -23,7 +23,7 @@ struct CompactHashCell {
     return (hvalue_t) (data & ((1 << value_bits) - 1));
   }
 
-  void populate(hkey_t key, hvalue_t val, size_t key_bits, size_t value_bits) {
+  void populate(hkey_t compacted_key, hvalue_t val, size_t key_bits, size_t value_bits) {
     if (key_bits + value_bits != 32)
       errx(EX_SOFTWARE, "key len of %u and value len of %u don't sum to 32",
            (unsigned int) key_bits, (unsigned int) value_bits);
@@ -33,8 +33,7 @@ struct CompactHashCell {
     if (max_value < val)
       errx(EX_SOFTWARE, "value len of %u too small for value of %llu",
            (unsigned int) value_bits, (unsigned long long int) val);
-    data = (uint32_t) (MurmurHash3(key) >> 32);
-    data &= ~((1 << value_bits) - 1);
+    data = compacted_key << value_bits;
     data |= val;
   }
 
@@ -69,7 +68,7 @@ class CompactHashTable : public KeyValueStore {
   CompactHashTable(const char *filename, bool memory_mapping=false);
   ~CompactHashTable();
 
-  hvalue_t Get(hkey_t key);
+  hvalue_t Get(hkey_t key) const;
 
   // How CompareAndSet works:
   // if *old_value == CHT[key]
@@ -81,13 +80,13 @@ class CompactHashTable : public KeyValueStore {
   bool CompareAndSet(hkey_t key, hvalue_t new_value, hvalue_t *old_value);
   void WriteTable(const char *filename);
 
-  taxon_counts_t GetValueCounts();
+  taxon_counts_t GetValueCounts() const;
 
-  size_t capacity() { return capacity_; }
-  size_t size() { return size_; }
-  size_t key_bits() { return key_bits_; }
-  size_t value_bits() { return value_bits_; }
-  double occupancy() { return size_ * 1.0 / capacity_; }
+  size_t capacity() const { return capacity_; }
+  size_t size() const { return size_; }
+  size_t key_bits() const { return key_bits_; }
+  size_t value_bits() const { return value_bits_; }
+  double occupancy() const { return size_ * 1.0 / capacity_; }
 
   private:
   static const size_t LOCK_ZONES = 256;
@@ -98,6 +97,7 @@ class CompactHashTable : public KeyValueStore {
   size_t value_bits_;
   CompactHashCell *table_;
   bool file_backed_;
+  bool locks_initialized_;
   MMapFile backing_file_;
   omp_lock_t zone_locks_[LOCK_ZONES];
 
@@ -105,7 +105,7 @@ class CompactHashTable : public KeyValueStore {
   CompactHashTable& operator=(const CompactHashTable &rhs);
 
   void LoadTable(const char *filename, bool memory_mapping);
-  uint64_t second_hash(uint64_t first_hash);
+  uint64_t second_hash(uint64_t first_hash) const;
 };
 
 }  // end namespace
