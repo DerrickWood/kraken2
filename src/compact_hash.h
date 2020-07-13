@@ -69,6 +69,7 @@ class CompactHashTable : public KeyValueStore {
   ~CompactHashTable();
 
   hvalue_t Get(hkey_t key) const;
+  bool FindIndex(hkey_t key, size_t *idx) const;
 
   // How CompareAndSet works:
   // if *old_value == CHT[key]
@@ -78,6 +79,7 @@ class CompactHashTable : public KeyValueStore {
   //   *old_value = CHT[key]
   //   return false
   bool CompareAndSet(hkey_t key, hvalue_t new_value, hvalue_t *old_value);
+  bool DirectCompareAndSet(size_t idx, hkey_t key, hvalue_t new_value, hvalue_t *old_value);
   void WriteTable(const char *filename);
 
   taxon_counts_t GetValueCounts() const;

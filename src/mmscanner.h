@@ -37,12 +37,15 @@ class MinimizerScanner {
   void LoadSequence(const std::string &seq, size_t start = 0,
       size_t finish = SIZE_MAX);
 
-  uint64_t *NextMinimizer(bool *ambig_flag = nullptr);
+  uint64_t *NextMinimizer();
   // Return last minimizer, only valid if NextMinimizer last returned non-NULL
   uint64_t last_minimizer() const { return last_minimizer_; }
   ssize_t k() const { return k_; }
   ssize_t l() const { return l_; }
   bool is_dna() const { return dna_; }
+  bool is_ambiguous() const {
+    return (queue_pos_ <= k_ - l_) || (!! last_ambig_);
+  }
 
   private:
   uint64_t reverse_complement(uint64_t kmer, uint8_t n);

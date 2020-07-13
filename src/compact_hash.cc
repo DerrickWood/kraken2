@@ -127,6 +127,27 @@ hvalue_t CompactHashTable::Get(hkey_t key) const {
   return 0;
 }
 
+bool CompactHashTable::FindIndex(hkey_t key, size_t *idx) const {
+  uint64_t hc = MurmurHash3(key);
+  uint64_t compacted_key = hc >> (32 + value_bits_);
+  *idx = hc % capacity_;
+  size_t first_idx = *idx;
+  size_t step = 0;
+  while (true) {
+    if (! table_[*idx].value(value_bits_))  // value of 0 means data is 0, saves work
+      return false;  // search over, empty cell encountered in probe
+    if (table_[*idx].hashed_key(value_bits_) == compacted_key)
+      return true;
+    if (step == 0)
+      step = second_hash(hc);
+    *idx += step;
+    *idx %= capacity_;
+    if (*idx == first_idx)
+      break;  // search over, we've exhausted the table
+  }
+  return false;
+}
+
 bool CompactHashTable::CompareAndSet
     (hkey_t key, hvalue_t new_value, hvalue_t *old_value)
 {
@@ -169,6 +190,30 @@ bool CompactHashTable::CompareAndSet
     if (idx == first_idx)
       errx(EX_SOFTWARE, "compact hash table capacity exceeded");
   }
+  return set_successful;
+}
+
+bool CompactHashTable::DirectCompareAndSet
+    (size_t idx, hkey_t key, hvalue_t new_value, hvalue_t *old_value)
+{
+  uint64_t hc = MurmurHash3(key);
+  hkey_t compacted_key = hc >> (32 + value_bits_);
+  bool set_successful = false;
+  size_t zone = idx % LOCK_ZONES;
+  omp_set_lock(&zone_locks_[zone]);
+  #pragma omp flush
+  if (*old_value == table_[idx].value(value_bits_)) {
+    table_[idx].populate(compacted_key, new_value, key_bits_, value_bits_);
+    if (! *old_value) {
+      #pragma omp atomic
+      size_++;
+    }
+    set_successful = true;
+  }
+  else {
+    *old_value = table_[idx].value(value_bits_);
+  }
+  omp_unset_lock(&zone_locks_[zone]);
   return set_successful;
 }
 
