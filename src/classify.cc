@@ -646,7 +646,7 @@ void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
   }
   if (last_code != MATE_PAIR_BORDER_TAXON && last_code != READING_FRAME_BORDER_TAXON) {
     if (last_code == AMBIGUOUS_SPAN_TAXON) {
-      oss << "A:" << code_count << " ";
+      oss << "A:" << code_count;
     }
     else {
       auto ext_code = taxonomy.nodes()[last_code].external_id;
