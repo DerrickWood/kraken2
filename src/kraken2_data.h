@@ -17,6 +17,8 @@ struct IndexOptions {
   bool dna_db;
   uint64_t minimum_acceptable_hash_value;
   int revcom_version;   // Fix bug from before K2.0.8
+  int db_version;  // To allow for future database structural changes
+  int db_type;  // To allow for future use of other data structures
 };
 
 typedef uint64_t taxid_t;

@@ -111,7 +111,7 @@ void MinimizerScanner::LoadSequence(const string &seq, size_t start, size_t fini
   last_ambig_ = 0;
 }
 
-uint64_t *MinimizerScanner::NextMinimizer(bool *ambig_flag) {
+uint64_t *MinimizerScanner::NextMinimizer() {
   if (str_pos_ >= finish_)  // Abort if we've exhausted string interval
     return nullptr;
   bool changed_minimizer = false;
@@ -137,18 +137,13 @@ uint64_t *MinimizerScanner::NextMinimizer(bool *ambig_flag) {
         lmer_ |= lookup_code;
       lmer_ &= lmer_mask_;
       last_ambig_ &= lmer_mask_;
-      // non-null arg means we need to do some special handling
-      if (ambig_flag != nullptr) {
-        *ambig_flag = !! last_ambig_;
-        // If we haven't filled up first k-mer, don't return
-        // Otherwise, if l-mer is incomplete, still return
-        // If l-mer is complete, go through queue management
-        // Ambig flag being non-null means we're expecting a return for each
-        // k-mer, and if we don't have a full l-mer, there's no point in
-        // queue management for minimizer calculation
-        if ((str_pos_ - start_) >= (size_t) k_ && loaded_ch_ < l_)
-          return &last_minimizer_;
-      }
+      // If we haven't filled up first k-mer, don't return
+      // Otherwise, if l-mer is incomplete, still return
+      // If l-mer is complete, go through queue management
+      // If we don't have a full l-mer, there's no point in
+      // queue management for minimizer calculation
+      if ((str_pos_ - start_) >= (size_t) k_ && loaded_ch_ < l_)
+        return &last_minimizer_;
     }  // end character loading loop
     if (loaded_ch_ < l_)  // Abort if we've exhausted string interval w/o
       return nullptr;     //   filling the l-mer
@@ -182,16 +177,9 @@ uint64_t *MinimizerScanner::NextMinimizer(bool *ambig_flag) {
       changed_minimizer = true;
     queue_pos_++;
 
-    // (almost) Always return after each ch. when ambig flag is set
-    if (ambig_flag != nullptr) {
-      // Return only if we've read in at least one k-mer's worth of chars
-      if (str_pos_ >= (size_t) k_) {
-        // Force flag to true if we haven't read in a k-mer since last clearing
-        // Must use <= due to increment of queue_pos_ just above here
-        if (queue_pos_ <= k_ - l_)
-          *ambig_flag = true;
-        break;
-      }
+    // Return only if we've read in at least one k-mer's worth of chars
+    if (str_pos_ >= (size_t) k_) {
+      break;
     }
   }  // end while ! changed_minimizer
   assert(! queue_.empty());

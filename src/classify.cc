@@ -52,6 +52,7 @@ struct Options {
   int minimum_quality_score;
   int minimum_hit_groups;
   bool use_memory_mapping;
+  bool match_input_order;
 };
 
 struct ClassificationStats {
@@ -122,7 +123,11 @@ int main(int argc, char **argv) {
 
   IndexOptions idx_opts = {0};
   ifstream idx_opt_fs(opts.options_filename);
-  idx_opt_fs.read((char *) &idx_opts, sizeof(idx_opts));
+  struct stat sb;
+  if (stat(opts.options_filename.c_str(), &sb) < 0)
+    errx(EX_OSERR, "unable to get filesize of %s", opts.options_filename.c_str());
+  auto opts_filesize = sb.st_size;
+  idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
 
   Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
@@ -314,7 +319,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
         if (call) {
           char buffer[1024] = "";
           sprintf(buffer, " kraken:taxid|%llu",
-			  (unsigned long long) tax.nodes()[call].external_id);
+              (unsigned long long) tax.nodes()[call].external_id);
           seq1.header += buffer;
           seq2.header += buffer;
           c1_oss << seq1.to_string();
@@ -515,10 +520,9 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
       }
       uint64_t last_minimizer = UINT64_MAX;
       taxid_t last_taxon = TAXID_MAX;
-      bool ambig_flag = false;
-      while ((minimizer_ptr = scanner.NextMinimizer(&ambig_flag)) != nullptr) {
+      while ((minimizer_ptr = scanner.NextMinimizer()) != nullptr) {
         taxid_t taxon;
-        if (ambig_flag) {
+        if (scanner.is_ambiguous()) {
           taxon = AMBIGUOUS_SPAN_TAXON;
         }
         else {

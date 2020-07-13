@@ -7,6 +7,9 @@
 - Build options to aid testing
 
 ### Changed
+- Build code now creates databases with deterministic MD5 sums by default;
+  --fast-build option to kraken2-build introduced to access old behavior
+- Added plasmid library to standard installation set
 
 ### Fixed
 - Modified build code to prevent insertion of minimizers with ambiguous bases
