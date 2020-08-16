@@ -47,6 +47,7 @@ my $minimum_base_quality = 0;
 my $report_filename;
 my $use_mpa_style = 0;
 my $report_zero_counts = 0;
+my $protein_query = 0;
 my $minimum_hit_groups = 2;
 
 GetOptions(
@@ -69,6 +70,7 @@ GetOptions(
   "report=s" => \$report_filename,
   "use-mpa-style" => \$use_mpa_style,
   "report-zero-counts" => \$report_zero_counts,
+  "protein-query" => \$protein_query,
   "minimum-hit-groups=i" => \$minimum_hit_groups,
 );
 
@@ -136,6 +138,7 @@ push @flags, "-R", $report_filename if defined $report_filename;
 push @flags, "-m" if $use_mpa_style;
 push @flags, "-z" if $report_zero_counts;
 push @flags, "-M" if $memory_mapping;
+push @flags, "-a" if $protein_query;
 push @flags, "-g", $minimum_hit_groups;
 
 # Stupid hack to keep filehandles from closing before exec
@@ -202,6 +205,7 @@ Options:
                           kraken-mpa-report
   --report-zero-counts    With --report, report counts for ALL taxa, even if
                           counts are zero
+  --protein-query         input file(s) contain amino acid sequences
   --memory-mapping        Avoids loading database into RAM
   --paired                The filenames provided have paired-end reads
   --use-names             Print scientific names instead of just taxids
