@@ -605,7 +605,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     koss << dna.seq.size() << "|" << dna2.seq.size() << "\t";
 
   if (opts.quick_mode) {
-    koss << call << ":Q";
+    koss << ext_call << ":Q";
   }
   else {
     if (taxa.empty())
