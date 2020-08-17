@@ -13,6 +13,7 @@
 
 ### Fixed
 - Modified build code to prevent insertion of minimizers with ambiguous bases
+- Bug where hit list output in quick mode used internal taxid instead of external
 
 ## [2.0.9] - 2020-04-07 (beta)
 
