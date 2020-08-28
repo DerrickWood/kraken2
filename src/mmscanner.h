@@ -31,7 +31,7 @@ class MinimizerScanner {
   MinimizerScanner(ssize_t k, ssize_t l,
                    uint64_t spaced_seed_mask = DEFAULT_SPACED_SEED_MASK,
                    bool dna_sequence = true,
-                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,                   
+                   uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,
                    int revcom_version = CURRENT_REVCOM_VERSION);
 
   void LoadSequence(std::string &seq, size_t start = 0,
@@ -43,7 +43,6 @@ class MinimizerScanner {
   ssize_t k() { return k_; }
   ssize_t l() { return l_; }
   bool is_dna() { return dna_; }
-  uint64_t lmer_;
 
   private:
   uint64_t reverse_complement(uint64_t kmer, uint8_t n);
@@ -57,6 +56,7 @@ class MinimizerScanner {
   uint64_t spaced_seed_mask_;
   bool dna_;
   uint64_t toggle_mask_;
+  uint64_t lmer_;
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
   ssize_t loaded_ch_;
