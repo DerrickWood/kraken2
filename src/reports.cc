@@ -37,7 +37,7 @@ taxon_counters_t GetCladeCounters(Taxonomy &tax, taxon_counters_t &call_counters
     auto counter = kv_pair.second;
 
     while (taxid) {
-      clade_counters[taxid] += std::move(counter);
+      clade_counters[taxid] += counter;
       taxid = tax.nodes()[taxid].parent_id;
     }
   }

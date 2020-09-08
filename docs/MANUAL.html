@@ -39,6 +39,7 @@
 </ul></li>
 <li><a href="#confidence-scoring">Confidence Scoring</a></li>
 <li><a href="#inspecting-a-kraken-2-databases-contents">Inspecting a Kraken 2 Database's Contents</a></li>
+<li><a href="#distinct-minimizer-count-information">Distinct minimizer count information</a></li>
 <li><a href="#kraken-2-environment-variables">Kraken 2 Environment Variables</a></li>
 </ul>
 </div>
@@ -210,7 +211,7 @@ done</code></pre>
 <pre><code>kraken2-build --build --db $DBNAME</code></pre></li>
 </ol>
 <p>The <code>--threads</code> option is also helpful here to reduce build time.</p>
-<p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 12 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
+<p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 12 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>--minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
 <p>Kraken 2 also utilizes a simple spaced seed approach to increase accuracy. A number <span class="math inline"><em>s</em></span> &lt; <span class="math inline">ℓ</span>/4 can be chosen, and <span class="math inline"><em>s</em></span> positions in the minimizer will be masked out during all comparisons. Masked positions are chosen to alternate from the second-to-last position in the minimizer; e.g., <span class="math inline"><em>s</em></span> = 5 and <span class="math inline">ℓ</span> = 31 will result in masking out the 0 positions shown here:</p>
 <pre><code>   111 1111 1111 1111 1111 1101 0101 0101</code></pre>
 <p>By default, <span class="math inline"><em>s</em></span> = 7 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
@@ -255,8 +256,36 @@ done</code></pre>
  43.89% 777062062       1312736 P       1224          Proteobacteria
  18.62% 329590216       555667  C       1236            Gammaproteobacteria</code></pre>
 <p>This output indicates that 555667 of the minimizers in the database map directly to the Gammaproteobacteria class (taxid #1236), and 329590216 (18.62%) of the database's minimizers map to a taxon in the clade rooted at Gammaproteobacteria. For more information on <code>kraken2-inspect</code>'s options, use its <code>--help</code> option.</p>
+<h1 id="distinct-minimizer-count-information">Distinct minimizer count information</h1>
+<p>The <a href="https://github.com/fbreitwieser/krakenuniq">KrakenUniq</a> project extended Kraken 1 by, among other things, reporting an estimate of the number of distinct k-mers associated with each taxon in the input sequencing data. This allows users to better determine if Kraken's classifications are due to reads distributed throughout a reference genome, or due to only a small segment of a reference genome (and therefore likely false positive).</p>
+<p>Thanks to the generosity of KrakenUniq's developer Florian Breitwieser in allowing parts of the KrakenUniq source code to be licensed under Kraken 2's MIT license, this distinct counting estimation is now available in Kraken 2. Development work by Martin Steinegger and Ben Langmead helped bring this functionality to Kraken 2.</p>
+<p>At present, this functionality is an optional <em>experimental feature</em> -- meaning that we may later alter it in a way that is not backwards compatible with previous versions of the feature.</p>
+<p>To use this functionality, simply run the <code>kraken2</code> script with the additional <code>--report-minimizer-data</code> flag along with <code>--report</code>, e.g.:</p>
+<pre><code>kraken2 --db $DBNAME --report k2_report.txt --report-minimizer-data \
+    --output k2_output.txt sequence_data.fq</code></pre>
+<p>This will put the standard Kraken 2 output (formatted as described in <a href="#standard-kraken-output-format">Standard Kraken Output Format</a>) in <code>k2_output.txt</code> and the report information in <code>k2_report.txt</code>. Within the report file, two additional columns will be present, e.g.:</p>
+<p><strong>normal report format</strong>:</p>
+<pre><code>36.40   182 182 S2  211044                        Influenza A virus (A/Puerto Rico/8/1934(H1N1))</code></pre>
+<p><strong>modified report format</strong>:</p>
+<pre><code>36.40   182 182 1688    18  S2  211044                        Influenza A virus (A/Puerto Rico/8/1934(H1N1))</code></pre>
+<p>In this modified report format, the two new columns are the fourth and fifth, respectively representing the number of minimizers found to be associated with a taxon in the read sequences (1688), and the estimate of the number of distinct minimizers associated with a taxon in the read sequence data (18). This would indicate that although 182 reads were classified as belonging to H1N1 influenza, only 18 distinct minimizers led to those 182 classifications.</p>
+<p>The format with the <code>--report-minimizer-data</code> flag, then, is similar to that described in <a href="#sample-report-output-format">Sample Report Output Format</a>, but slightly different. The fields in this new format, from left-to-right, are:</p>
+<ol style="list-style-type: decimal">
+<li>Percentage of fragments covered by the clade rooted at this taxon</li>
+<li>Number of fragments covered by the clade rooted at this taxon</li>
+<li>Number of fragments assigned directly to this taxon</li>
+<li>Number of minimizers in read data associated with this taxon (<strong>new</strong>)</li>
+<li>An estimate of the number of distinct minimizers in read data associated with this taxon (<strong>new</strong>)</li>
+<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., &quot;G2&quot; is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
+<li>NCBI taxonomic ID number</li>
+<li>Indented scientific name</li>
+</ol>
+<p>We decided to make this an optional feature so as not to break existing software that processes Kraken 2's standard report format. However, this new format can be converted to the standard report format with the command:</p>
+<pre><code>cut -f1-3,6-8 k2_new_report.txt &gt; k2_std_report.txt</code></pre>
+<p>As noted above, this is an <em>experimental feature</em>. We intend to continue development on this feature, and may change the new format and/or its information if we determine it to be necessary.</p>
+<p>For background on the data structures used in this feature and their interaction with Kraken, please read the <a href="https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1568-0">KrakenUniq paper</a>, and please cite that paper if you use this functionality as part of your work.</p>
 <h1 id="kraken-2-environment-variables">Kraken 2 Environment Variables</h1>
-<p>The <code>kraken2</code> and <code>kraken2-inpsect</code> scripts supports the use of some environment variables to help in reducing command line lengths:</p>
+<p>The <code>kraken2</code> and <code>kraken2-inspect</code> scripts supports the use of some environment variables to help in reducing command line lengths:</p>
 <ul>
 <li><p><strong><code>KRAKEN2_NUM_THREADS</code></strong>: if the <code>--threads</code> option is not supplied to <code>kraken2</code>, then the value of this variable (if it is set) will be used as the number of threads to run <code>kraken2</code>. (This variable does not affect <code>kraken2-inspect</code>.)</p></li>
 <li><p><strong><code>KRAKEN2_DB_PATH</code></strong>: much like the <code>PATH</code> variable is used for executables by your shell, <code>KRAKEN2_DB_PATH</code> is a colon-separated list of directories that will be searched for the database you name if the named database does not have a slash (<code>/</code>) character. By default, Kraken 2 assumes the value of this variable is &quot;<code>.</code>&quot; (i.e., the current working directory). This variable can be used to create one (or more) central repositories of Kraken databases in a multi-user system. Example usage in bash:</p>

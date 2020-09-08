@@ -493,7 +493,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames,
-    unordered_map<taxid_t, READCOUNTER >& curr_taxon_counts)
+    taxon_counters_t &curr_taxon_counts)
 {
   uint64_t *minimizer_ptr;
   taxid_t call = 0;
@@ -539,8 +539,11 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
             last_minimizer = *minimizer_ptr;
             // Increment this only if (a) we have DB hit and
             // (b) minimizer != last minimizer
-            if (taxon)
+            if (taxon) {
               minimizer_hit_groups++;
+              // New minimizer should trigger registering minimizer in RC/HLL
+              curr_taxon_counts[taxon].add_kmer(scanner.last_minimizer());
+            }
           }
           else {
             taxon = last_taxon;
@@ -551,7 +554,6 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
               goto finished_searching;  // need to break 3 loops here
             }
             hit_counts[taxon]++;
-            curr_taxon_counts[taxon].add_kmer(scanner.last_minimizer());
           }
         }
         taxa.push_back(taxon);
@@ -838,6 +840,6 @@ void usage(int exit_code) {
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl
-       << "  -K               Provide kmer information in report" << endl;
+       << "  -K               In comb. w/ -R, provide minimizer information in report" << endl;
   exit(exit_code);
 }

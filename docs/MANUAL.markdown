@@ -526,7 +526,7 @@ To build a custom database:
 
    By default, the values of $k$ and $\ell$ are 35 and 31, respectively (or
    15 and 12 for protein databases).  These values can be explicitly set
-   with the `--kmer-len` and `minimizer-len` options, however.  Note that
+   with the `--kmer-len` and `--minimizer-len` options, however.  Note that
    the minimizer length must be no more than 31 for nucleotide databases,
    and 15 for protein databases.  Additionally, the minimizer length $\ell$
    must be no more than the $k$-mer length.  There is no upper bound on
@@ -682,10 +682,94 @@ Gammaproteobacteria.  For more information on `kraken2-inspect`'s options,
 use its `--help` option.
 
 
+Distinct minimizer count information
+====================================
+
+The [KrakenUniq] project extended Kraken 1 by, among other things, reporting
+an estimate of the number of distinct k-mers associated with each taxon in the
+input sequencing data.  This allows users to better determine if Kraken's
+classifications are due to reads distributed throughout a reference genome,
+or due to only a small segment of a reference genome (and therefore likely
+false positive).
+
+Thanks to the generosity of KrakenUniq's developer Florian Breitwieser in
+allowing parts of the KrakenUniq source code to be licensed under Kraken 2's
+MIT license, this distinct counting estimation is now available in Kraken 2.
+Development work by Martin Steinegger and Ben Langmead helped bring this
+functionality to Kraken 2.
+
+At present, this functionality is an optional *experimental feature* -- meaning
+that we may later alter it in a way that is not backwards compatible with
+previous versions of the feature.
+
+To use this functionality, simply run the `kraken2` script with the additional
+`--report-minimizer-data` flag along with `--report`, e.g.:
+
+    kraken2 --db $DBNAME --report k2_report.txt --report-minimizer-data \
+        --output k2_output.txt sequence_data.fq
+
+This will put the standard Kraken 2 output (formatted as described in
+[Standard Kraken Output Format]) in `k2_output.txt` and the report information
+in `k2_report.txt`.  Within the report file, two additional columns will be
+present, e.g.:
+
+**normal report format**:
+
+    36.40	182	182	S2	211044	                      Influenza A virus (A/Puerto Rico/8/1934(H1N1))
+
+**modified report format**:
+
+    36.40	182	182	1688	18	S2	211044	                      Influenza A virus (A/Puerto Rico/8/1934(H1N1))
+
+In this modified report format, the two new columns are the fourth and fifth,
+respectively representing the number of minimizers found to be associated with
+a taxon in the read sequences (1688), and the estimate of the number of distinct
+minimizers associated with a taxon in the read sequence data (18).  This would
+indicate that although 182 reads were classified as belonging to H1N1 influenza,
+only 18 distinct minimizers led to those 182 classifications.
+
+The format with the `--report-minimizer-data` flag, then, is similar to that
+described in [Sample Report Output Format], but slightly different.  The fields
+in this new format, from left-to-right, are:
+
+1. Percentage of fragments covered by the clade rooted at this taxon
+2. Number of fragments covered by the clade rooted at this taxon
+3. Number of fragments assigned directly to this taxon
+4. Number of minimizers in read data associated with this taxon (**new**)
+5. An estimate of the number of distinct minimizers in read data associated
+   with this taxon (**new**)
+6. A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom,
+   (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies.
+   Taxa that are not at any of these 10 ranks have a rank code that is
+   formed by using the rank code of the closest ancestor rank with
+   a number indicating the distance from that rank.  E.g., "G2" is a
+   rank code indicating a taxon is between genus and species and the
+   grandparent taxon is at the genus rank.
+7. NCBI taxonomic ID number
+8. Indented scientific name
+
+We decided to make this an optional feature so as not to break existing
+software that processes Kraken 2's standard report format.  However, this
+new format can be converted to the standard report format with the command:
+
+    cut -f1-3,6-8 k2_new_report.txt > k2_std_report.txt
+
+As noted above, this is an *experimental feature*.  We intend to continue
+development on this feature, and may change the new format and/or its
+information if we determine it to be necessary.
+
+For background on the data structures used in this feature and their
+interaction with Kraken, please read the [KrakenUniq paper], and please
+cite that paper if you use this functionality as part of your work.
+
+[KrakenUniq]: https://github.com/fbreitwieser/krakenuniq
+[KrakenUniq paper]: https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1568-0
+
+
 Kraken 2 Environment Variables
 ==============================
 
-The `kraken2` and `kraken2-inpsect` scripts supports the use of some
+The `kraken2` and `kraken2-inspect` scripts supports the use of some
 environment variables to help in reducing command line lengths:
 
 * **`KRAKEN2_NUM_THREADS`**: if the
