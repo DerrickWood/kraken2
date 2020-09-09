@@ -38,6 +38,7 @@ while (<>) {
   my ($taxid, $asm_level, $ftp_path) = @fields[5, 11, 19];
   # Possible TODO - make the list here configurable by user-supplied flags
   next unless grep {$asm_level eq $_} ("Complete Genome", "Chromosome");
+  next if $ftp_path eq "na";  # Skip if no provided path
 
   my $full_path = $ftp_path . "/" . basename($ftp_path) . $suffix;
   # strip off server/leading dir name to allow --files-from= to work w/ rsync

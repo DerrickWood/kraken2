@@ -13,7 +13,8 @@
 
 ### Fixed
 - Modified build code to prevent insertion of minimizers with ambiguous bases
-- Bug where hit list output in quick mode used internal taxid instead of external
+- Bug where hit list output in quick mode used internal taxid (not external)
+- No more attempts to download "na" paths from FTP site
 
 ## [2.0.9] - 2020-04-07 (beta)
 
