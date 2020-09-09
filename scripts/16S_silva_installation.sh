@@ -13,8 +13,8 @@ set -o pipefail  # Stop on failures in non-final pipeline commands
 HTTPS_SERVER="https://ftp.arb-silva.de/"
 SILVA_VERSION="138_1"
 REMOTE_DIR="$HTTPS_SERVER/release_$SILVA_VERSION/Exports"
-FASTA_FILENAME="SILVA_${SILVA_VERSION}_SSURef_NR99_tax_silva.fasta"
-TAXO_PREFIX="tax_slv_ssu_$SILVA_VERSION"
+FASTA_FILENAME="SILVA_${SILVA_VERSION/_/.}_SSURef_NR99_tax_silva.fasta"
+TAXO_PREFIX="tax_slv_ssu_${SILVA_VERSION/_/.}"
 
 mkdir -p "$KRAKEN2_DB_NAME"
 pushd "$KRAKEN2_DB_NAME"
