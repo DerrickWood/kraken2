@@ -321,10 +321,11 @@ void ProcessFiles(const char *filename1, const char *filename2,
           sprintf(buffer, " kraken:taxid|%llu",
               (unsigned long long) tax.nodes()[call].external_id);
           seq1.header += buffer;
-          seq2.header += buffer;
           c1_oss << seq1.to_string();
-          if (opts.paired_end_processing)
+          if (opts.paired_end_processing) {
+            seq2.header += buffer;
             c2_oss << seq2.to_string();
+          }
         }
         else {
           u1_oss << seq1.to_string();
