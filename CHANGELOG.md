@@ -10,12 +10,14 @@
 - Build code now creates databases with deterministic MD5 sums by default;
   --fast-build option to kraken2-build introduced to access old behavior
 - Added plasmid library to standard installation set
+- Updated SILVA to release 138.1
 
 ### Fixed
 - Modified build code to prevent insertion of minimizers with ambiguous bases
 - Bug where hit list output in quick mode used internal taxid (not external)
 - No more attempts to download "na" paths from FTP site
 - Runaway memory usage bug with unpaired classification (thanks to D. Cameron)
+- Modified estimation code to better handle small reference libraries
 
 ## [2.0.9] - 2020-04-07 (beta)
 
