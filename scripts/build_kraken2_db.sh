@@ -99,6 +99,9 @@ echo "Estimating required capacity (step 2)..."
 
 step_time=$(get_current_time)
 estimate=$(list_sequence_files | xargs -0 cat | estimate_capacity -k $KRAKEN2_KMER_LEN -l $KRAKEN2_MINIMIZER_LEN -S $KRAKEN2_SEED_TEMPLATE -p $KRAKEN2_THREAD_CT $KRAKEN2XFLAG )
+# Slight upward adjustment of distinct minimizer estimate to protect
+# against crash w/ small reference sets
+estimate=$(( estimate + 8192 ))
 required_capacity=$(perl -le 'print int(shift() / shift())' $estimate $KRAKEN2_LOAD_FACTOR);
 
 echo "Estimated hash table requirement: $(( required_capacity * 4 )) bytes"
