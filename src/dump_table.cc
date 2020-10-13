@@ -76,14 +76,17 @@ int main(int argc, char **argv) {
   if (! opts.skip_counts) {
     taxon_counts_t taxid_counts = kraken_index.GetValueCounts();
     uint64_t total_seqs = 0;
+    taxon_counters_t taxid_counters;
     for (auto &kv_pair : taxid_counts) {
       total_seqs += kv_pair.second;
+      READCOUNTER rc(kv_pair.second, 0);
+      taxid_counters[kv_pair.first] = rc;
     }
     if (opts.use_mpa_style)
-      ReportMpaStyle(opts.output_filename, opts.report_zeros, taxonomy, taxid_counts);
+      ReportMpaStyle(opts.output_filename, opts.report_zeros, taxonomy, taxid_counters);
     else
-      ReportKrakenStyle(opts.output_filename, opts.report_zeros, taxonomy,
-          taxid_counts, total_seqs, 0);
+      ReportKrakenStyle(opts.output_filename, opts.report_zeros, false, taxonomy,
+          taxid_counters, total_seqs, 0);
   }
 
   return 0;

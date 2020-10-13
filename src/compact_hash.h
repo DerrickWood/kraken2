@@ -37,6 +37,8 @@ struct CompactHashCell {
     data |= val;
   }
 
+  // value in the low bits
+  // hash of the key in the high bits
   uint32_t data;
 };
 
