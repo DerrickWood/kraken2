@@ -5,6 +5,7 @@
 ### Added
 - Small viral reference set and read simulator for future testing
 - Build options to aid testing
+- Integration of HLL to estimate distinct minimizer counts
 
 ### Changed
 - Build code now creates databases with deterministic MD5 sums by default;
