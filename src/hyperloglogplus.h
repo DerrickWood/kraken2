@@ -13,6 +13,7 @@
 #ifndef HYPERLOGLOGPLUS_H_
 #define HYPERLOGLOGPLUS_H_
 
+#include "kraken2_headers.h"
 #include<vector>
 #include<unordered_set>
 using namespace std;
