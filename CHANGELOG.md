@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [2.1.0] - 2020-10-13
 
 ### Added
 - Small viral reference set and read simulator for future testing
