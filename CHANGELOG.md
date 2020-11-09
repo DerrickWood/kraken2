@@ -4,6 +4,8 @@
 
 ### Fixed
 - Compilation error with GCC 10, omission of cstdint header
+- Removed --skip-maps from standard install due to addition of plasmids,
+  which require acc/taxid maps
 
 ## [2.1.0] - 2020-10-13
 
