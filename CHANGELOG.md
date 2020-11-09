@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Compilation error with GCC 10, omission of cstdint header
+
 ## [2.1.0] - 2020-10-13
 
 ### Added

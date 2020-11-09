@@ -5,24 +5,23 @@
  */
 
 /*
- * Implementation of 64-bit HyperLogLog algorithm by Flajolet et al., 
- *   with sparse mode for increased precision with low cardinalities (Stefan Heule et al.), and 
+ * Implementation of 64-bit HyperLogLog algorithm by Flajolet et al.,
+ *   with sparse mode for increased precision with low cardinalities (Stefan Heule et al.), and
  *   an improved estimator that does not rely on empirical bias correction data (Otmar Ertl)
  */
 
 #ifndef HYPERLOGLOGPLUS_H_
 #define HYPERLOGLOGPLUS_H_
 
-#include<vector>
-#include<unordered_set>
+#include "kraken2_headers.h"
 using namespace std;
 
 //#define HLL_DEBUG
 //#define HLL_DEBUG2
 
-#ifdef HLL_DEBUG 
+#ifdef HLL_DEBUG
 #define D(x) x
-#else 
+#else
 #define D(x)
 #endif
 
@@ -36,7 +35,7 @@ typedef unordered_set<uint32_t> SparseListType;
 // Other possible SparseList types:
 // // typedef vector<uint32_t> SparseListType;
 // The sorted vector implementation is pretty inefficient currently, as the vector
-// is always kept sorted. 
+// is always kept sorted.
 // //typedef unordered_set<uint32_t, NoHash<uint32_t> > SparseListType;
 // No real performance gain from using the hash value directly - and probably problems
 // with the bucket assignment, since unordered_set expects size_t hashes
@@ -59,10 +58,10 @@ private:
   HASH (*bit_mixer) (uint64_t);
 
   // sparse versions of p and m
-  static const uint8_t  pPrime = 25; // precision when using a sparse representation 
+  static const uint8_t  pPrime = 25; // precision when using a sparse representation
                                      // which encodes the rank + index in 32 bits:
-                                     //  25 bits for index + 
-                                     //   6 bits for rank + 
+                                     //  25 bits for index +
+                                     //   6 bits for rank +
                                      //   1 flag bit indicating if bits p..pPrime are 0
   static const uint32_t mPrime = 1 << pPrime; // 2^pPrime
 
@@ -93,10 +92,10 @@ public:
   uint64_t cardinality() const; // returns ertlCardinality()
   uint64_t size() const; // returns ertlCardinality()
   // HLL++ estimator of Heule et al., 2015. Uses empirical bias correction factors
-  uint64_t heuleCardinality(bool correct_bias = true) const; 
+  uint64_t heuleCardinality(bool correct_bias = true) const;
   // Improved estimator of Ertl, 2017. Does not rely on empirical data
   uint64_t ertlCardinality() const;
-  // Flayolet's cardinality estimator without bias correction
+  // Flajolet's cardinality estimator without bias correction
   uint64_t flajoletCardinality(bool use_sparse_precision = true) const;
 
   uint64_t nObserved() const;
@@ -108,4 +107,3 @@ private:
 };
 
 #endif /* HYPERLOGLOGPLUS_H_ */
-
