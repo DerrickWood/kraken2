@@ -11,6 +11,7 @@ add_executable(build_db
 add_executable(classify
         classify.cc
         reports.cc
+        hyperloglogplus.cc
         mmap_file.cc
         compact_hash.cc
         taxonomy.cc
@@ -33,7 +34,8 @@ add_executable(dump_table
         compact_hash.cc
         omp_hack.cc
         taxonomy.cc
-        reports.cc)
+        reports.cc
+        hyperloglogplus.cc)
 
 add_executable(lookup_accession_numbers
         lookup_accession_numbers.cc
