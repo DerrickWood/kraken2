@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Bug that caused classification to not work when k-mer length was equal
+  to minimizer length
+
 ## [2.1.1] - 2020-11-08
 
 ### Fixed
