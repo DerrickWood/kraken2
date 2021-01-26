@@ -79,16 +79,21 @@ if ($is_protein && ! $use_ftp) {
   close MANIFEST;
 }
 
+sub ftp_connection {
+    my $ftp = Net::FTP->new($SERVER, Passive => 1)
+        or die "$PROG: FTP connection error: $@\n";
+    $ftp->login($FTP_USER, $FTP_PASS)
+        or die "$PROG: FTP login error: " . $ftp->message() . "\n";
+    $ftp->binary()
+        or die "$PROG: FTP binary mode error: " . $ftp->message() . "\n";
+    $ftp->cwd($SERVER_PATH)
+        or die "$PROG: FTP CD error: " . $ftp->message() . "\n";
+    return $ftp;
+    }
+
 if ($use_ftp) {
   print STDERR "Step 1/2: Performing ftp file transfer of requested files\n";
-  my $ftp = Net::FTP->new($SERVER, Passive => 1)
-    or die "$PROG: FTP connection error: $@\n";
-  $ftp->login($FTP_USER, $FTP_PASS)
-    or die "$PROG: FTP login error: " . $ftp->message() . "\n";
-  $ftp->binary()
-    or die "$PROG: FTP binary mode error: " . $ftp->message() . "\n";
-  $ftp->cwd($SERVER_PATH)
-    or die "$PROG: FTP CD error: " . $ftp->message() . "\n";
+  my $ftp = ftp_connection();
   open MANIFEST, "<", "manifest.txt"
     or die "$PROG: can't open manifest: $!\n";
   mkdir "all" or die "$PROG: can't create 'all' directory: $!\n";
@@ -99,7 +104,9 @@ if ($use_ftp) {
       or do {
         my $msg = $ftp->message();
         if ($msg !~ /: No such file or directory$/) {
-          warn "$PROG: unable to download $_: $msg\n";
+          $ftp = ftp_connection();
+          $ftp->get($_)
+            or warn "$PROG: unable to download $_: $msg\n";
         }
       };
   }
