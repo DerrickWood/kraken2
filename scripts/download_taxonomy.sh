@@ -13,7 +13,7 @@ set -e  # Stop on error
 TAXONOMY_DIR="$KRAKEN2_DB_NAME/taxonomy"
 NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
 RSYNC_SERVER="rsync://$NCBI_SERVER"
-FTP_SERVER="ftp://$NCBI_SERVER"
+FTP_SERVER="https://$NCBI_SERVER"
 
 mkdir -p "$TAXONOMY_DIR"
 cd "$TAXONOMY_DIR"
