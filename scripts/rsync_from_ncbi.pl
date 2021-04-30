@@ -79,29 +79,40 @@ if ($is_protein && ! $use_ftp) {
   close MANIFEST;
 }
 
+sub ftp_connection {
+    my $ftp = Net::FTP->new($SERVER, Passive => 1)
+        or die "$PROG: FTP connection error: $@\n";
+    $ftp->login($FTP_USER, $FTP_PASS)
+        or die "$PROG: FTP login error: " . $ftp->message() . "\n";
+    $ftp->binary()
+        or die "$PROG: FTP binary mode error: " . $ftp->message() . "\n";
+    $ftp->cwd($SERVER_PATH)
+        or die "$PROG: FTP CD error: " . $ftp->message() . "\n";
+    return $ftp;
+}
+
 if ($use_ftp) {
   print STDERR "Step 1/2: Performing ftp file transfer of requested files\n";
-  my $ftp = Net::FTP->new($SERVER, Passive => 1)
-    or die "$PROG: FTP connection error: $@\n";
-  $ftp->login($FTP_USER, $FTP_PASS)
-    or die "$PROG: FTP login error: " . $ftp->message() . "\n";
-  $ftp->binary()
-    or die "$PROG: FTP binary mode error: " . $ftp->message() . "\n";
-  $ftp->cwd($SERVER_PATH)
-    or die "$PROG: FTP CD error: " . $ftp->message() . "\n";
   open MANIFEST, "<", "manifest.txt"
     or die "$PROG: can't open manifest: $!\n";
   mkdir "all" or die "$PROG: can't create 'all' directory: $!\n";
   chdir "all" or die "$PROG: can't chdir into 'all' directory: $!\n";
   while (<MANIFEST>) {
     chomp;
-    $ftp->get($_)
-      or do {
-        my $msg = $ftp->message();
-        if ($msg !~ /: No such file or directory$/) {
-          warn "$PROG: unable to download $_: $msg\n";
-        }
-      };
+    my $ftp = ftp_connection();
+    my $try = 0;
+    my $ntries = 5;
+    my $sleepsecs = 3;
+    while($try < $ntries) {
+        $try++;
+        last if $ftp->get($_);
+        warn "$PROG: unable to download $_ on try $try of $ntries: ".$ftp->message()."\n";
+        last if $try == $ntries;
+        sleep $sleepsecs;
+        $sleepsecs *= 3;
+    }
+    die "$PROG: unable to download ftp://${SERVER}${SERVER_PATH}/$_\n" if $try == $ntries;
+    $ftp->quit;
   }
   close MANIFEST;
   chdir ".." or die "$PROG: can't return to correct directory: $!\n";
