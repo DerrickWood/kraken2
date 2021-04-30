@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+### Changed
+- New retry behavior for kraken2-build --download-library --use-ftp
+
 ### Fixed
 - Bug that caused classification to not work when k-mer length was equal
   to minimizer length
+- Missing source file in CMakeLists.txt
 
 ## [2.1.1] - 2020-11-08
 
