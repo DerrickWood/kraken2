@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Changed
+- New retry behavior for kraken2-build --download-library --use-ftp
+
+### Fixed
+- Bug that caused classification to not work when k-mer length was equal
+  to minimizer length
+- Missing source file in CMakeLists.txt
+
+## [2.1.1] - 2020-11-08
+
+### Fixed
+- Compilation error with GCC 10, omission of cstdint header
+- Removed --skip-maps from standard install due to addition of plasmids,
+  which require acc/taxid maps
+
+## [2.1.0] - 2020-10-13
+
+### Added
+- Small viral reference set and read simulator for future testing
+- Build options to aid testing
+- Integration of HLL to estimate distinct minimizer counts
+
+### Changed
+- Build code now creates databases with deterministic MD5 sums by default;
+  --fast-build option to kraken2-build introduced to access old behavior
+- Added plasmid library to standard installation set
+- Updated SILVA to release 138.1
+
+### Fixed
+- Modified build code to prevent insertion of minimizers with ambiguous bases
+- Bug where hit list output in quick mode used internal taxid (not external)
+- No more attempts to download "na" paths from FTP site
+- Runaway memory usage bug with unpaired classification (thanks to D. Cameron)
+- Modified estimation code to better handle small reference libraries
+
+## [2.0.9] - 2020-04-07 (beta)
+
 ### Added
 - Expose --load-factor setting to kraken2-build
 - New --minimum-hit-groups option to kraken2

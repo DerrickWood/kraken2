@@ -10,6 +10,7 @@ use strict;
 use warnings;
 use File::Basename;
 use Getopt::Long;
+use POSIX;
 
 my $PROG = basename $0;
 my $KRAKEN2_DIR = '#####=KRAKEN2_DIR=#####';
@@ -31,6 +32,8 @@ my $DEF_NT_KMER_LEN = 35;
 my $DEF_NT_MINIMIZER_SPACES = 7;
 my $DEF_THREAD_CT = 1;
 my $DEF_LOAD_FACTOR = 0.7;
+my $DEF_BLOCK_SIZE = 16384;
+my $DEF_SUBBLOCK_SIZE = 0;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
                              protozoa fungi human nr nt 
@@ -51,6 +54,10 @@ my (
   $use_ftp,
   $skip_maps,
   $load_factor,
+  $fast_build,
+  $block_size,
+  $subblock_size,
+  $minimum_bits_for_taxid,
 
   $dl_taxonomy,
   $dl_library,
@@ -72,6 +79,10 @@ $is_protein = $ENV{"KRAKEN2_PROTEIN_DB"} || 0;
 $use_ftp = $ENV{"KRAKEN2_USE_FTP"} || 0;
 $skip_maps = $ENV{"KRAKEN2_SKIP_MAPS"} || 0;
 $masking = exists $ENV{"KRAKEN2_MASK_LC"} ? $ENV{"KRAKEN2_MASK_LC"} : 1;
+$fast_build = $ENV{"KRAKEN2_FAST_BUILD"} || 0;
+$block_size = $ENV{"KRAKEN2_BLOCK_SIZE"} || $DEF_BLOCK_SIZE;
+$subblock_size = $ENV{"KRAKEN2_SUBBLOCK_SIZE"} || $DEF_SUBBLOCK_SIZE;
+$minimum_bits_for_taxid = $ENV{"KRAKEN2_MIN_TAXID_BITS"} || 0;
 
 # variables corresponding to task options
 my @TASK_LIST = (
@@ -99,6 +110,10 @@ GetOptions(
   "use-ftp" => \$use_ftp,
   "skip-maps" => \$skip_maps,
   "load-factor=f" => \$load_factor,
+  "fast-build" => \$fast_build,
+  "block-size=i" => \$block_size,
+  "subblock-size=i" => \$subblock_size,
+  "minimum-bits-for-taxid=i" => \$minimum_bits_for_taxid,
 
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
@@ -118,6 +133,9 @@ else {
   $kmer_len = $DEF_NT_KMER_LEN if ! defined $kmer_len;
   $minimizer_len = $DEF_NT_MINIMIZER_LEN if ! defined $minimizer_len;
   $minimizer_spaces = $DEF_NT_MINIMIZER_SPACES if ! defined $minimizer_spaces;
+}
+if ($subblock_size == 0) {
+  $subblock_size = ceil($block_size / $threads);
 }
 
 if (@ARGV) {
@@ -168,6 +186,10 @@ $ENV{"KRAKEN2_MAX_DB_SIZE"} = defined($max_db_size) ? $max_db_size : "";
 $ENV{"KRAKEN2_USE_FTP"} = $use_ftp ? 1 : "";
 $ENV{"KRAKEN2_SKIP_MAPS"} = $skip_maps ? 1 : "";
 $ENV{"KRAKEN2_LOAD_FACTOR"} = $load_factor;
+$ENV{"KRAKEN2_FAST_BUILD"} = $fast_build ? 1 : "";
+$ENV{"KRAKEN2_BLOCK_SIZE"} = $block_size;
+$ENV{"KRAKEN2_SUBBLOCK_SIZE"} = $subblock_size;
+$ENV{"KRAKEN2_MIN_TAXID_BITS"} = $minimum_bits_for_taxid;
 
 if ($dl_taxonomy) {
   download_taxonomy();
@@ -248,6 +270,10 @@ Options:
   --load-factor FRAC         Proportion of the hash table to be populated
                              (build task only; def: $DEF_LOAD_FACTOR, must be
                              between 0 and 1).
+  --fast-build               Do not require database to be deterministically
+                             built when using multiple threads.  This is faster,
+                             but does introduce variability in minimizer/LCA
+                             pairs.  Used with --build and --standard options.
 EOF
   exit $exit_code;
 }

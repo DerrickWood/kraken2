@@ -178,6 +178,8 @@ void ProcessSequence(string &seq, Options &opts,
   scanner.LoadSequence(seq);
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {
+    if (scanner.is_ambiguous())
+      continue;
     uint64_t hash_code = MurmurHash3(*minimizer_ptr);
     if ((hash_code & RANGE_MASK) < opts.n) {
       #pragma omp critical(set_insert)
