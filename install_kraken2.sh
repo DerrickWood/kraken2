@@ -6,7 +6,7 @@
 
 set -e
 
-VERSION="2.1.1"
+VERSION="2.1.2"
 
 if [ -z "$1" ] || [ -n "$2" ]
 then

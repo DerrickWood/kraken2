@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [2.1.2] - 2021-05-10
 
 ### Changed
 - New retry behavior for kraken2-build --download-library --use-ftp
