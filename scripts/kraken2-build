@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# Copyright 2013-2020, Derrick Wood <dwood@cs.jhu.edu>
+# Copyright 2013-2021, Derrick Wood <dwood@cs.jhu.edu>
 #
 # This file is part of the Kraken 2 taxonomic sequence classification system.
 
@@ -282,7 +282,7 @@ sub display_help {
 
 sub display_version {
   print "Kraken version #####=VERSION=#####\n";
-  print "Copyright 2013-2020, Derrick Wood (dwood\@cs.jhu.edu)\n";
+  print "Copyright 2013-2021, Derrick Wood (dwood\@cs.jhu.edu)\n";
   exit 0;
 }
 
