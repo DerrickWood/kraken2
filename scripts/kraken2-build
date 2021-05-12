@@ -36,7 +36,8 @@ my $DEF_BLOCK_SIZE = 16384;
 my $DEF_SUBBLOCK_SIZE = 0;
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
-                             protozoa fungi human nr nt
+                             protozoa fungi human nr nt 
+                             invertebrate vertebrate_mammalian vertebrate_other
                              UniVec UniVec_Core/;
 my @VALID_SPECIAL_DB_TYPES = qw/greengenes silva rdp/;
 
@@ -228,7 +229,8 @@ Task options (exactly one must be selected):
   --download-library TYPE    Download partial library
                              (TYPE = one of "archaea", "bacteria", "plasmid",
                              "viral", "human", "fungi", "plant", "protozoa",
-                             "nr", "nt", "UniVec", "UniVec_Core")
+                             "nr", "nt", "UniVec", "UniVec_Core", "invertebrate",
+                            "vertebrate_mammalian", "vertebrate_other")
   --special TYPE             Download and build a special database
                              (TYPE = one of "greengenes", "silva", "rdp")
   --add-to-library FILE      Add FILE to library
