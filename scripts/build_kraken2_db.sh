@@ -95,12 +95,11 @@ else
   echo "Sequence ID to taxonomy ID map complete. [$(report_time_elapsed $step_time)]"
 fi
 
-required_capacity_file=required_capacity.txt
-if [ -e "$seqid2taxid_map_file" ]; then
+required_capacity_file="required_capacity.txt"
+max_db_flag=""
+if [ -e "$required_capacity_file" ]; then
   echo "Required capacity has already been estimated, skipping estimation (step 2)."
-  open my $fh, '<', $required_capacity_file) or die "Could not open file '$required_capacity_file' $!"
-  required_capacity=<fh>;
-  close $fh
+  required_capacity=$( < $required_capacity_file )
 else
   echo "Estimating required capacity (step 2)..."
 
@@ -110,12 +109,8 @@ else
   # against crash w/ small reference sets
   estimate=$(( estimate + 8192 ))
   required_capacity=$(perl -le 'print int(shift() / shift())' $estimate $KRAKEN2_LOAD_FACTOR);
+  echo $required_capacity > $required_capacity_file
 
-  open(my $fh, '>', $required_capacity_file) or die "Could not open file '$required_capacity_file' $!"
-  print $fh "$required_capacity"
-  close $fh
-
-  max_db_flag=""
   if [ -n "$KRAKEN2_MAX_DB_SIZE" ]
   then
     if (( KRAKEN2_MAX_DB_SIZE < (required_capacity * 4) ))
