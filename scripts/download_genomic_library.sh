@@ -56,21 +56,21 @@ case $library_name in
     rsync_from_ncbi.pl assembly_summary.txt
     scan_fasta_file.pl $library_file >> prelim_map.txt
     ;;
-  "plasmid")
-    mkdir -p $LIBRARY_DIR/plasmid
-    cd $LIBRARY_DIR/plasmid
-    rm -f library.f* plasmid.*
+  "plasmid" | "mitochondrion" | "plastid")
+    mkdir -p $LIBRARY_DIR/$library_name
+    cd $LIBRARY_DIR/$library_name
+    rm -f library.f* $library_name.*
     ## This is staying FTP only D/L for now
-    1>&2 echo -n "Downloading plasmid files from FTP..."
-    wget -q --no-remove-listing --spider $FTP_SERVER/genomes/refseq/plasmid/
+    1>&2 echo -n "Downloading $library_name files from FTP..."
+    wget -q --no-remove-listing --spider $FTP_SERVER/genomes/refseq/$library_name/
     if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
       awk '{ print $NF }' .listing | perl -ple 'tr/\r//d' | grep '\.faa\.gz' > manifest.txt
     else
       awk '{ print $NF }' .listing | perl -ple 'tr/\r//d' | grep '\.fna\.gz' > manifest.txt
     fi
-    cat manifest.txt | xargs -n1 -I{} wget -q $FTP_SERVER/genomes/refseq/plasmid/{}
+    cat manifest.txt | xargs -n1 -I{} wget -q $FTP_SERVER/genomes/refseq/$library_name/{}
     cat manifest.txt | xargs -n1 -I{} gunzip -c {} > $library_file
-    rm -f plasmid.* .listing
+    rm -f $library_name.* .listing
     scan_fasta_file.pl $library_file > prelim_map.txt
     1>&2 echo " done."
     ;;
@@ -119,7 +119,7 @@ case $library_name in
   *)
     1>&2 echo "Unsupported library.  Valid options are: "
     1>&2 echo "  archaea bacteria viral fungi plant protozoa human plasmid"
-    1>&2 echo "  nr nt UniVec UniVec_Core"
+    1>&2 echo "  mitochondrion plastid nr nt UniVec UniVec_Core"
     exit 1
     ;;
 esac

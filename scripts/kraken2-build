@@ -35,7 +35,7 @@ my $DEF_LOAD_FACTOR = 0.7;
 my $DEF_BLOCK_SIZE = 16384;
 my $DEF_SUBBLOCK_SIZE = 0;
 
-my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
+my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid mitochondrion plastid viral plant
                              protozoa fungi human nr nt
                              UniVec UniVec_Core/;
 my @VALID_SPECIAL_DB_TYPES = qw/greengenes silva rdp/;
@@ -113,7 +113,6 @@ GetOptions(
   "block-size=i" => \$block_size,
   "subblock-size=i" => \$subblock_size,
   "minimum-bits-for-taxid=i" => \$minimum_bits_for_taxid,
-
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
   "add-to-library=s" => \$add_to_library,
@@ -227,8 +226,9 @@ Task options (exactly one must be selected):
   --download-taxonomy        Download NCBI taxonomic information
   --download-library TYPE    Download partial library
                              (TYPE = one of "archaea", "bacteria", "plasmid",
-                             "viral", "human", "fungi", "plant", "protozoa",
-                             "nr", "nt", "UniVec", "UniVec_Core")
+                             "mitochondrion", "plastid", "viral", "human",
+                             "fungi", "plant", "protozoa", "nr", "nt",
+                             "UniVec", "UniVec_Core")
   --special TYPE             Download and build a special database
                              (TYPE = one of "greengenes", "silva", "rdp")
   --add-to-library FILE      Add FILE to library
