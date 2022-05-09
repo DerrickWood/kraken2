@@ -14,7 +14,7 @@ set -e  # Stop on error
 
 LIBRARY_DIR="$KRAKEN2_DB_NAME/library"
 NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
-FTP_SERVER="https://$NCBI_SERVER"
+FTP_SERVER="ftp://$NCBI_SERVER"
 RSYNC_SERVER="rsync://$NCBI_SERVER"
 THIS_DIR=$PWD
 
