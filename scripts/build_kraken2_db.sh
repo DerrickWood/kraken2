@@ -32,7 +32,7 @@ function report_time_elapsed() {
 }
 
 function list_sequence_files() {
-  find library/ '(' -name '*.fna' -o -name '*.faa' ')' -print0
+  find -L library/ '(' -name '*.fna' -o -name '*.faa' ')' -print0
 }
 
 start_time=$(get_current_time)
