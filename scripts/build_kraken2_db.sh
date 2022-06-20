@@ -66,14 +66,14 @@ fi
 
 echo "Creating sequence ID to taxonomy ID map (step 1)..."
 if [ -d "library/added" ]; then
-  find library/added/ -name 'prelim_map_*.txt' | xargs cat > library/added/prelim_map.txt
+  find -L library/added/ -name 'prelim_map_*.txt' | xargs cat > library/added/prelim_map.txt
 fi
 seqid2taxid_map_file=seqid2taxid.map
 if [ -e "$seqid2taxid_map_file" ]; then
   echo "Sequence ID to taxonomy ID map already present, skipping map creation."
 else
   step_time=$(get_current_time)
-  find library/ -maxdepth 2 -name prelim_map.txt | xargs cat > taxonomy/prelim_map.txt
+  find -L library/ -maxdepth 2 -name prelim_map.txt | xargs cat > taxonomy/prelim_map.txt
   if [ ! -s "taxonomy/prelim_map.txt" ]; then
     echo "No preliminary seqid/taxid mapping files found, aborting."
     exit 1
