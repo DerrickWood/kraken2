@@ -24,6 +24,7 @@ omp_hack.o: omp_hack.cc omp_hack.h
 reports.o: reports.cc reports.h kraken2_data.h
 aa_translate.o: aa_translate.cc aa_translate.h
 utilities.o: utilities.cc utilities.h
+dustmasker.o: dustmasker.cc gzstream.h threadpool.h
 
 classify.o: classify.cc kraken2_data.h kv_store.h taxonomy.h seqreader.h mmscanner.h compact_hash.h aa_translate.h reports.h utilities.h readcounts.h
 dump_table.o: dump_table.cc compact_hash.h taxonomy.h mmscanner.h kraken2_data.h reports.h
@@ -45,3 +46,6 @@ dump_table: dump_table.o mmap_file.o compact_hash.o omp_hack.o taxonomy.o report
 
 lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
+
+dustmasker: dustmasker.o seqreader.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lz -pthread
