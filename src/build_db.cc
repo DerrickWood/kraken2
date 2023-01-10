@@ -180,7 +180,7 @@ void ProcessSequencesFast(const Options &opts,
         auto all_sequence_ids = ExtractNCBISequenceIDs(sequence.header);
         taxid_t taxid = 0;
         for (auto &seqid : all_sequence_ids) {
-          if (ID_to_taxon_map.count(seqid) == 0) continue;
+          if (ID_to_taxon_map.count(seqid) == 0 || ID_to_taxon_map.at(seqid) == 0) continue;
           auto ext_taxid = ID_to_taxon_map.at(seqid);
           taxid = taxonomy.LowestCommonAncestor(taxid, taxonomy.GetInternalID(ext_taxid));
         }
@@ -430,7 +430,8 @@ void ReadIDToTaxonMap(map<string, taxid_t> &id_map, string &filename) {
     istringstream iss(line);
     iss >> seq_id;
     iss >> taxid;
-    id_map[seq_id] = taxid;
+    if (taxid)
+      id_map[seq_id] = taxid;
   }
 }
 
