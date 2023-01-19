@@ -27,7 +27,7 @@ CompactHashTable::CompactHashTable(size_t capacity, size_t key_bits, size_t valu
     omp_init_lock(&zone_locks_[i]);
   try {
     table_ = new CompactHashCell[capacity_];
-  } catch (std::bad_alloc ex) {
+  } catch (std::bad_alloc &ex) {
     std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
               << "you may not have enough free memory to build this database.\n"
               << "Perhaps increasing the k-mer length, or reducing memory usage from\n"

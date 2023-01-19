@@ -1,5 +1,9 @@
 # Changelog
 
+### Fixed
+- Bug that caused infinite loop when sequences had taxid 0 (thanks to R. Charles)
+- Silenced new warning in GCC 11
+
 ## [2.1.2] - 2021-05-10
 
 ### Changed
