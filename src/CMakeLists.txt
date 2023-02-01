@@ -43,8 +43,8 @@ add_executable(lookup_accession_numbers
         omp_hack.cc
         utilities.cc)
 
-add_executable(dustmasker
-        dustmasker.cc
+add_executable(k2mask
+        k2mask.cc
         seqreader.cc)
 
 target_link_libraries(dustmasker ${ZLIB_LIBRARIES} Threads::Threads)

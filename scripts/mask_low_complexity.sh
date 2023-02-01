@@ -13,7 +13,7 @@ set -o pipefail  # Stop on failures in non-final pipeline commands
 
 target="$1"
 
-MASKER="dustmasker"
+MASKER="k2mask"
 if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
   MASKER="segmasker"
 fi
@@ -33,7 +33,7 @@ if [ -d $target ]; then
   done
 elif [ -f $target ]; then
   if [ ! -e "$target.masked" ]; then
-    $MASKER -in $target -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g' > "$target.tmp"
+    $MASKER -in $target -threads 4 -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g' > "$target.tmp"
     mv "$target.tmp" $target
     touch "$target.masked"
   fi
