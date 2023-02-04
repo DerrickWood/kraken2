@@ -93,9 +93,9 @@ void usage(const char *prog) {
   std::cerr << "usage: " << prog
             << " [-T | -level threshold] [-W | -window window size] [-i | -in input file]"
             << std::endl
-            << " [-w | -width sequence width] [-o | -out output file] [-r | -replace char]"
+            << " [-w | -width sequence width] [-o | -out output file] [-r | -replace-masked-with char]"
             << std::endl
-            << " [-f | -infmt input format] [-t | -threads threads]"
+            << " [-f | -outfmt output format] [-t | -threads threads]"
             << std::endl;
   exit(1);
 }
@@ -260,19 +260,19 @@ int main(int argc, char **argv) {
   const char *prog = "k2mask";
 
   struct option longopts[] = {
-    {"window",      required_argument, NULL, 'W'},
-    {"level",       required_argument, NULL, 'T'},
-    {"in",          required_argument, NULL, 'i'},
-    {"out",         required_argument, NULL, 'o'},
-    {"width",       required_argument, NULL, 'l'},
-    {"outfmt",      required_argument, NULL, 'f'},
-    {"threads",     required_argument, NULL, 't'},
-    {"replace",     required_argument, NULL, 'r'},
-    {"help",        no_argument,       NULL, 'h'},
-    {NULL,          0,                 NULL, 0}
+    {"window",              required_argument, NULL, 'W'},
+    {"level",               required_argument, NULL, 'T'},
+    {"in",                  required_argument, NULL, 'i'},
+    {"out",                 required_argument, NULL, 'o'},
+    {"width",               required_argument, NULL, 'w'},
+    {"outfmt",              required_argument, NULL, 'f'},
+    {"threads",             required_argument, NULL, 't'},
+    {"replace-masked-with", required_argument, NULL, 'r'},
+    {"help",                no_argument,       NULL, 'h'},
+    {NULL,                  0,                 NULL, 0}
   };
 
-  while ((ch = getopt_long_only(argc, argv, "W:T:hi:l:o:r:t:", longopts, NULL)) != -1) {
+  while ((ch = getopt_long_only(argc, argv, "W:T:hi:w:o:r:t:", longopts, NULL)) != -1) {
     switch (ch) {
     case 'W':
       windowSize = atoi(optarg);
