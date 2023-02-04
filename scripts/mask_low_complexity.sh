@@ -33,7 +33,7 @@ if [ -d $target ]; then
   done
 elif [ -f $target ]; then
   if [ ! -e "$target.masked" ]; then
-    $MASKER -in $target -threads 4 -outfmt fasta -replace-masked-with x > "$target.tmp"
+    $MASKER -in $target -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g' > "$target.tmp"
     mv "$target.tmp" $target
     touch "$target.masked"
   fi
