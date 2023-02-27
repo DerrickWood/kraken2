@@ -132,7 +132,7 @@ my $sequences_added = 0;
 my $ch_added = 0;
 my $ch = $is_protein ? "aa" : "bp";
 my $max_out_chars = 0;
-for my $in_filename (keys %manifest) {
+for my $in_filename (sort keys %manifest) {
   my $taxid = $manifest{$in_filename};
   if ($use_ftp) {  # FTP downloading doesn't create full path locally
     $in_filename = "all/" . basename($in_filename);
