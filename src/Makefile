@@ -1,6 +1,6 @@
 CXX = g++
-OMPFLAG ?= -fopenmp
-CXXFLAGS = $(OMPFLAG) -Wall -std=c++11 -O3
+KRAKEN2_SKIP_FOPENMP ?= -fopenmp
+CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3
 CXXFLAGS += -DLINEAR_PROBING
 
 .PHONY: all clean install
