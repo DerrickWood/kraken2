@@ -13,7 +13,7 @@ set -o pipefail  # Stop on failures in non-final pipeline commands
 
 target="$1"
 
-MASKER="dustmasker"
+MASKER="k2mask"
 if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
   MASKER="segmasker"
 fi

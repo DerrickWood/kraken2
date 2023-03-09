@@ -23,4 +23,8 @@ else(OPENMP_FOUND)
     message("ERROR: OpenMP could not be found.")
 endif(OPENMP_FOUND)
 
+find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
+include_directories(${ZLIB_INCLUDE_DIRS})
+
 add_subdirectory(src)

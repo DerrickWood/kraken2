@@ -11,6 +11,8 @@ using std::string;
 namespace kraken2 {
 
 void StripString(string &str) {
+  if (str.size() == 0)
+    return;
   while (isspace(str.back()))
     str.pop_back();
 }
