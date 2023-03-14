@@ -124,12 +124,6 @@ class FTP:
                         cb = self._progress_bar(f, remote_size)
                         self.ftp.retrbinary(
                             "RETR " + filepath, cb, rest=f.tell())
-                        if f.tell() != remote_size:
-                            LOG.warning(
-                                "\nRemote file size is not the same as local file size... Downloading file again\n"
-                            )
-                            f.truncate(0)
-                            continue
                         break
                     except KeyboardInterrupt:
                         f.flush()
@@ -209,6 +203,8 @@ class ProgressBar:
             self.current += amount
         else:
             self.current = amount
+        if self.current > self.stop:
+            self.current = self.stop
         index = self._calculate_index()
         for i in range(self.last_index, index):
             if i == 0:
