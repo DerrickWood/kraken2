@@ -54,30 +54,28 @@ open MANIFEST, ">", "manifest.txt"
 print MANIFEST "$_\n" for keys %manifest;
 close MANIFEST;
 
-if ($is_protein && ! $use_ftp) {
-  print STDERR "Step 0/2: performing rsync dry run (only protein d/l requires this)...\n";
-  # Protein files aren't always present, so we have to do this two-rsync run hack
-  # First, do a dry run to find non-existent files, then delete them from the
-  # manifest; after this, execution can proceed as usual.
-  system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH} . 2> rsync.err");
-  open ERR_FILE, "<", "rsync.err"
-    or die "$PROG: can't read rsync.err file: $!\n";
-  while (<ERR_FILE>) {
-    chomp;
-    # I really doubt this will work across every version of rsync. :(
-    if (/failed: No such file or directory/ && /^rsync: link_stat "\/([^"]+)"/) {
-      delete $manifest{$1};
-    }
+print STDERR "Step 0/2: performing rsync dry run to find and exclude missing files...\n";
+# Some files aren't always present, so we have to do this two-rsync run hack
+# First, do a dry run to find non-existent files, then delete them from the
+# manifest; after this, execution can proceed as usual.
+system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH} . 2> rsync.err");
+open ERR_FILE, "<", "rsync.err"
+  or die "$PROG: can't read rsync.err file: $!\n";
+while (<ERR_FILE>) {
+  chomp;
+  # I really doubt this will work across every version of rsync. :(
+  if (/failed: No such file or directory/ && /^rsync: link_stat "\/([^"]+)"/) {
+    delete $manifest{$1};
   }
-  close ERR_FILE;
-  print STDERR "Rsync dry run complete, removing any non-existent files from manifest.\n";
-
-  # Rewrite manifest
-  open MANIFEST, ">", "manifest.txt"
-    or die "$PROG: can't write manifest: $!\n";
-  print MANIFEST "$_\n" for keys %manifest;
-  close MANIFEST;
 }
+close ERR_FILE;
+print STDERR "Rsync dry run complete, removing any non-existent files from manifest.\n";
+
+# Rewrite manifest
+open MANIFEST, ">", "manifest.txt"
+  or die "$PROG: can't write manifest: $!\n";
+print MANIFEST "$_\n" for keys %manifest;
+close MANIFEST;
 
 sub ftp_connection {
     my $ftp = Net::FTP->new($SERVER, Passive => 1)
