@@ -43,7 +43,9 @@ while (<>) {
   my $full_path = $ftp_path . "/" . basename($ftp_path) . $suffix;
   # strip off server/leading dir name to allow --files-from= to work w/ rsync
   # also allows filenames to just start with "all/", which is nice
-  if (! ($full_path =~ s#^ftp://${qm_server}${qm_server_path}/##)) {
+  my $prefix = $use_ftp ? "ftp" : "https";
+
+  if (! ($full_path =~ s#^${prefix}://${qm_server}${qm_server_path}/##)) {
     die "$PROG: unexpected FTP path (new server?) for $ftp_path\n";
   }
   $manifest{$full_path} = $taxid;
