@@ -288,20 +288,24 @@ def wrapper_args_to_binary_args(opts, argv, binary_args):
 
 
 def find_kraken2_binary(name):
-    binary = None
+    # search the OS PATH
+    if "PATH" in os.environ:
+        for dir in os.environ["PATH"].split(":"):
+            if os.path.exists(os.path.join(dir, name)):
+                return os.path.join(dir, name)
+    # search for binary in the same directory as wrapper
     script_parent_directory = get_parent_directory(SCRIPT_PATHNAME)
     if os.path.exists(os.path.join(script_parent_directory, name)):
-        binary = os.path.join(script_parent_directory, name)
-    if binary is None:
-        project_root = get_parent_directory(script_parent_directory)
-        if "src" in os.listdir(project_root) and name in os.listdir(
+        return os.path.join(script_parent_directory, name)
+    # if called from within kraken2 project root, search the src dir
+    project_root = get_parent_directory(script_parent_directory)
+    if "src" in os.listdir(project_root) and name in os.listdir(
             os.path.join(project_root, "src")
-        ):
-            binary = os.path.join(project_root, os.path.join("src", name))
-    if not binary:
-        LOG.error("Unable to find {:s}, exiting\n".format(name))
-        sys.exit(1)
-    return binary
+    ):
+        return os.path.join(project_root, os.path.join("src", name))
+    # not found in these likely places, exit
+    LOG.error("Unable to find {:s}, exiting\n".format(name))
+    sys.exit(1)
 
 
 def get_parent_directory(pathname):
@@ -440,7 +444,7 @@ def lookup_accession_numbers(
             if len(target_lists) == 0:
                 break
     if target_lists:
-        LOG.warn(
+        LOG.warning(
             "{}/{} accession numbers remain unmapped, see unmapped.txt in DB directory\n".format(
                 len(target_lists),
                 initial_target_count),
@@ -451,8 +455,16 @@ def lookup_accession_numbers(
 
 
 def spawn_masking_subprocess(output_file, protein=False):
-    masking_binary = "segmasker" if protein else "dustmasker"
+    masking_binary = "segmasker" if protein else "k2mask"
+    if "MASKER" in os.environ:
+        masking_binary = os.environ["MASKER"]
+    masking_binary = find_kraken2_binary(masking_binary)
+
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
+    if masking_binary.find("k2mask") >= 0:
+        # k2mask can run multithreaded
+        argv = masking_binary + " -outfmt fasta -threads 4 -r x"
+
     p = subprocess.Popen(
         argv, shell=True, stdin=subprocess.PIPE, stdout=output_file
     )
@@ -755,8 +767,8 @@ def download_taxonomy(args):
             ftp.download(
                 "/pub/taxonomy/accession2taxid", "prot.accession2taxid.gz"
             )
-    LOG.info("Downloaded accession to taxon map(s)\n")
-    LOG.info("Downloading taxonomy tree data\n")
+    LOG.info("Downloaded accession to taxon map(s)")
+    LOG.info("and taxonomy tree data\n")
     ftp.download("/pub/taxonomy", "taxdump.tar.gz")
     ftp.close()
     LOG.info("Decompressing taxonomy data\n")
@@ -764,7 +776,7 @@ def download_taxonomy(args):
     LOG.info("Untarring taxonomy tree data\n")
     with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
         tar.extractall()
-    remove_files(glob.glob("*.gz"))
+    remove_files(*glob.glob("*.gz"))
 
 
 def download_genomic_library(args):
@@ -1302,6 +1314,11 @@ def build_16S_silva(args):
                 if not line.startswith(">"):
                     line = line.replace("U", "T")
                 out_file.write(line)
+    if not args.no_masking:
+        filename = os.path.join("library", "silva.fna")
+        mask_files([filename], filename + ".masked")
+        shutil.move(filename + ".masked", filename)
+
     os.chdir(os.path.pardir)
     build_kraken2_db(args)
 
@@ -1420,6 +1437,10 @@ def build_16S_gg(args):
         os.path.join("data", gg_version + ".fasta"),
         os.path.join("library", "gg.fna"),
     )
+    if not args.no_masking:
+        filename = os.path.join("library", "gg.fna")
+        mask_files([filename], filename + ".masked")
+        shutil.move(filename + ".masked", filename)
     os.chdir(os.path.abspath(os.path.pardir))
     build_kraken2_db(args)
 
@@ -1448,6 +1469,11 @@ def build_16S_rdp(args):
     for filename in glob.glob(os.path.join("data", "*.fa")):
         new_filename = os.path.basename(re.sub(r"\.fa$", ".fna", filename))
         shutil.move(filename, os.path.join("library", new_filename))
+        if not args.no_masking:
+            new_filename = os.path.join("library", new_filename)
+            mask_files([new_filename], new_filename + ".masked")
+            shutil.move(new_filename + ".masked", new_filename)
+
     build_kraken2_db(args)
 
 
@@ -1661,7 +1687,7 @@ def clean_up(filenames):
 
 def clean_db(args):
     os.chdir(args.db)
-    clean_up(["library", "taxonomy", "seqid2taxid.map"])
+    clean_up(["data", "library", "taxonomy", "seqid2taxid.map"])
 
 
 def make_build_parser(subparsers):
@@ -1678,7 +1704,8 @@ def make_build_parser(subparsers):
         required=True,
         help="Name of Kraken 2 database"
     )
-    mutex_group = parser.add_mutually_exclusive_group()
+    group = parser.add_argument_group("special")
+    mutex_group = group.add_mutually_exclusive_group()
     mutex_group.add_argument(
         "--standard", action="store_true", help="Make standard database"
     )
@@ -1688,6 +1715,14 @@ def make_build_parser(subparsers):
         choices=["greengenes", "rdp", "silva"],
         help="Build special database",
     )
+    group.add_argument(
+        "--no-masking",
+        action="store_true",
+        help="Avoid masking low-complexity sequences prior to\
+              building; masking requires dustmasker or segmasker to be\
+              installed",
+    )
+
     parser.add_argument(
         "--kmer-len",
         type=int,
@@ -1845,7 +1880,7 @@ def make_download_library_parser(subparsers):
     parser.add_argument(
         "--no-masking",
         action="store_true",
-        help="Avoid asking low-complexity sequences prior to\
+        help="Avoid masking low-complexity sequences prior to\
               building; masking requires dustmasker or segmasker to be\
               installed",
     )
@@ -2082,6 +2117,13 @@ def make_clean_parser(subparsers):
         required=True,
         help="Name of Kraken2 DB"
     )
+    parser.add_argument(
+        "--log",
+        type=str,
+        metavar="FILENAME",
+        default=None,
+        help="Specify a log filename (default: stderr)",
+    )
 
 
 class HelpAction(argparse._HelpAction):
@@ -2210,6 +2252,11 @@ def k2_main():
             else:
                 build_16S_rdp(args)
         else:
+            if args.no_masking:
+                LOG.warning(
+                    "--no-masking only affects the `--standard` and"
+                    "`--special` flags. Its effect will be ignored.\n"
+                )
             build_kraken2_db(args)
 
 
