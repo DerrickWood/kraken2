@@ -35,16 +35,18 @@ while (<>) {
   next if /^#/;
   chomp;
   my @fields = split /\t/;
-  my ($taxid, $asm_level, $ftp_path) = @fields[5, 11, 19];
+  my ($taxid, $asm_level, $file_path) = @fields[5, 11, 19];
   # Possible TODO - make the list here configurable by user-supplied flags
   next unless grep {$asm_level eq $_} ("Complete Genome", "Chromosome");
-  next if $ftp_path eq "na";  # Skip if no provided path
+  next if $file_path eq "na";  # Skip if no provided path
 
-  my $full_path = $ftp_path . "/" . basename($ftp_path) . $suffix;
+  my $full_path = $file_path . "/" . basename($file_path) . $suffix;
   # strip off server/leading dir name to allow --files-from= to work w/ rsync
   # also allows filenames to just start with "all/", which is nice
-  if (! ($full_path =~ s#^ftp://${qm_server}${qm_server_path}/##)) {
-    die "$PROG: unexpected FTP path (new server?) for $ftp_path\n";
+  my $protocol = $use_ftp ? "ftp" : "https";
+
+  if (! ($full_path =~ s#^${protocol}://${qm_server}${qm_server_path}/##)) {
+    die "$PROG: unexpected $protocol file path (new server? wrong protocol?) for $file_path\n";
   }
   $manifest{$full_path} = $taxid;
 }
@@ -54,30 +56,28 @@ open MANIFEST, ">", "manifest.txt"
 print MANIFEST "$_\n" for keys %manifest;
 close MANIFEST;
 
-if ($is_protein && ! $use_ftp) {
-  print STDERR "Step 0/2: performing rsync dry run (only protein d/l requires this)...\n";
-  # Protein files aren't always present, so we have to do this two-rsync run hack
-  # First, do a dry run to find non-existent files, then delete them from the
-  # manifest; after this, execution can proceed as usual.
-  system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH} . 2> rsync.err");
-  open ERR_FILE, "<", "rsync.err"
-    or die "$PROG: can't read rsync.err file: $!\n";
-  while (<ERR_FILE>) {
-    chomp;
-    # I really doubt this will work across every version of rsync. :(
-    if (/failed: No such file or directory/ && /^rsync: link_stat "\/([^"]+)"/) {
-      delete $manifest{$1};
-    }
+print STDERR "Step 0/2: performing rsync dry run to find and exclude missing files...\n";
+# Some files aren't always present, so we have to do this two-rsync run hack
+# First, do a dry run to find non-existent files, then delete them from the
+# manifest; after this, execution can proceed as usual.
+system("rsync --dry-run --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH} . 2> rsync.err");
+open ERR_FILE, "<", "rsync.err"
+  or die "$PROG: can't read rsync.err file: $!\n";
+while (<ERR_FILE>) {
+  chomp;
+  # I really doubt this will work across every version of rsync. :(
+  if (/failed: No such file or directory/ && /^rsync: link_stat "\/([^"]+)"/) {
+    delete $manifest{$1};
   }
-  close ERR_FILE;
-  print STDERR "Rsync dry run complete, removing any non-existent files from manifest.\n";
-
-  # Rewrite manifest
-  open MANIFEST, ">", "manifest.txt"
-    or die "$PROG: can't write manifest: $!\n";
-  print MANIFEST "$_\n" for keys %manifest;
-  close MANIFEST;
 }
+close ERR_FILE;
+print STDERR "Rsync dry run complete, removing any non-existent files from manifest.\n";
+
+# Rewrite manifest
+open MANIFEST, ">", "manifest.txt"
+  or die "$PROG: can't write manifest: $!\n";
+print MANIFEST "$_\n" for keys %manifest;
+close MANIFEST;
 
 sub ftp_connection {
     my $ftp = Net::FTP->new($SERVER, Passive => 1)
