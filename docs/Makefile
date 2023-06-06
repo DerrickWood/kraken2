@@ -1,5 +1,6 @@
 all:
-	pandoc --title-prefix "Kraken 2 Manual" \
+	pandoc -s \
+	       -V "pagetitle:Kraken 2 Manual" \
 	       --include-in-header head.html \
 	       --include-before-body top.html \
 	       --from markdown --to html \
@@ -7,3 +8,5 @@ all:
 	       --css kraken.css \
 	       --output MANUAL.html \
 	       < MANUAL.markdown
+
+#-V "pagetitle:Kraken 2 Manual" \
