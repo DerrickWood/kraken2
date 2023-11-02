@@ -11,6 +11,7 @@ import itertools
 import logging
 import lzma
 import math
+import multiprocessing
 import os
 import re
 import shutil
@@ -21,6 +22,7 @@ import tempfile
 import threading
 import urllib
 import urllib.error
+from urllib.error import HTTPError, ContentTooShortError
 import urllib.parse
 import urllib.request
 
@@ -38,6 +40,7 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "fast_build": "-F",
     "interleaved": "-S",
     "kmer_len": "-k",
+    "max_db_size": "-M",
     "memory_mapping": "-M",
     "minimizer_len": "-l",
     "minimum_bits_for_taxid": "-r",
@@ -281,6 +284,8 @@ def wrapper_args_to_binary_args(opts, argv, binary_args):
             continue
         if v is False:
             continue
+        if v is None:
+            continue
         if v is True:
             argv.append(WRAPPER_ARGS_TO_BIN_ARGS[k])
         else:
@@ -362,6 +367,7 @@ def check_seqid(seqid):
 
 
 def hash_file(filename, buf_size=8192):
+    LOG.info("Calculating MD5 sum for {}.\n".format(filename))
     md5 = hashlib.md5()
     with open(filename, "rb") as in_file:
         while True:
@@ -369,7 +375,9 @@ def hash_file(filename, buf_size=8192):
             if not data:
                 break
             md5.update(data)
-    return md5.hexdigest()
+    digest = md5.hexdigest()
+    LOG.info("MD5 sum is {}\n".format(digest))
+    return digest
 
 
 # This function is part of the Kraken 2 taxonomic sequence
@@ -386,22 +394,33 @@ def hash_file(filename, buf_size=8192):
 # an accession number ("ACCNUM") for the sequence ID listed in the second
 # column.
 #
-def scan_fasta_file(in_file, out_file, lenient=False, hash=False):
-    for line in in_file:
+def scan_fasta_file(in_file, out_file, lenient=False, seq_name_to_url_table=None):
+    LOG.info("Generating prelim_map.txt...")
+    iterator = in_file
+    iterator_is_dict = False
+    if type(seq_name_to_url_table) is dict:
+        iterator = seq_name_to_url_table
+        iterator_is_dict = True
+    for line in iterator:
         if not line.startswith(">"):
             continue
-        for match in re.finditer(r"(?:^>|\x01)(\S+)", line):
+        remote_filepath = seq_name_to_url_table
+        if iterator_is_dict:
+            remote_filepath = seq_name_to_url_table[line]
+        for match in re.finditer(r"(?:^>|\x01)(\S+) (.*)", line):
             seqid = match.group(1)
             taxid = check_seqid(seqid)
+            comment = match.group(2)
             if not taxid:
                 if lenient:
                     continue
                 else:
                     sys.exit(1)
             if re.match(r"^\d+$", taxid):
-                out_file.write("TAXID\t{:s}\t{:s}\n".format(seqid, taxid))
+                out_file.write("TAXID\t{:s}\t{:s}\t{:s}\t{:s}\n".format(seqid, taxid, comment, remote_filepath))
             else:
-                out_file.write("ACCNUM\t{:s}\t{:s}\n".format(seqid, taxid))
+                out_file.write("ACCNUM\t{:s}\t{:s}\t{:s}\t{:s}\n".format(seqid, taxid, comment, remote_filepath))
+    LOG.info("done.\n")
 
 
 # This function is part of the Kraken 2 taxonomic sequence
@@ -425,7 +444,7 @@ def lookup_accession_numbers(
             if acc_num in target_lists:
                 target_lists[acc_num].append(seqid)
             else:
-                target_lists[acc_num] = []
+                target_lists[acc_num] = [seqid]
     initial_target_count = len(target_lists)
     with open(out_filename, "a") as out_file:
         for filename in accession_map_files:
@@ -445,11 +464,11 @@ def lookup_accession_numbers(
                 break
     if target_lists:
         LOG.warning(
-            "{}/{} accession numbers remain unmapped, see unmapped.txt in DB directory\n".format(
+            "{}/{} accession numbers remain unmapped, see unmapped_accessions.txt in DB directory\n".format(
                 len(target_lists),
                 initial_target_count),
         )
-        with open("unmapped.txt", "w") as f:
+        with open("unmapped_accessions.txt", "w") as f:
             for k in target_lists:
                 f.write(k + "\n")
 
@@ -463,7 +482,9 @@ def spawn_masking_subprocess(output_file, protein=False):
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
     if masking_binary.find("k2mask") >= 0:
         # k2mask can run multithreaded
-        argv = masking_binary + " -outfmt fasta -threads 4 -r x"
+        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(
+            multiprocessing.cpu_count() // 2
+        )
 
     p = subprocess.Popen(
         argv, shell=True, stdin=subprocess.PIPE, stdout=output_file
@@ -519,12 +540,18 @@ def add_to_library(args):
         destination = os.path.basename(filename)
         ext = ".faa" if args.protein else "fna"
         if not destination.endswith(ext):
-            base = destination.rsplit(".", 1)[0]
+            base, _ = os.path.splitext(destination)
             destination = base + "." + ext
+        if os.path.exists(destination):
+            LOG.warning(
+                "{} already exists in added, appending file hash to ensure uniqueness.\n".format(destination)
+            )
+            base, ext = os.path.splitext(destination)
+            destination = base + "_" + filehash + ext
         prelim_map_filename = "prelim_map_" + filehash + ".txt"
         with open(prelim_map_filename, mode="a") as out_file:
             with open(filename, "r") as in_file:
-                scan_fasta_file(in_file, out_file, lenient=True)
+                scan_fasta_file(in_file, out_file, lenient=True, seq_name_to_url_table=filename)
             shutil.copyfile(filename, destination)
         if not args.no_masking:
             mask_files(
@@ -532,7 +559,7 @@ def add_to_library(args):
             )
             shutil.move(destination + ".masked", destination)
         with open("added.md5", "a") as out_file:
-            out_file.write(filehash + "\t" + destination + "\n")
+            out_file.write(filehash + "\t" + filename + "\t" + destination + "\n")
         LOG.info("Added " + filename + " to library " + args.db + "\n")
 
 
@@ -563,7 +590,8 @@ def make_manifest_from_assembly_summary(
 def assign_taxid_to_sequences(manifest_to_taxid, is_protein):
     LOG.info("Assigning taxonomic IDs to sequences\n")
     out_filename = "library.faa" if is_protein else "library.fna"
-    with open(out_filename, "wb") as f:
+    sequence_name_to_remote_filepath = {}
+    with open(out_filename, "w") as f:
         projects_added = 0
         total_projects = len(manifest_to_taxid)
         sequences_added = 0
@@ -571,16 +599,18 @@ def assign_taxid_to_sequences(manifest_to_taxid, is_protein):
         ch = "aa" if is_protein else "bp"
         max_out_chars = 0
         for filepath in sorted(manifest_to_taxid):
+            remote_filepath = urllib.parse.urljoin("/genomes/", filepath)
             taxid = manifest_to_taxid[filepath]
-            with gzip.open(filepath) as in_file:
+            with gzip.open(filepath, "rt") as in_file:
                 while True:
                     line = in_file.readline()
-                    if line == b"":
+                    if line == "":
                         break
-                    if line.startswith(b">"):
+                    if line.startswith(">"):
                         line = line.replace(
-                            b">", str.encode(">kraken:taxid|" + taxid + "|"), 1
+                            ">", ">kraken:taxid|" + taxid + "|", 1
                         )
+                        sequence_name_to_remote_filepath[line] = remote_filepath
                         sequences_added += 1
                     else:
                         ch_added += len(line) - 1
@@ -593,6 +623,8 @@ def assign_taxid_to_sequences(manifest_to_taxid, is_protein):
             space_line = " " * max_out_chars
             LOG.debug("\r{:s}\r{:s}".format(space_line, out_line))
         LOG.info("\nFinished assigning taxonomic IDs to sequences\n")
+
+        return sequence_name_to_remote_filepath
 
 
 def progress_line(projects, total_projects, seqs, chars, ch):
@@ -641,11 +673,12 @@ def decompress_file(in_file, out_file, buf_size=8129):
     LOG.info(
         "Decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name))
     )
-    while True:
-        data = in_file.read(buf_size)
-        out_file.write(data)
-        if data == b"":
-            break
+    shutil.copyfileobj(in_file, out_file, buf_size)
+    # while True:
+    #     data = in_file.read(buf_size)
+    #     out_file.write(data)
+    #     if data == b"":
+    #         break
     LOG.info(
         "Finished decompressing {:s}\n".format(
             os.path.join(os.getcwd(), in_file.name)
@@ -670,12 +703,22 @@ def download_log(filename):
     return inner
 
 
-def download_file(url, local_name=None):
+def http_download_file(url, local_name=None):
     if not local_name:
         local_name = urllib.parse.urlparse(url).path.split("/")[-1]
     else:
+        local_name = os.path.abspath(local_name)
         os.makedirs(os.path.dirname(local_name), exist_ok=True)
-    LOG.info("Beginning download of {:s}\n".format(local_name))
+    with urllib.request.urlopen(url) as conn:
+        remote_size = int(conn.headers["Content-Length"])
+        local_size = os.stat(local_name).st_size if os.path.exists(local_name) else 0
+        if local_size == remote_size:
+            LOG.info(
+                "Already downloaded {:s}\n".format(get_abs_path(local_name))
+            )
+            return
+
+    LOG.info("Beginning download of {:s}\n".format(url))
     urllib.request.urlretrieve(
         url, local_name, reporthook=download_log(local_name)
     )
@@ -714,8 +757,6 @@ def download_files_from_manifest(
     server,
     remote_dir,
     manifest_filename="manifest.txt",
-    decompress=False,
-    out_filename=None,
     filepath_to_taxid_table=None,
 ):
     with open(manifest_filename, "r") as f:
@@ -724,7 +765,7 @@ def download_files_from_manifest(
         spinner = ["|", "/", "—", "\\"]
         i = 0
         for filepath in f:
-            LOG.info(
+            LOG.debug(
                 "Checking if manifest files exist on server {:s}\r".format(
                     spinner[i % 4]
                 )
@@ -741,11 +782,22 @@ def download_files_from_manifest(
                 )
                 continue
             filepaths.append(filepath)
-        ftp.download(remote_dir, filepaths)
-        ftp.close()
-        if decompress:
-            decompress_files(filepaths, out_filename)
-
+        downloaded = 0
+        for filepath in filepaths:
+            url = urllib.parse.urlunsplit(("https", server, remote_dir + filepath, "", ""))
+            try:
+                http_download_file(url, filepath)
+            except [ContentTooShortError, HTTPError]:
+                break
+            downloaded += 1
+        filepaths = filepaths[downloaded:]
+        if filepaths:
+            LOG.warning(
+                "There was an issue downloading files over HTTP, falling back to FTP for remaining {} file(s).\n".format(len(filepaths))
+            )
+            ftp.reconnect()
+            ftp.download(remote_dir, filepaths)
+            ftp.close()
 
 def download_taxonomy(args):
     taxonomy_path = os.path.join(args.db, "taxonomy")
@@ -807,7 +859,7 @@ def download_genomic_library(args):
             url = "ftp://{:s}/genomes/refseq/{:s}/assembly_summary.txt".format(
                 NCBI_SERVER, remote_dir_name
             )
-            download_file(url)
+            http_download_file(url)
         except urllib.error.URLError:
             LOG.error(
                 "Error downloading assembly summary file for {:s}, exiting\n".format(
@@ -828,13 +880,15 @@ def download_genomic_library(args):
             )
             download_files_from_manifest(
                 NCBI_SERVER,
-                "/genomes/",
+                "genomes/",
                 filepath_to_taxid_table=filepath_to_taxid_table,
             )
-            assign_taxid_to_sequences(filepath_to_taxid_table, args.protein)
+            seq_name_to_url_table = \
+                assign_taxid_to_sequences(filepath_to_taxid_table, args.protein)
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
-                scan_fasta_file(in_file, out_file)
+                out_file.write("# prelim_map for " + args.library + "\n")
+                scan_fasta_file(in_file, out_file, seq_name_to_url_table=seq_name_to_url_table)
         files_to_remove = ["all", "manifest.txt"]
     elif args.library == "plasmid":
         library_pathname = os.path.join(library_pathname, args.library)
@@ -844,17 +898,27 @@ def download_genomic_library(args):
         get_manifest(NCBI_SERVER, "genomes/refseq/plasmid/", pat)
         download_files_from_manifest(
             NCBI_SERVER,
-            "/genomes/refseq/plasmid/",
-            decompress=True,
-            out_filename=library_filename,
+            "genomes/refseq/plasmid/"
         )
+        seq_name_to_url_table = {}
+        with open(library_filename, "w") as library:
+            with open("manifest.txt", "r") as manifest:
+                for filename in manifest:
+                    filename = filename.strip()
+                    remote_filepath = "/genomes/refseq/plasmid" + "/" + filename
+                    with gzip.open(filename, "rt") as f:
+                        for line in f:
+                            if line.startswith(">"):
+                                seq_name_to_url_table[line.strip()] = remote_filepath
+                            library.write(line)
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
-                scan_fasta_file(in_file, out_file)
+                out_file.write("# prelim_map for " + args.library + "\n")
+                scan_fasta_file(in_file, out_file, seq_name_to_url_table=seq_name_to_url_table)
         files_to_remove = glob.glob("plasmid.*")
         files_to_remove.append("manifest.txt")
     elif args.library in ["nr", "nt"]:
-        protein_lib = True if args.library == "nr" else False
+        protein_lib = args.library == "nr"
         if protein_lib and not args.protein:
             LOG.error(
                 "{:s} is a protein database, and the Kraken2 database specified is nucleotide".format(
@@ -868,9 +932,13 @@ def download_genomic_library(args):
         ftp = FTP(NCBI_SERVER)
         ftp.download("blast/db/FASTA/", args.library + ".gz")
         with gzip.open(args.library + ".gz", mode="rt") as in_file:
+            with open(library_filename, "w") as out_file:
+                shutil.copyfileobj(in_file, out_file)
+        with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
-                scan_fasta_file(in_file, out_file, lenient=True)
-        files_to_remove = [glob.glob("*.gz")]
+                out_file.write("# prelim_map for " + args.library + "\n")
+                scan_fasta_file(in_file, out_file, seq_name_to_url_table="blast/db/FASTA/nt.gz", lenient=True)
+        files_to_remove = glob.glob("*.gz")
     elif args.library in ["UniVec", "UniVec_Core"]:
         if args.protein:
             LOG.error(
@@ -900,7 +968,8 @@ def download_genomic_library(args):
                     out_file.write(line)
         with open("library.fna", "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
-                scan_fasta_file(in_file, out_file)
+                out_file.write("# prelim_map for " + args.library + "\n")
+                scan_fasta_file(in_file, out_file, seq_name_to_url_table="pub/UniVec/" + args.library)
         files_to_remove = [args.library]
     if not args.no_masking:
         mask_files(
@@ -1015,8 +1084,8 @@ def build_kraken2_db(args):
         LOG.info("Sequence ID to taxonomy ID map already present, skipping\n")
     else:
         LOG.info("Creating sequence ID to taxonomy ID map\n")
-        with open(os.path.join("taxonomy", "prelim_map.txt"), "w") as out_file:
-            for dirpath, dirnames, filenames in os.walk("library"):
+        with open("prelim_map.txt", "w") as out_file:
+            for dirpath, dirnames, filenames in os.walk("library", followlinks=True):
                 if "prelim_map.txt" in filenames:
                     for line in open(
                         os.path.join(
@@ -1025,17 +1094,20 @@ def build_kraken2_db(args):
                         "r",
                     ):
                         out_file.write(line)
-        if os.path.getsize(os.path.join("taxonomy", "prelim_map.txt")) == 0:
-            os.remove(os.path.join("taxonomy", "prelim_map.txt"))
+        if os.path.getsize("prelim_map.txt") == 0:
+            os.remove("prelim_map.txt")
             LOG.error(
                 "No preliminary seqid/taxid mapping files found, aborting\n"
             )
             sys.exit(1)
-        with open(os.path.join("taxonomy", "prelim_map.txt"), "r") as in_file:
+        with open("prelim_map.txt", "r") as in_file:
             with open("seqid2taxid.map.tmp", "w") as seqid2taxid_file:
                 with open("accmap.tmp", "w") as accmap_file:
                     for line in in_file:
-                        new_line = "\t".join(line.split("\t")[1:])
+                        if line.startswith("#"):
+                            continue
+                        line = line.strip()
+                        new_line = "\t".join(line.split("\t")[1:3]) + "\n"
                         if line.startswith("TAXID"):
                             seqid2taxid_file.write(new_line)
                         elif line.startswith("ACCNUM"):
@@ -1452,10 +1524,10 @@ def build_16S_rdp(args):
     for directory in ["data", "taxonomy", "library"]:
         os.makedirs(directory, exist_ok=True)
     os.chdir("data")
-    download_file(
+    http_download_file(
         "http://rdp.cme.msu.edu/download/current_Bacteria_unaligned.fa.gz"
     )
-    download_file(
+    http_download_file(
         "http://rdp.cme.msu.edu/download/current_Archaea_unaligned.fa.gz"
     )
     decompress_files(glob.glob("*gz"))
@@ -1646,7 +1718,7 @@ def classify(args):
 def inspect_db(args):
     database_pathname = find_database(args.db)
     if not database_pathname:
-        LOG.error("{:s} database does not exist\n")
+        LOG.error("{:s} database does not exist\n".format(args.db))
         sys.exit(1)
     for database_file in ["taxo.k2d", "hash.k2d", "opts.k2d"]:
         if not os.path.isfile(os.path.join(database_pathname, database_file)):
@@ -1687,7 +1759,7 @@ def clean_up(filenames):
 
 def clean_db(args):
     os.chdir(args.db)
-    clean_up(["data", "library", "taxonomy", "seqid2taxid.map"])
+    clean_up(["data", "library", "taxonomy", "seqid2taxid.map", "prelim_map.txt"])
 
 
 def make_build_parser(subparsers):
