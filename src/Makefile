@@ -31,7 +31,7 @@ dump_table.o: dump_table.cc compact_hash.h taxonomy.h mmscanner.h kraken2_data.h
 estimate_capacity.o: estimate_capacity.cc kv_store.h mmscanner.h seqreader.h utilities.h
 build_db.o: build_db.cc taxonomy.h mmscanner.h seqreader.h compact_hash.h kv_store.h kraken2_data.h utilities.h
 lookup_accession_numbers.o: lookup_accession_numbers.cc mmap_file.h utilities.h
-k2mask.o: k2mask.cc gzstream.h threadpool.h
+k2mask.o: k2mask.cc gzstream.h threadpool.h seqreader.h
 
 build_db: build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
