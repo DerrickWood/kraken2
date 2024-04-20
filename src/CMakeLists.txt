@@ -11,6 +11,7 @@ add_executable(build_db
 add_executable(classify
         classify.cc
         reports.cc
+        hyperloglogplus.cc
         mmap_file.cc
         compact_hash.cc
         taxonomy.cc
