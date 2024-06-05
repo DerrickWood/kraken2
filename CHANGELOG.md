@@ -1,8 +1,18 @@
 # Changelog
 
+## [2.1.3] - 2023-06-06
+
+### Added
+- k2 python wrapper script
+
+### Changed
+- Low complexity masking for nucleotide sequences now performed by our own
+  multithreaded code (k2mask) instead of the dustmasker program
+
 ### Fixed
 - Bug that caused infinite loop when sequences had taxid 0 (thanks to R. Charles)
 - Silenced new warning in GCC 11
+- Allow NCBI downloads from both ftp:// and https:// paths (thanks to M. Machado)
 
 ## [2.1.2] - 2021-05-10
 

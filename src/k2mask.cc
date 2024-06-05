@@ -100,6 +100,12 @@ void usage(const char *prog) {
   exit(1);
 }
 
+bool fileExists(const char *filename) {
+  std::ifstream ifs(filename);
+
+  return ifs.good();
+}
+
 bool stricasecmp(std::string &s1, std::string &s2) {
   if (s1.size() != s2.size())
     return false;
@@ -213,7 +219,7 @@ void runSymmetricDust(SDust &sd, char *seq, size_t size, int offset) {
     saveMaskedRegions(sd, windowStart++);
 }
 
-void printFasta(Sequence seq, std::ostream& out, int width) {
+void printFasta(Sequence seq, std::ostream& out, int width, std::ostream& maskedSequences) {
   out.write(&seq.header[0], seq.header.size());
   out << '\n';
   for (size_t i = 0; i < seq.seq.size(); i += width) {
@@ -222,6 +228,11 @@ void printFasta(Sequence seq, std::ostream& out, int width) {
     out.write(&seq.seq[i], width);
     out << '\n';
   }
+  out.flush();
+
+  maskedSequences.write(&seq.header[0], seq.header.size());
+  maskedSequences << '\n';
+  maskedSequences.flush();
 }
 
 SDust *mask(SDust *sd) {
@@ -250,6 +261,44 @@ SDust *mask(SDust *sd) {
   return sd;
 }
 
+std::ofstream skipMaskedSequences(gzistream &is) {
+  {
+    std::ifstream maskedSequences("masked_sequences.txt");
+
+    if (maskedSequences) {
+      std::string sequence_name;
+      std::string line;
+
+      for (;;) {
+        getline(maskedSequences, sequence_name);
+        if (!maskedSequences.good() || maskedSequences.eof())
+          break;
+        getline(is, line);
+        if (line[0] == '>' && strncmp(line.data(), sequence_name.data(),
+                                      sequence_name.size()) == 0) {
+          std::cerr << "Sequence: " << sequence_name
+                    << " already masked... skipping."
+                    << std::endl;
+          for (;;) {
+            getline(is, line);
+            if (is.peek() == '>')
+              break;
+          }
+        } else {
+          std::cerr << "Could not file masked sequence in input" << std::endl;
+          std::cerr << "Please delete masked_sequences.txt before retrying." << std::endl;
+          exit(EXIT_FAILURE);
+        }
+      }
+      maskedSequences.close();
+    }
+  }
+  std::ofstream maskedSequences;
+  maskedSequences.open("masked_sequences.txt", std::ios::app);
+
+  return maskedSequences;
+}
+
 int main(int argc, char **argv) {
   int ch;
   int lineWidth = 72;
@@ -257,17 +306,19 @@ int main(int argc, char **argv) {
   std::string infile = "/dev/stdin";
   std::string outfile = "/dev/stdout";
   std::string buffer;
+  bool continueMasking = false;
   const char *prog = "k2mask";
 
   struct option longopts[] = {
-    {"window",              required_argument, NULL, 'W'},
-    {"level",               required_argument, NULL, 'T'},
-    {"in",                  required_argument, NULL, 'i'},
-    {"out",                 required_argument, NULL, 'o'},
-    {"width",               required_argument, NULL, 'w'},
-    {"outfmt",              required_argument, NULL, 'f'},
-    {"threads",             required_argument, NULL, 't'},
+    {"window", required_argument, NULL, 'W'},
+    {"level", required_argument, NULL, 'T'},
+    {"in", required_argument, NULL, 'i'},
+    {"out", required_argument, NULL, 'o'},
+    {"width", required_argument, NULL, 'w'},
+    {"outfmt", required_argument, NULL, 'f'},
+    {"threads", required_argument, NULL, 't'},
     {"replace-masked-with", required_argument, NULL, 'r'},
+    {"continue", no_argument, NULL, 'c' },
     {"help",                no_argument,       NULL, 'h'},
     {NULL,                  0,                 NULL, 0}
   };
@@ -321,6 +372,9 @@ int main(int argc, char **argv) {
       processMaskedNucleotide = [=](char c) { return r; };
       break;
     }
+    case 'c':
+      continueMasking = true;
+      break;
     case 'h':
     default:
       usage(prog);
@@ -335,7 +389,18 @@ int main(int argc, char **argv) {
     usage(prog);
   }
   gzistream is(infile.c_str());
-  std::ofstream out(outfile, std::ios::out | std::ios::trunc);
+  std::ofstream maskedSequences;
+  if (fileExists("masked_sequences.txt")) {
+    continueMasking = true;
+  }
+  auto outputFileMode = std::ios::out | std::ios::trunc;
+  if (continueMasking) {
+    outputFileMode = std::ios::app;
+    maskedSequences = skipMaskedSequences(is);
+  } else {
+    maskedSequences.open("masked_sequences.txt", outputFileMode);
+  }
+  std::ofstream out(outfile, outputFileMode);
   std::vector<SDust *> sds(threads);
   for (size_t i = 0; i < sds.size(); i++) {
     sds[i] = new SDust();
@@ -348,23 +413,24 @@ int main(int argc, char **argv) {
       tasks.push(pool.submit(mask, sd));
       while (sds.empty()) {
         sd = tasks.front().get();
-        printFasta(sd->seq, out, lineWidth);
+        printFasta(sd->seq, out, lineWidth, maskedSequences);
         tasks.pop();
         sd->reset();
         sds.push_back(sd);
       }
     } else {
       mask(sd);
-      printFasta(sd->seq, out, lineWidth);
+      printFasta(sd->seq, out, lineWidth, maskedSequences);
       sds.push_back(sd);
     }
   }
   while (!tasks.empty()) {
     SDust *sd = tasks.front().get();
-    printFasta(sd->seq, out, lineWidth);
+    printFasta(sd->seq, out, lineWidth, maskedSequences);
     tasks.pop();
   }
   for (size_t i = 0; i < sds.size(); i++)
     delete(sds[i]);
   out.flush();
+  remove("masked_sequences.txt");
 }

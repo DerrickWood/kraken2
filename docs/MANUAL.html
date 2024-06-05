@@ -1,25 +1,32 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <meta http-equiv="Content-Style-Type" content="text/css" />
+  <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
-  <title>Kraken 2 Manual – </title>
-  <style type="text/css">code{white-space: pre;}</style>
-  <link rel="stylesheet" href="kraken.css" type="text/css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Kraken 2 Manual</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <link rel="stylesheet" href="kraken.css" />
   <link href='http://fonts.googleapis.com/css?family=Ubuntu:400,700,400italic' rel='stylesheet' type='text/css'>
 </head>
 <body>
 <div class="pretoc">
   <p class="title">Kraken taxonomic sequence classification system</p>
 
-  <p class="version">Version 2.1.2</p>
+  <p class="version">Version 2.1.3</p>
 
   <p>Operating Manual</p>
 </div>
 
 <h1>Table of Contents</h1>
-<div id="TOC">
+<nav id="TOC" role="doc-toc">
 <ul>
 <li><a href="#introduction">Introduction</a></li>
 <li><a href="#system-requirements">System Requirements</a></li>
@@ -27,58 +34,60 @@
 <li><a href="#kraken-2-databases">Kraken 2 Databases</a></li>
 <li><a href="#standard-kraken-2-database">Standard Kraken 2 Database</a></li>
 <li><a href="#classification">Classification</a></li>
-<li><a href="#output-formats">Output Formats</a><ul>
+<li><a href="#output-formats">Output Formats</a>
+<ul>
 <li><a href="#standard-kraken-output-format">Standard Kraken Output Format</a></li>
 <li><a href="#sample-report-output-format">Sample Report Output Format</a></li>
 </ul></li>
 <li><a href="#translated-search">Translated Search</a></li>
 <li><a href="#custom-databases">Custom Databases</a></li>
 <li><a href="#masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</a></li>
-<li><a href="#special-databases">Special Databases</a><ul>
+<li><a href="#special-databases">Special Databases</a>
+<ul>
 <li><a href="#s-databases">16S Databases</a></li>
 </ul></li>
 <li><a href="#confidence-scoring">Confidence Scoring</a></li>
-<li><a href="#inspecting-a-kraken-2-databases-contents">Inspecting a Kraken 2 Database's Contents</a></li>
+<li><a href="#inspecting-a-kraken-2-databases-contents">Inspecting a Kraken 2 Database’s Contents</a></li>
 <li><a href="#distinct-minimizer-count-information">Distinct minimizer count information</a></li>
 <li><a href="#kraken-2-environment-variables">Kraken 2 Environment Variables</a></li>
 </ul>
-</div>
+</nav>
 <h1 id="introduction">Introduction</h1>
 <p>Kraken is a taxonomic sequence classifier that assigns taxonomic labels to DNA sequences. Kraken examines the <span class="math inline"><em>k</em></span>-mers within a query sequence and uses the information within those <span class="math inline"><em>k</em></span>-mers to query a database. That database maps <span class="math inline"><em>k</em></span>-mers to the lowest common ancestor (LCA) of all genomes known to contain a given <span class="math inline"><em>k</em></span>-mer.</p>
 <p>The first version of <a href="https://ccb.jhu.edu/software/kraken/">Kraken</a> used a large indexed and sorted list of <span class="math inline"><em>k</em></span>-mer/LCA pairs as its database. While fast, the large memory requirements posed some problems for users, and so Kraken 2 was created to provide a solution to those problems.</p>
 <p><a href="https://ccb.jhu.edu/software/kraken2/">Kraken 2</a> differs from Kraken 1 in several important ways:</p>
-<ol style="list-style-type: decimal">
-<li>Only minimizers of the <span class="math inline"><em>k</em></span>-mers in the query sequences are used as database queries. Similarly, only minimizers of the <span class="math inline"><em>k</em></span>-mers in the reference sequences in the database's genomic library are stored in the database. We will also refer to the minimizers as <span class="math inline">ℓ</span>-mers, where <span class="math inline">ℓ ≤ <em>k</em></span>. All <span class="math inline"><em>k</em></span>-mers are considered to have the same LCA as their minimizer's database LCA value.</li>
+<ol type="1">
+<li>Only minimizers of the <span class="math inline"><em>k</em></span>-mers in the query sequences are used as database queries. Similarly, only minimizers of the <span class="math inline"><em>k</em></span>-mers in the reference sequences in the database’s genomic library are stored in the database. We will also refer to the minimizers as <span class="math inline">ℓ</span>-mers, where <span class="math inline">ℓ ≤ <em>k</em></span>. All <span class="math inline"><em>k</em></span>-mers are considered to have the same LCA as their minimizer’s database LCA value.</li>
 <li>Kraken 2 uses a compact hash table that is a probabilistic data structure. This means that occasionally, database queries will fail by either returning the wrong LCA, or by not resulting in a search failure when a queried minimizer was never actually stored in the database. By incurring the risk of these false positives in the data structure, Kraken 2 is able to achieve faster speeds and lower memory requirements. Users should be aware that database false positive errors occur in less than 1% of queries, and can be compensated for by use of confidence scoring thresholds.</li>
 <li>Kraken 2 has the ability to build a database from amino acid sequences and perform a translated search of the query sequences against that database.</li>
 <li>Kraken 2 utilizes spaced seeds in the storage and querying of minimizers to improve classification accuracy.</li>
-<li>Kraken 2 provides support for &quot;special&quot; databases that are not based on NCBI's taxonomy. These are currently limited to three popular 16S databases.</li>
+<li>Kraken 2 provides support for “special” databases that are not based on NCBI’s taxonomy. These are currently limited to three popular 16S databases.</li>
 </ol>
-<p>Because Kraken 2 only stores minimizers in its hash table, and <span class="math inline"><em>k</em></span> can be much larger than <span class="math inline">ℓ</span>, only a small percentage of the possible <span class="math inline">ℓ</span>-mers in a genomic library are actually deposited in the database. This creates a situation similar to the Kraken 1 &quot;MiniKraken&quot; databases; however, preliminary testing has shown the accuracy of a reduced Kraken 2 database to be quite similar to the full-sized Kraken 2 database, while Kraken 1's MiniKraken databases often resulted in a substantial loss of per-read sensitivity.</p>
+<p>Because Kraken 2 only stores minimizers in its hash table, and <span class="math inline"><em>k</em></span> can be much larger than <span class="math inline">ℓ</span>, only a small percentage of the possible <span class="math inline">ℓ</span>-mers in a genomic library are actually deposited in the database. This creates a situation similar to the Kraken 1 “MiniKraken” databases; however, preliminary testing has shown the accuracy of a reduced Kraken 2 database to be quite similar to the full-sized Kraken 2 database, while Kraken 1’s MiniKraken databases often resulted in a substantial loss of per-read sensitivity.</p>
 <p>If you use Kraken 2 in your own work, please cite either the <a href="https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1891-0">Kraken 2 paper</a> and/or the original <a href="https://genomebiology.biomedcentral.com/articles/10.1186/gb-2014-15-3-r46">Kraken paper</a> as appropriate. Thank you!</p>
 <h1 id="system-requirements">System Requirements</h1>
 <ul>
 <li><p><strong>Disk space</strong>: Construction of a Kraken 2 standard database requires approximately 100 GB of disk space. A test on 01 Jan 2018 of the default installation showed 42 GB of disk space was used to store the genomic library files, 26 GB was used to store the taxonomy information from NCBI, and 29 GB was used to store the Kraken 2 compact hash table.</p>
 <p>Like in Kraken 1, we strongly suggest against using NFS storage to store the Kraken 2 database if at all possible.</p></li>
-<li><p><strong>Memory</strong>: To run efficiently, Kraken 2 requires enough free memory to hold the database (primarily the hash table) in RAM. While this can be accomplished with a ramdisk, Kraken 2 will by default load the database into process-local RAM; the <code>--memory-mapping</code> switch to <code>kraken2</code> will avoid doing so. The default database size is 29 GB (as of Jan. 2018), and you will need slightly more than that in RAM if you want to build the default database.</p></li>
+<li><p><strong>Memory</strong>: To run efficiently, Kraken 2 requires enough free memory to hold the database (primarily the hash table) in RAM. While this can be accomplished with a ramdisk, Kraken 2 will by default load the database into process-local RAM; the <code>--memory-mapping</code> switch to <code>kraken2</code> will avoid doing so. The default database size is 29 GB (as of Jan. 2018), and you will need slightly more than that in RAM if you want to build the default database.</p></li>
 <li><p><strong>Dependencies</strong>: Kraken 2 currently makes extensive use of Linux utilities such as sed, find, and wget. Many scripts are written using the Bash shell, and the main scripts are written using Perl. Core programs needed to build the database and run the classifier are written in C++11, and need to be compiled using a somewhat recent version of g++ that will support C++11. Multithreading is handled using OpenMP. Downloads of NCBI data are performed by wget and rsync. Most Linux systems will have all of the above listed programs and development libraries available either by default or via package download.</p>
-<p>Unlike Kraken 1, Kraken 2 does not use an external <span class="math inline"><em>k</em></span>-mer counter. However, by default, Kraken 2 will attempt to use the <code>dustmasker</code> or <code>segmasker</code> programs provided as part of NCBI's BLAST suite to mask low-complexity regions (see <a href="#masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</a>).</p>
+<p>Unlike Kraken 1, Kraken 2 does not use an external <span class="math inline"><em>k</em></span>-mer counter. However, by default, Kraken 2 will attempt to use the <code>dustmasker</code> or <code>segmasker</code> programs provided as part of NCBI’s BLAST suite to mask low-complexity regions (see <a href="#masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</a>).</p>
 <p><strong>MacOS NOTE:</strong> MacOS and other non-Linux operating systems are <em>not</em> explicitly supported by the developers, and MacOS users should refer to the Kraken-users group for support in installing the appropriate utilities to allow for full operation of Kraken 2. We will attempt to use MacOS-compliant code when possible, but development and testing time is at a premium and we cannot guarantee that Kraken 2 will install and work to its full potential on a default installation of MacOS.</p>
 <p>In particular, we note that the default MacOS X installation of GCC does not have support for OpenMP. Without OpenMP, Kraken 2 is limited to single-threaded operation, resulting in slower build and classification runtimes.</p></li>
-<li><p><strong>Network connectivity</strong>: Kraken 2's standard database build and download commands expect unfettered FTP and rsync access to the NCBI FTP server. If you're working behind a proxy, you may need to set certain environment variables (such as <code>ftp_proxy</code> or <code>RSYNC_PROXY</code>) in order to get these commands to work properly.</p>
-<p>Kraken 2's scripts default to using rsync for most downloads; however, you may find that your network situation prevents use of rsync. In such cases, you can try the <code>--use-ftp</code> option to <code>kraken2-build</code> to force the downloads to occur via FTP.</p></li>
-<li><p><strong>MiniKraken</strong>: At present, users with low-memory computing environments can replicate the &quot;MiniKraken&quot; functionality of Kraken 1 in two ways: first, by increasing the value of <span class="math inline"><em>k</em></span> with respect to <span class="math inline">ℓ</span> (using the <code>--kmer-len</code> and <code>--minimizer-len</code> options to <code>kraken2-build</code>); and secondly, through downsampling of minimizers (from both the database and query sequences) using a hash function. This second option is performed if the <code>--max-db-size</code> option to <code>kraken2-build</code> is used; however, the two options are not mutually exclusive. In a difference from Kraken 1, Kraken 2 does not require building a full database and then shrinking it to obtain a reduced database.</p></li>
+<li><p><strong>Network connectivity</strong>: Kraken 2’s standard database build and download commands expect unfettered FTP and rsync access to the NCBI FTP server. If you’re working behind a proxy, you may need to set certain environment variables (such as <code>ftp_proxy</code> or <code>RSYNC_PROXY</code>) in order to get these commands to work properly.</p>
+<p>Kraken 2’s scripts default to using rsync for most downloads; however, you may find that your network situation prevents use of rsync. In such cases, you can try the <code>--use-ftp</code> option to <code>kraken2-build</code> to force the downloads to occur via FTP.</p></li>
+<li><p><strong>MiniKraken</strong>: At present, users with low-memory computing environments can replicate the “MiniKraken” functionality of Kraken 1 in two ways: first, by increasing the value of <span class="math inline"><em>k</em></span> with respect to <span class="math inline">ℓ</span> (using the <code>--kmer-len</code> and <code>--minimizer-len</code> options to <code>kraken2-build</code>); and secondly, through downsampling of minimizers (from both the database and query sequences) using a hash function. This second option is performed if the <code>--max-db-size</code> option to <code>kraken2-build</code> is used; however, the two options are not mutually exclusive. In a difference from Kraken 1, Kraken 2 does not require building a full database and then shrinking it to obtain a reduced database.</p></li>
 </ul>
 <h1 id="installation">Installation</h1>
 <p>To begin using Kraken 2, you will first need to install it, and then either download or create a database.</p>
 <p>Kraken 2 consists of two main scripts (<code>kraken2</code> and <code>kraken2-build</code>), along with several programs and smaller scripts. As part of the installation process, all scripts and programs are installed in the same directory. After installation, you can move the main scripts elsewhere, but moving the other scripts and programs requires editing the scripts and changing the <code>$KRAKEN2_DIR</code> variables in the main scripts.</p>
 <p>Once an install directory is selected, you need to run the following command in the directory where you extracted the Kraken 2 source:</p>
 <pre><code>./install_kraken2.sh $KRAKEN2_DIR</code></pre>
-<p>(Replace <code>$KRAKEN2_DIR</code> above with the directory where you want to install Kraken 2's programs/scripts.)</p>
-<p>The <code>install_kraken2.sh</code> script should compile all of Kraken 2's code and setup your Kraken 2 program directory. Installation is successful if you see the message &quot;<code>Kraken 2 installation complete.</code>&quot;</p>
-<p>Once installation is complete, you may want to copy the main Kraken 2 scripts into a directory found in your <code>PATH</code> variable (e.g., &quot;<code>$HOME/bin</code>&quot;):</p>
+<p>(Replace <code>$KRAKEN2_DIR</code> above with the directory where you want to install Kraken 2’s programs/scripts.)</p>
+<p>The <code>install_kraken2.sh</code> script should compile all of Kraken 2’s code and setup your Kraken 2 program directory. Installation is successful if you see the message “<code>Kraken 2 installation complete.</code>”</p>
+<p>Once installation is complete, you may want to copy the main Kraken 2 scripts into a directory found in your <code>PATH</code> variable (e.g., “<code>$HOME/bin</code>”):</p>
 <pre><code>cp $KRAKEN2_DIR/kraken2{,-build,-inspect} $HOME/bin</code></pre>
-<p>After installation, you're ready to either create or download a database.</p>
+<p>After installation, you’re ready to either create or download a database.</p>
 <h1 id="kraken-2-databases">Kraken 2 Databases</h1>
 <p>A Kraken 2 database is a directory containing at least 3 files:</p>
 <ul>
@@ -91,17 +100,17 @@
 <h1 id="standard-kraken-2-database">Standard Kraken 2 Database</h1>
 <p>To create the standard Kraken 2 database, you can use the following command:</p>
 <pre><code>kraken2-build --standard --db $DBNAME</code></pre>
-<p>(Replace &quot;<code>$DBNAME</code>&quot; above with your preferred database name/location. Please note that the database will use approximately 100 GB of disk space during creation, with the majority of that being reference sequences or taxonomy mapping information that can be removed after the build.)</p>
+<p>(Replace “<code>$DBNAME</code>” above with your preferred database name/location. Please note that the database will use approximately 100 GB of disk space during creation, with the majority of that being reference sequences or taxonomy mapping information that can be removed after the build.)</p>
 <p>This will download NCBI taxonomic information, as well as the complete genomes in RefSeq for the bacterial, archaeal, and viral domains, along with the human genome and a collection of known vectors (UniVec_Core). After downloading all this data, the build process begins; this can be the most time-consuming step. If you have multiple processing cores, you can run this process with multiple threads, e.g.:</p>
 <pre><code>kraken2-build --standard --threads 24 --db $DBNAME</code></pre>
-<p>Using 32 threads on an AWS EC2 r4.8xlarge instance with 16 dual-core hyperthreaded 2.30 GHz CPUs and 244 GB of RAM, the build process took approximately 35 minutes in Jan. 2018.</p>
+<p>Using 32 threads on an AWS EC2 r4.8xlarge instance with 16 dual-core hyperthreaded 2.30 GHz CPUs and 244 GB of RAM, the build process took approximately 35 minutes in Jan. 2018.</p>
 <p>The build process itself has two main steps, each of which requires passing over the contents of the reference library:</p>
-<ol style="list-style-type: decimal">
+<ol type="1">
 <li><strong>Estimation</strong> of the capacity needed in the Kraken 2 compact hash table. This uses a low-memory method to reliably estimate the number of minimizers present in the reference library given the selected parameters <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span>.</li>
 <li><strong>Population</strong> of the hash table (and conversion of the taxonomy to an internal format). This step is a second pass over the reference library to find minimizers and then place them in the database.</li>
 </ol>
 <p>(There is one other preliminary step where sequence IDs are mapped to taxonomy IDs, but this is usually a rather quick process and is mostly handled during library downloading.)</p>
-<p>Unlike Kraken 1's build process, Kraken 2 does not perform checkpointing after the estimation step. This is because the estimation step is dependent on the selected <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> values, and if the population step fails, it is likely because <span class="math inline"><em>k</em></span> needs to be increased (reducing the overall memory requirements).</p>
+<p>Unlike Kraken 1’s build process, Kraken 2 does not perform checkpointing after the estimation step. This is because the estimation step is dependent on the selected <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> values, and if the population step fails, it is likely because <span class="math inline"><em>k</em></span> needs to be increased (reducing the overall memory requirements).</p>
 <h1 id="classification">Classification</h1>
 <p>To classify a set of sequences, use the <code>kraken2</code> command:</p>
 <pre><code>kraken2 --db $DBNAME seqs.fa</code></pre>
@@ -116,55 +125,55 @@
 <li><p><strong>Compressed input</strong>: Kraken 2 can handle gzip and bzip2 compressed files as input by specifying the proper switch of <code>--gzip-compressed</code> or <code>--bzip2-compressed</code>.</p></li>
 <li><p><strong>Input format auto-detection</strong>: If regular files (i.e., not pipes or device files) are specified on the command line as input, Kraken 2 will attempt to determine the format of your input prior to classification. You can disable this by explicitly specifying <code>--gzip-compressed</code> or <code>--bzip2-compressed</code> as appropriate. Note that use of the character device file <code>/dev/fd/0</code> to read from standard input (aka <code>stdin</code>) will <strong>not</strong> allow auto-detection.</p></li>
 <li><p><strong>Paired reads</strong>: Kraken 2 provides an enhancement over Kraken 1 in its handling of paired read data. Rather than needing to concatenate the pairs together with an <code>N</code> character between the reads, Kraken 2 is able to process the mates individually while still recognizing the pairing information. Using the <code>--paired</code> option to <code>kraken2</code> will indicate to <code>kraken2</code> that the input files provided are paired read data, and data will be read from the pairs of files concurrently.</p>
-<p>Usage of <code>--paired</code> also affects the <code>--classified-out</code> and <code>--unclassified-out</code> options; users should provide a <code>#</code> character in the filenames provided to those options, which will be replaced by <code>kraken2</code> with &quot;<code>_1</code>&quot; and &quot;<code>_2</code>&quot; with mates spread across the two files appropriately. For example:</p>
-<pre><code>kraken2 --paired --classified-out cseqs#.fq seqs_1.fq seqs_2.fq</code></pre>
+<p>Usage of <code>--paired</code> also affects the <code>--classified-out</code> and <code>--unclassified-out</code> options; users should provide a <code>#</code> character in the filenames provided to those options, which will be replaced by <code>kraken2</code> with “<code>_1</code>” and “<code>_2</code>” with mates spread across the two files appropriately. For example:</p>
+<pre><code>  kraken2 --paired --classified-out cseqs#.fq seqs_1.fq seqs_2.fq</code></pre>
 <p>will put the first reads from classified pairs in <code>cseqs_1.fq</code>, and the second reads from those pairs in <code>cseqs_2.fq</code>.</p></li>
 </ul>
 <p>To get a full list of options, use <code>kraken2 --help</code>.</p>
 <h1 id="output-formats">Output Formats</h1>
 <h2 id="standard-kraken-output-format">Standard Kraken Output Format</h2>
-<p>Each sequence (or sequence pair, in the case of paired reads) classified by Kraken 2 results in a single line of output. Kraken 2's output lines contain five tab-delimited fields; from left to right, they are:</p>
-<ol style="list-style-type: decimal">
-<li>&quot;C&quot;/&quot;U&quot;: a one letter code indicating that the sequence was either classified or unclassified.</li>
-<li>The sequence ID, obtained from the FASTA/FASTQ header.</li>
-<li>The taxonomy ID Kraken 2 used to label the sequence; this is 0 if the sequence is unclassified.</li>
-<li>The length of the sequence in bp. In the case of paired read data, this will be a string containing the lengths of the two sequences in bp, separated by a pipe character, e.g. &quot;98|94&quot;.</li>
-<li>A space-delimited list indicating the LCA mapping of each <span class="math inline"><em>k</em></span>-mer in the sequence(s). For example, &quot;562:13 561:4 A:31 0:1 562:3&quot; would indicate that:
+<p>Each sequence (or sequence pair, in the case of paired reads) classified by Kraken 2 results in a single line of output. Kraken 2’s output lines contain five tab-delimited fields; from left to right, they are:</p>
+<ol type="1">
+<li><p>“C”/“U”: a one letter code indicating that the sequence was either classified or unclassified.</p></li>
+<li><p>The sequence ID, obtained from the FASTA/FASTQ header.</p></li>
+<li><p>The taxonomy ID Kraken 2 used to label the sequence; this is 0 if the sequence is unclassified.</p></li>
+<li><p>The length of the sequence in bp. In the case of paired read data, this will be a string containing the lengths of the two sequences in bp, separated by a pipe character, e.g. “98|94”.</p></li>
+<li><p>A space-delimited list indicating the LCA mapping of each <span class="math inline"><em>k</em></span>-mer in the sequence(s). For example, “562:13 561:4 A:31 0:1 562:3” would indicate that:</p>
 <ul>
 <li>the first 13 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #562</li>
 <li>the next 4 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #561</li>
 <li>the next 31 <span class="math inline"><em>k</em></span>-mers contained an ambiguous nucleotide</li>
 <li>the next <span class="math inline"><em>k</em></span>-mer was not in the database</li>
 <li>the last 3 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #562</li>
-</ul></li>
+</ul>
+<p>Note that paired read data will contain a “<code>|:|</code>” token in this list to indicate the end of one read and the beginning of another.</p>
+<p>When Kraken 2 is run against a protein database (see <a href="#translated-search">Translated Search</a>), the LCA hitlist will contain the results of querying all six frames of each sequence. Reading frame data is separated by a “<code>-:-</code>” token.</p></li>
 </ol>
-<p>Note that paired read data will contain a &quot;<code>|:|</code>&quot; token in this list to indicate the end of one read and the beginning of another.</p>
-<p>When Kraken 2 is run against a protein database (see <a href="#translated-search">Translated Search</a>), the LCA hitlist will contain the results of querying all six frames of each sequence. Reading frame data is separated by a &quot;<code>-:-</code>&quot; token.</p>
-<p>Kraken 1 offered a <code>kraken-translate</code> and <code>kraken-report</code> script to change the output into different formats. Through the use of <code>kraken2 --use-names</code>, Kraken 2 will replace the taxonomy ID column with the scientific name and the taxonomy ID in parenthesis (e.g., &quot;Bacteria (taxid 2)&quot; instead of &quot;2&quot;), yielding similar functionality to Kraken 1's <code>kraken-translate</code> script. The sample report functionality now exists as part of the <code>kraken2</code> script, with the use of the <code>--report</code> option; the sample report formats are described below.</p>
+<p>Kraken 1 offered a <code>kraken-translate</code> and <code>kraken-report</code> script to change the output into different formats. Through the use of <code>kraken2 --use-names</code>, Kraken 2 will replace the taxonomy ID column with the scientific name and the taxonomy ID in parenthesis (e.g., “Bacteria (taxid 2)” instead of “2”), yielding similar functionality to Kraken 1’s <code>kraken-translate</code> script. The sample report functionality now exists as part of the <code>kraken2</code> script, with the use of the <code>--report</code> option; the sample report formats are described below.</p>
 <h2 id="sample-report-output-format">Sample Report Output Format</h2>
-<p>Like Kraken 1, Kraken 2 offers two formats of sample-wide results. Kraken 2's standard sample report format is tab-delimited with one line per taxon. The fields of the output, from left-to-right, are as follows:</p>
-<ol style="list-style-type: decimal">
+<p>Like Kraken 1, Kraken 2 offers two formats of sample-wide results. Kraken 2’s standard sample report format is tab-delimited with one line per taxon. The fields of the output, from left-to-right, are as follows:</p>
+<ol type="1">
 <li>Percentage of fragments covered by the clade rooted at this taxon</li>
 <li>Number of fragments covered by the clade rooted at this taxon</li>
 <li>Number of fragments assigned directly to this taxon</li>
-<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., &quot;G2&quot; is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
+<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., “G2” is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
 <li>NCBI taxonomic ID number</li>
 <li>Indented scientific name</li>
 </ol>
 <p>The scientific names are indented using space, according to the tree structure specified by the taxonomy.</p>
 <p>By default, taxa with no reads assigned to (or under) them will not have any output produced. However, if you wish to have all taxa displayed, you can use the <code>--report-zero-counts</code> switch to do so. This can be useful if you are looking to do further downstream analysis of the reports, and want to compare samples. Sorting by the taxonomy ID (using <code>sort -k5,5n</code>) can provide a consistent line ordering between reports.</p>
-<p>In addition, we also provide the option <code>--use-mpa-style</code> that can be used in conjunction with <code>--report</code>. This option provides output in a format similar to MetaPhlAn's output. The output with this option provides one taxon per line, with a lowercase version of the rank codes in Kraken 2's standard sample report format (except for 'U' and 'R'), two underscores, and the scientific name of the taxon (e.g., &quot;d__Viruses&quot;). The full taxonomy of each taxon (at the eight ranks considered) is given, with each rank's name separated by a pipe character (e.g., &quot;d__Viruses|o_Caudovirales&quot;). Following this version of the taxon's scientific name is a tab and the number of fragments assigned to the clade rooted at that taxon.</p>
+<p>In addition, we also provide the option <code>--use-mpa-style</code> that can be used in conjunction with <code>--report</code>. This option provides output in a format similar to MetaPhlAn’s output. The output with this option provides one taxon per line, with a lowercase version of the rank codes in Kraken 2’s standard sample report format (except for ‘U’ and ‘R’), two underscores, and the scientific name of the taxon (e.g., "d__Viruses“). The full taxonomy of each taxon (at the eight ranks considered) is given, with each rank’s name separated by a pipe character (e.g.,”d__Viruses|o_Caudovirales"). Following this version of the taxon’s scientific name is a tab and the number of fragments assigned to the clade rooted at that taxon.</p>
 <h1 id="translated-search">Translated Search</h1>
-<p>Kraken 2 allows users to perform a six-frame translated search, similar to the well-known BLASTX program. To do this, Kraken 2 uses a reduced 15 amino acid alphabet and stores amino acid minimizers in its database. LCA results from all 6 frames are combined to yield a set of LCA hits, which is then resolved in the same manner as in Kraken's normal operation.</p>
+<p>Kraken 2 allows users to perform a six-frame translated search, similar to the well-known BLASTX program. To do this, Kraken 2 uses a reduced 15 amino acid alphabet and stores amino acid minimizers in its database. LCA results from all 6 frames are combined to yield a set of LCA hits, which is then resolved in the same manner as in Kraken’s normal operation.</p>
 <p>To build a protein database, the <code>--protein</code> option should be given to <code>kraken2-build</code> (either along with <code>--standard</code>, or with all steps if building a custom database).</p>
 <h1 id="custom-databases">Custom Databases</h1>
-<p>We realize the standard database may not suit everyone's needs. Kraken 2 also allows creation of customized databases.</p>
+<p>We realize the standard database may not suit everyone’s needs. Kraken 2 also allows creation of customized databases.</p>
 <p>To build a custom database:</p>
-<ol style="list-style-type: decimal">
+<ol type="1">
 <li><p>Install a taxonomy. Usually, you will just use the NCBI taxonomy, which you can easily download using:</p>
 <pre><code>kraken2-build --download-taxonomy --db $DBNAME</code></pre>
 <p>This will download the accession number to taxon maps, as well as the taxonomic name and tree information from NCBI. These files can be found in <code>$DBNAME/taxonomy/</code> . If you need to modify the taxonomy, edits can be made to the <code>names.dmp</code> and <code>nodes.dmp</code> files in this directory; you may also need to modify the <code>*.accession2taxid</code> files appropriately.</p>
-<p>Some of the standard sets of genomic libraries have taxonomic information associated with them, and don't need the accession number to taxon maps to build the database successfully. These libraries include all those available through the <code>--download-library</code> option (see next point), except for the <code>plasmid</code> and non-redundant databases. If you are not using custom sequences (see the <code>--add-to-library</code> option) and are not using one of the <code>plasmid</code> or non-redundant database libraries, you may want to skip downloading of the accession number to taxon maps. This can be done by passing <code>--skip-maps</code> to the <code>kraken2-build --download-taxonomy</code> command.</p></li>
+<p>Some of the standard sets of genomic libraries have taxonomic information associated with them, and don’t need the accession number to taxon maps to build the database successfully. These libraries include all those available through the <code>--download-library</code> option (see next point), except for the <code>plasmid</code> and non-redundant databases. If you are not using custom sequences (see the <code>--add-to-library</code> option) and are not using one of the <code>plasmid</code> or non-redundant database libraries, you may want to skip downloading of the accession number to taxon maps. This can be done by passing <code>--skip-maps</code> to the <code>kraken2-build --download-taxonomy</code> command.</p></li>
 <li><p>Install one or more reference libraries. Several sets of standard genomes/proteins are made easily available through <code>kraken2-build</code>:</p>
 <ul>
 <li><code>archaea</code>: RefSeq complete archaeal genomes/proteins</li>
@@ -187,16 +196,16 @@
 kraken2-build --download-library viral --db $DBNAME</code></pre>
 <p>The above commands would prepare a database that would contain archaeal and viral genomes; the <code>--build</code> option (see below) will still need to be used after downloading these libraries to actually build the database, however.</p>
 <p>(Note that downloading <code>nr</code> requires use of the <code>--protein</code> option, and that <code>UniVec</code> and <code>UniVec_Core</code> are incompatible with the <code>--protein</code> option.)</p>
-Other genomes can also be added, but such genomes must meet certain requirements:
+<p>Other genomes can also be added, but such genomes must meet certain requirements:</p>
 <ul>
 <li>Sequences must be in a FASTA file (multi-FASTA is allowed)</li>
-<li>Each sequence's ID (the string between the <code>&gt;</code> and the first whitespace character on the header line) must contain either an NCBI accession number to allow Kraken 2 to lookup the correct taxa, or an explicit assignment of the taxonomy ID using <code>kraken:taxid</code> (see below).</li>
+<li>Each sequence’s ID (the string between the <code>&gt;</code> and the first whitespace character on the header line) must contain either an NCBI accession number to allow Kraken 2 to lookup the correct taxa, or an explicit assignment of the taxonomy ID using <code>kraken:taxid</code> (see below).</li>
 </ul>
-<p>Sequences not downloaded from NCBI may need their taxonomy information assigned explicitly. This can be done using the string <code>kraken:taxid|XXX</code> in the sequence ID, with <code>XXX</code> replaced by the desired taxon ID. For example, to put a known adapter sequence in taxon 32630 (&quot;synthetic construct&quot;), you could use the following:</p>
+<p>Sequences not downloaded from NCBI may need their taxonomy information assigned explicitly. This can be done using the string <code>kraken:taxid|XXX</code> in the sequence ID, with <code>XXX</code> replaced by the desired taxon ID. For example, to put a known adapter sequence in taxon 32630 (“synthetic construct”), you could use the following:</p>
 <pre><code>&gt;sequence16|kraken:taxid|32630  Adapter sequence
 CAAGCAGAAGACGGCATACGAGATCTTCGAGTGACTGGAGTTCCTTGGCACCCGAGAATTCCA</code></pre>
 <p>The <code>kraken:taxid</code> string must begin the sequence ID or be immediately preceded by a pipe character (<code>|</code>). Explicit assignment of taxonomy IDs in this manner will override the accession number mapping provided by NCBI.</p>
-<p>If your genomes meet the requirements above, then you can add each sequence to your database's genomic library using the <code>--add-to-library</code> switch, e.g.:</p>
+<p>If your genomes meet the requirements above, then you can add each sequence to your database’s genomic library using the <code>--add-to-library</code> switch, e.g.:</p>
 <pre><code>kraken2-build --add-to-library chr1.fa --db $DBNAME
 kraken2-build --add-to-library chr2.fa --db $DBNAME</code></pre>
 <p>Note that if you have a list of files to add, you can do something like this in <code>bash</code>:</p>
@@ -208,24 +217,24 @@ done</code></pre>
 <p><code>find genomes/ -name '*.fa' -print0 | xargs -0 -I{} -n1 kraken2-build --add-to-library {} --db $DBNAME</code></p>
 <p>(You may also find the <code>-P</code> option to <code>xargs</code> useful to add many files in parallel if you have multiple processors.)</p></li>
 <li><p>Once your library is finalized, you need to build the database. This can be done with the command:</p>
-<pre><code>kraken2-build --build --db $DBNAME</code></pre></li>
-</ol>
+<pre><code> kraken2-build --build --db $DBNAME</code></pre>
 <p>The <code>--threads</code> option is also helpful here to reduce build time.</p>
 <p>By default, the values of <span class="math inline"><em>k</em></span> and <span class="math inline">ℓ</span> are 35 and 31, respectively (or 15 and 12 for protein databases). These values can be explicitly set with the <code>--kmer-len</code> and <code>--minimizer-len</code> options, however. Note that the minimizer length must be no more than 31 for nucleotide databases, and 15 for protein databases. Additionally, the minimizer length <span class="math inline">ℓ</span> must be no more than the <span class="math inline"><em>k</em></span>-mer length. There is no upper bound on the value of <span class="math inline"><em>k</em></span>, but sequences less than <span class="math inline"><em>k</em></span> bp in length cannot be classified.</p>
 <p>Kraken 2 also utilizes a simple spaced seed approach to increase accuracy. A number <span class="math inline"><em>s</em></span> &lt; <span class="math inline">ℓ</span>/4 can be chosen, and <span class="math inline"><em>s</em></span> positions in the minimizer will be masked out during all comparisons. Masked positions are chosen to alternate from the second-to-last position in the minimizer; e.g., <span class="math inline"><em>s</em></span> = 5 and <span class="math inline">ℓ</span> = 31 will result in masking out the 0 positions shown here:</p>
-<pre><code>   111 1111 1111 1111 1111 1101 0101 0101</code></pre>
-<p>By default, <span class="math inline"><em>s</em></span> = 7 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p>
+<pre><code>111 1111 1111 1111 1111 1101 0101 0101</code></pre>
+<p>By default, <span class="math inline"><em>s</em></span> = 7 for nucleotide databases, and <span class="math inline"><em>s</em></span> = 0 for protein databases. This can be changed using the <code>--minimizer-spaces</code> option along with the <code>--build</code> task of <code>kraken2-build</code>.</p></li>
+</ol>
 <p>A full list of options for <code>kraken2-build</code> can be obtained using <code>kraken2-build --help</code>.</p>
 <p>After building a database, if you want to reduce the disk usage of the database, you can use the <code>--clean</code> option for <code>kraken2-build</code> to remove intermediate files from the database directory.</p>
 <h1 id="masking-of-low-complexity-sequences">Masking of Low-complexity Sequences</h1>
-<p>Low-complexity sequences, e.g. &quot;ACACACACACACACACACACACACAC&quot;, are known to occur in many different organisms and are typically less informative for use in alignments; the BLAST programs often mask these sequences by default. Using this masking can help prevent false positives in Kraken 2's results, and so we have added this functionality as a default option to Kraken 2's library download/addition process.</p>
-<p>Kraken 2 uses two programs to perform low-complexity sequence masking, both available from NCBI: <code>dustmasker</code>, for nucleotide sequences, and <code>segmasker</code>, for amino acid sequences. These programs are available as part of the NCBI BLAST+ suite. If these programs are not installed on the local system and in the user's PATH when trying to use <code>kraken2-build</code>, the database build will fail. Users who do not wish to install these programs can use the <code>--no-masking</code> option to <code>kraken2-build</code> in conjunction with any of the <code>--download-library</code>, <code>--add-to-library</code>, or <code>--standard</code> options; use of the <code>--no-masking</code> option will skip masking of low-complexity sequences during the build of the Kraken 2 database.</p>
+<p>Low-complexity sequences, e.g. “ACACACACACACACACACACACACAC”, are known to occur in many different organisms and are typically less informative for use in alignments; the BLAST programs often mask these sequences by default. Using this masking can help prevent false positives in Kraken 2’s results, and so we have added this functionality as a default option to Kraken 2’s library download/addition process.</p>
+<p>Kraken 2 uses two programs to perform low-complexity sequence masking, both available from NCBI: <code>dustmasker</code>, for nucleotide sequences, and <code>segmasker</code>, for amino acid sequences. These programs are available as part of the NCBI BLAST+ suite. If these programs are not installed on the local system and in the user’s PATH when trying to use <code>kraken2-build</code>, the database build will fail. Users who do not wish to install these programs can use the <code>--no-masking</code> option to <code>kraken2-build</code> in conjunction with any of the <code>--download-library</code>, <code>--add-to-library</code>, or <code>--standard</code> options; use of the <code>--no-masking</code> option will skip masking of low-complexity sequences during the build of the Kraken 2 database.</p>
 <h1 id="special-databases">Special Databases</h1>
-<p>To support some common use cases, we provide the ability to build Kraken 2 databases using data from various external databases. These external databases may not follow the NCBI taxonomy, and so we've provided mechanisms to automatically create a taxonomy that will work with Kraken 2 (although such taxonomies may not be identical to NCBI's).</p>
-<p>To build one of these &quot;special&quot; Kraken 2 databases, use the following command:</p>
+<p>To support some common use cases, we provide the ability to build Kraken 2 databases using data from various external databases. These external databases may not follow the NCBI taxonomy, and so we’ve provided mechanisms to automatically create a taxonomy that will work with Kraken 2 (although such taxonomies may not be identical to NCBI’s).</p>
+<p>To build one of these “special” Kraken 2 databases, use the following command:</p>
 <pre><code>kraken2-build --db $DBNAME --special TYPE</code></pre>
 <p>where the <code>TYPE</code> string is one of the database names listed below.</p>
-<p>At present, the &quot;special&quot; Kraken 2 database support we provide is limited to pre-packaged solutions for some public 16S sequence databases, but this may grow in the future.</p>
+<p>At present, the “special” Kraken 2 database support we provide is limited to pre-packaged solutions for some public 16S sequence databases, but this may grow in the future.</p>
 <h2 id="s-databases">16S Databases</h2>
 <p>For targeted 16S sequencing projects, a normal Kraken 2 database using whole genome data may use more resources than necessary. A Kraken 2 database created from a well-curated genomic library of just 16S data can provide both a more efficient solution as well as a more accurate set of predictions for such projects. We provide support for building Kraken 2 databases from three publicly available 16S databases:</p>
 <ul>
@@ -233,12 +242,12 @@ done</code></pre>
 <li><a href="http://rdp.cme.msu.edu/">RDP</a> (Kraken 2 database name: <code>rdp</code>), using the bacterial and archaeal 16S data.</li>
 <li><a href="http://www.arb-silva.de/">SILVA</a> (Kraken 2 database name: <code>silva</code>), using the Small subunit NR99 sequence set.</li>
 </ul>
-<p>Note that these databases may have licensing restrictions regarding their data, and it is your responsibility to ensure you are in compliance with those restrictions; please visit the databases' websites for further details. The <code>kraken2-build</code> script only uses publicly available URLs to download data and then converts that data into a form compatible for use with Kraken 2.</p>
-<p>Furthermore, if you use one of these databases in your research, please visit the corresponding database's website to determine the appropriate and up-to-date citation.</p>
+<p>Note that these databases may have licensing restrictions regarding their data, and it is your responsibility to ensure you are in compliance with those restrictions; please visit the databases’ websites for further details. The <code>kraken2-build</code> script only uses publicly available URLs to download data and then converts that data into a form compatible for use with Kraken 2.</p>
+<p>Furthermore, if you use one of these databases in your research, please visit the corresponding database’s website to determine the appropriate and up-to-date citation.</p>
 <h1 id="confidence-scoring">Confidence Scoring</h1>
-<p>At present, we have not yet developed a confidence score with a probabilistic interpretation for Kraken 2. However, we have developed a simple scoring scheme that has yielded good results for us, and we've made that available in Kraken 2 through use of the <code>--confidence</code> option to <code>kraken2</code>. The approach we use allows a user to specify a threshold score in the [0,1] interval; the classifier then will adjust labels up the tree until the label's score (described below) meets or exceeds that threshold. If a label at the root of the taxonomic tree would not have a score exceeding the threshold, the sequence is called unclassified by Kraken 2 when this threshold is applied.</p>
-<p>A sequence label's score is a fraction <span class="math inline"><em>C</em></span>/<span class="math inline"><em>Q</em></span>, where <span class="math inline"><em>C</em></span> is the number of <span class="math inline"><em>k</em></span>-mers mapped to LCA values in the clade rooted at the label, and <span class="math inline"><em>Q</em></span> is the number of <span class="math inline"><em>k</em></span>-mers in the sequence that lack an ambiguous nucleotide (i.e., they were queried against the database). Consider the example of the LCA mappings in Kraken 2's output given earlier:</p>
-<p>&quot;562:13 561:4 A:31 0:1 562:3&quot; would indicate that:</p>
+<p>At present, we have not yet developed a confidence score with a probabilistic interpretation for Kraken 2. However, we have developed a simple scoring scheme that has yielded good results for us, and we’ve made that available in Kraken 2 through use of the <code>--confidence</code> option to <code>kraken2</code>. The approach we use allows a user to specify a threshold score in the [0,1] interval; the classifier then will adjust labels up the tree until the label’s score (described below) meets or exceeds that threshold. If a label at the root of the taxonomic tree would not have a score exceeding the threshold, the sequence is called unclassified by Kraken 2 when this threshold is applied.</p>
+<p>A sequence label’s score is a fraction <span class="math inline"><em>C</em></span>/<span class="math inline"><em>Q</em></span>, where <span class="math inline"><em>C</em></span> is the number of <span class="math inline"><em>k</em></span>-mers mapped to LCA values in the clade rooted at the label, and <span class="math inline"><em>Q</em></span> is the number of <span class="math inline"><em>k</em></span>-mers in the sequence that lack an ambiguous nucleotide (i.e., they were queried against the database). Consider the example of the LCA mappings in Kraken 2’s output given earlier:</p>
+<p>“562:13 561:4 A:31 0:1 562:3” would indicate that:</p>
 <ul>
 <li>the first 13 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #562</li>
 <li>the next 4 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #561</li>
@@ -247,19 +256,19 @@ done</code></pre>
 <li>the last 3 <span class="math inline"><em>k</em></span>-mers mapped to taxonomy ID #562</li>
 </ul>
 <p>In this case, ID #561 is the parent node of #562. Here, a label of #562 for this sequence would have a score of <span class="math inline"><em>C</em></span>/<span class="math inline"><em>Q</em></span> = (13+3)/(13+4+1+3) = 16/21. A label of #561 would have a score of <span class="math inline"><em>C</em></span>/<span class="math inline"><em>Q</em></span> = (13+4+3)/(13+4+1+3) = 20/21. If a user specified a <code>--confidence</code> threshold over 16/21, the classifier would adjust the original label from #562 to #561; if the threshold was greater than 20/21, the sequence would become unclassified.</p>
-<h1 id="inspecting-a-kraken-2-databases-contents">Inspecting a Kraken 2 Database's Contents</h1>
-<p>The <code>kraken2-inspect</code> script allows users to gain information about the content of a Kraken 2 database. The output format of <code>kraken2-inspect</code> is identical to the reports generated with the <code>--report</code> option to <code>kraken2</code>. Instead of reporting how many reads in input data classified to a given taxon or clade, as <code>kraken2</code>'s <code>--report</code> option would, the <code>kraken2-inspect</code> script will report the number of minimizers in the database that are mapped to the various taxa/clades. For example, the first five lines of <code>kraken2-inspect</code>'s output on an example database might look like this:</p>
+<h1 id="inspecting-a-kraken-2-databases-contents">Inspecting a Kraken 2 Database’s Contents</h1>
+<p>The <code>kraken2-inspect</code> script allows users to gain information about the content of a Kraken 2 database. The output format of <code>kraken2-inspect</code> is identical to the reports generated with the <code>--report</code> option to <code>kraken2</code>. Instead of reporting how many reads in input data classified to a given taxon or clade, as <code>kraken2</code>’s <code>--report</code> option would, the <code>kraken2-inspect</code> script will report the number of minimizers in the database that are mapped to the various taxa/clades. For example, the first five lines of <code>kraken2-inspect</code>’s output on an example database might look like this:</p>
 <pre><code>$ kraken2-inspect --db EXAMPLE_DB | head -5
 100.00% 1770368409      1581179 R       1       root
  96.50% 1708407622      58003   R1      131567    cellular organisms
  91.28% 1615910070      985309  D       2           Bacteria
  43.89% 777062062       1312736 P       1224          Proteobacteria
  18.62% 329590216       555667  C       1236            Gammaproteobacteria</code></pre>
-<p>This output indicates that 555667 of the minimizers in the database map directly to the Gammaproteobacteria class (taxid #1236), and 329590216 (18.62%) of the database's minimizers map to a taxon in the clade rooted at Gammaproteobacteria. For more information on <code>kraken2-inspect</code>'s options, use its <code>--help</code> option.</p>
+<p>This output indicates that 555667 of the minimizers in the database map directly to the Gammaproteobacteria class (taxid #1236), and 329590216 (18.62%) of the database’s minimizers map to a taxon in the clade rooted at Gammaproteobacteria. For more information on <code>kraken2-inspect</code>’s options, use its <code>--help</code> option.</p>
 <h1 id="distinct-minimizer-count-information">Distinct minimizer count information</h1>
-<p>The <a href="https://github.com/fbreitwieser/krakenuniq">KrakenUniq</a> project extended Kraken 1 by, among other things, reporting an estimate of the number of distinct k-mers associated with each taxon in the input sequencing data. This allows users to better determine if Kraken's classifications are due to reads distributed throughout a reference genome, or due to only a small segment of a reference genome (and therefore likely false positive).</p>
-<p>Thanks to the generosity of KrakenUniq's developer Florian Breitwieser in allowing parts of the KrakenUniq source code to be licensed under Kraken 2's MIT license, this distinct counting estimation is now available in Kraken 2. Development work by Martin Steinegger and Ben Langmead helped bring this functionality to Kraken 2.</p>
-<p>At present, this functionality is an optional <em>experimental feature</em> -- meaning that we may later alter it in a way that is not backwards compatible with previous versions of the feature.</p>
+<p>The <a href="https://github.com/fbreitwieser/krakenuniq">KrakenUniq</a> project extended Kraken 1 by, among other things, reporting an estimate of the number of distinct k-mers associated with each taxon in the input sequencing data. This allows users to better determine if Kraken’s classifications are due to reads distributed throughout a reference genome, or due to only a small segment of a reference genome (and therefore likely false positive).</p>
+<p>Thanks to the generosity of KrakenUniq’s developer Florian Breitwieser in allowing parts of the KrakenUniq source code to be licensed under Kraken 2’s MIT license, this distinct counting estimation is now available in Kraken 2. Development work by Martin Steinegger and Ben Langmead helped bring this functionality to Kraken 2.</p>
+<p>At present, this functionality is an optional <em>experimental feature</em> – meaning that we may later alter it in a way that is not backwards compatible with previous versions of the feature.</p>
 <p>To use this functionality, simply run the <code>kraken2</code> script with the additional <code>--report-minimizer-data</code> flag along with <code>--report</code>, e.g.:</p>
 <pre><code>kraken2 --db $DBNAME --report k2_report.txt --report-minimizer-data \
     --output k2_output.txt sequence_data.fq</code></pre>
@@ -270,17 +279,17 @@ done</code></pre>
 <pre><code>36.40   182 182 1688    18  S2  211044                        Influenza A virus (A/Puerto Rico/8/1934(H1N1))</code></pre>
 <p>In this modified report format, the two new columns are the fourth and fifth, respectively representing the number of minimizers found to be associated with a taxon in the read sequences (1688), and the estimate of the number of distinct minimizers associated with a taxon in the read sequence data (18). This would indicate that although 182 reads were classified as belonging to H1N1 influenza, only 18 distinct minimizers led to those 182 classifications.</p>
 <p>The format with the <code>--report-minimizer-data</code> flag, then, is similar to that described in <a href="#sample-report-output-format">Sample Report Output Format</a>, but slightly different. The fields in this new format, from left-to-right, are:</p>
-<ol style="list-style-type: decimal">
+<ol type="1">
 <li>Percentage of fragments covered by the clade rooted at this taxon</li>
 <li>Number of fragments covered by the clade rooted at this taxon</li>
 <li>Number of fragments assigned directly to this taxon</li>
 <li>Number of minimizers in read data associated with this taxon (<strong>new</strong>)</li>
 <li>An estimate of the number of distinct minimizers in read data associated with this taxon (<strong>new</strong>)</li>
-<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., &quot;G2&quot; is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
+<li>A rank code, indicating (U)nclassified, (R)oot, (D)omain, (K)ingdom, (P)hylum, (C)lass, (O)rder, (F)amily, (G)enus, or (S)pecies. Taxa that are not at any of these 10 ranks have a rank code that is formed by using the rank code of the closest ancestor rank with a number indicating the distance from that rank. E.g., “G2” is a rank code indicating a taxon is between genus and species and the grandparent taxon is at the genus rank.</li>
 <li>NCBI taxonomic ID number</li>
 <li>Indented scientific name</li>
 </ol>
-<p>We decided to make this an optional feature so as not to break existing software that processes Kraken 2's standard report format. However, this new format can be converted to the standard report format with the command:</p>
+<p>We decided to make this an optional feature so as not to break existing software that processes Kraken 2’s standard report format. However, this new format can be converted to the standard report format with the command:</p>
 <pre><code>cut -f1-3,6-8 k2_new_report.txt &gt; k2_std_report.txt</code></pre>
 <p>As noted above, this is an <em>experimental feature</em>. We intend to continue development on this feature, and may change the new format and/or its information if we determine it to be necessary.</p>
 <p>For background on the data structures used in this feature and their interaction with Kraken, please read the <a href="https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1568-0">KrakenUniq paper</a>, and please cite that paper if you use this functionality as part of your work.</p>
@@ -288,27 +297,27 @@ done</code></pre>
 <p>The <code>kraken2</code> and <code>kraken2-inspect</code> scripts supports the use of some environment variables to help in reducing command line lengths:</p>
 <ul>
 <li><p><strong><code>KRAKEN2_NUM_THREADS</code></strong>: if the <code>--threads</code> option is not supplied to <code>kraken2</code>, then the value of this variable (if it is set) will be used as the number of threads to run <code>kraken2</code>. (This variable does not affect <code>kraken2-inspect</code>.)</p></li>
-<li><p><strong><code>KRAKEN2_DB_PATH</code></strong>: much like the <code>PATH</code> variable is used for executables by your shell, <code>KRAKEN2_DB_PATH</code> is a colon-separated list of directories that will be searched for the database you name if the named database does not have a slash (<code>/</code>) character. By default, Kraken 2 assumes the value of this variable is &quot;<code>.</code>&quot; (i.e., the current working directory). This variable can be used to create one (or more) central repositories of Kraken databases in a multi-user system. Example usage in bash:</p>
-<pre><code>export KRAKEN2_DB_PATH=&quot;/home/user/my_kraken2_dbs:/data/kraken2_dbs:&quot;</code></pre>
+<li><p><strong><code>KRAKEN2_DB_PATH</code></strong>: much like the <code>PATH</code> variable is used for executables by your shell, <code>KRAKEN2_DB_PATH</code> is a colon-separated list of directories that will be searched for the database you name if the named database does not have a slash (<code>/</code>) character. By default, Kraken 2 assumes the value of this variable is “<code>.</code>” (i.e., the current working directory). This variable can be used to create one (or more) central repositories of Kraken databases in a multi-user system. Example usage in bash:</p>
+<pre><code>  export KRAKEN2_DB_PATH=&quot;/home/user/my_kraken2_dbs:/data/kraken2_dbs:&quot;</code></pre>
 <p>This will cause three directories to be searched, in this order:</p>
-<ol style="list-style-type: decimal">
+<ol type="1">
 <li><code>/home/user/my_kraken2_dbs</code></li>
 <li><code>/data/kraken2_dbs</code></li>
 <li>the current working directory (caused by the empty string as the third colon-separated field in the <code>KRAKEN2_DB_PATH</code> string)</li>
 </ol>
 <p>The search for a database will stop when a name match is found; if two directories in the <code>KRAKEN2_DB_PATH</code> have databases with the same name, the directory of the two that is searched first will have its database selected.</p>
 <p>If the above variable and value are used, and the databases <code>/data/kraken2_dbs/mainDB</code> and <code>./mainDB</code> are present, then</p>
-<pre><code>kraken2 --db mainDB sequences.fa</code></pre>
+<pre><code>  kraken2 --db mainDB sequences.fa</code></pre>
 <p>will classify <code>sequences.fa</code> using <code>/data/kraken_dbs/mainDB</code>; if instead you wanted to use the <code>mainDB</code> present in the current directory, you would need to specify a directory path to that database in order to circumvent searching, e.g.:</p>
-<pre><code>kraken2 --db ./mainDB sequences.fa</code></pre>
+<pre><code>  kraken2 --db ./mainDB sequences.fa</code></pre>
 <p>Note that the <code>KRAKEN2_DB_PATH</code> directory list can be skipped by the use of any absolute (beginning with <code>/</code>) or relative pathname (including at least one <code>/</code>) as the database name.</p></li>
-<li><p><strong><code>KRAKEN2_DEFAULT_DB</code></strong>: if no database is supplied with the <code>--db</code> option, the database named in this variable will be used instead. Using this variable, you can avoid using <code>--db</code> if you only have a single database that you usually use, e.g. in bash:</p>
-<pre><code>export KRAKEN2_DEFAULT_DB=&quot;/home/user/kraken2db&quot;
-kraken2 sequences.fa &gt; kraken2.output</code></pre>
+<li><p><strong><code>KRAKEN2_DEFAULT_DB</code></strong>: if no database is supplied with the <code>--db</code> option, the database named in this variable will be used instead. Using this variable, you can avoid using <code>--db</code> if you only have a single database that you usually use, e.g. in bash:</p>
+<pre><code>  export KRAKEN2_DEFAULT_DB=&quot;/home/user/kraken2db&quot;
+  kraken2 sequences.fa &gt; kraken2.output</code></pre>
 <p>This will classify <code>sequences.fa</code> using the <code>/home/user/kraken2db</code> database.</p>
-<p>Note that the value of <code>KRAKEN2_DEFAULT_DB</code> will also be interpreted in the context of the value of <code>KRAKEN2_DB_PATH</code> if you don't set <code>KRAKEN2_DEFAULT_DB</code> to an absolute or relative pathname. Given the earlier example in this section, the following:</p>
-<pre><code>export KRAKEN2_DEFAULT_DB=&quot;mainDB&quot;
-kraken2 sequences.fa</code></pre>
+<p>Note that the value of <code>KRAKEN2_DEFAULT_DB</code> will also be interpreted in the context of the value of <code>KRAKEN2_DB_PATH</code> if you don’t set <code>KRAKEN2_DEFAULT_DB</code> to an absolute or relative pathname. Given the earlier example in this section, the following:</p>
+<pre><code>  export KRAKEN2_DEFAULT_DB=&quot;mainDB&quot;
+  kraken2 sequences.fa</code></pre>
 <p>will use <code>/data/kraken_dbs/mainDB</code> to classify <code>sequences.fa</code>.</p></li>
 </ul>
 </body>
