@@ -63,7 +63,7 @@ GetOptions(
   "confidence=f" => \$confidence_threshold,
   "memory-mapping" => \$memory_mapping,
   "paired" => \$paired,
-	"interleaved" => \$interleaved,
+  "interleaved" => \$interleaved,
   "use-names" => \$names_in_output,
   "gzip-compressed" => \$gunzip,
   "bzip2-compressed" => \$bunzip2,
