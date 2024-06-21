@@ -1,0 +1,263 @@
+#!/usr/bin/env perl
+
+# Copyright 2013-2023, Derrick Wood <dwood@cs.jhu.edu>
+#
+# This file is part of the Kraken 2 taxonomic sequence classification system.
+
+# Wrapper for Kraken's classifier
+
+use strict;
+use warnings;
+use Fcntl;
+use File::Basename;
+use Getopt::Long;
+
+my $PROG = basename $0;
+my $KRAKEN2_DIR = '#####=KRAKEN2_DIR=#####';
+
+# Test to see if the executables got moved, try to recover if we can
+if (! -e "$KRAKEN2_DIR/classify") {
+  use Cwd 'abs_path';
+  $KRAKEN2_DIR = dirname abs_path($0);
+}
+
+require "$KRAKEN2_DIR/kraken2lib.pm";
+$ENV{"KRAKEN2_DIR"} = $KRAKEN2_DIR;
+$ENV{"PATH"} = "$KRAKEN2_DIR:$ENV{PATH}";
+
+my $CLASSIFY = "$KRAKEN2_DIR/classify";
+my $GZIP_MAGIC = chr(hex "1f") . chr(hex "8b");
+my $BZIP2_MAGIC = "BZ";
+
+my $quick = 0;
+my $min_hits = 1;
+my $db_prefix;
+my $threads;
+my $memory_mapping = 0;
+my $gunzip = 0;
+my $bunzip2 = 0;
+my $paired = 0;
+my $interleaved = 0;
+my $names_in_output = 0;
+my $only_classified_output = 0;
+my $unclassified_out;
+my $classified_out;
+my $outfile;
+my $confidence_threshold = 0.0;
+my $minimum_base_quality = 0;
+my $report_filename;
+my $use_mpa_style = 0;
+my $report_zero_counts = 0;
+my $minimum_hit_groups = 2;
+my $report_minimizer_data = 0;
+
+GetOptions(
+  "help" => \&display_help,
+  "version" => \&display_version,
+  "db=s" => \$db_prefix,
+  "threads=i" => \$threads,
+  "quick" => \$quick,
+  "unclassified-out=s" => \$unclassified_out,
+  "classified-out=s" => \$classified_out,
+  "output=s" => \$outfile,
+  "confidence=f" => \$confidence_threshold,
+  "memory-mapping" => \$memory_mapping,
+  "paired" => \$paired,
+	"interleaved" => \$interleaved,
+  "use-names" => \$names_in_output,
+  "gzip-compressed" => \$gunzip,
+  "bzip2-compressed" => \$bunzip2,
+  "only-classified-output" => \$only_classified_output,
+  "minimum-base-quality=i" => \$minimum_base_quality,
+  "report=s" => \$report_filename,
+  "use-mpa-style" => \$use_mpa_style,
+  "report-zero-counts" => \$report_zero_counts,
+  "minimum-hit-groups=i" => \$minimum_hit_groups,
+  "report-minimizer-data" => \$report_minimizer_data,
+);
+
+if (! defined $threads) {
+  $threads = $ENV{"KRAKEN2_NUM_THREADS"} || 1;
+}
+
+if (! @ARGV) {
+  print STDERR "Need to specify input filenames!\n";
+  usage();
+}
+eval { $db_prefix = kraken2lib::find_db($db_prefix); };
+if ($@) {
+  die "$PROG: $@";
+}
+
+my $taxonomy = "$db_prefix/taxo.k2d";
+my $kht_file = "$db_prefix/hash.k2d";
+my $opt_file = "$db_prefix/opts.k2d";
+for my $file ($taxonomy, $kht_file, $opt_file) {
+  if (! -e $file) {
+    die "$PROG: $file does not exist!\n";
+  }
+}
+
+if ($paired && ((@ARGV % 2) != 0 || @ARGV == 0)) {
+  die "$PROG: --paired requires positive and even number filenames\n";
+}
+
+my $compressed = $gunzip || $bunzip2;
+if ($gunzip && $bunzip2) {
+  die "$PROG: can't use both gzip and bzip2 compression flags\n";
+}
+
+if ($confidence_threshold < 0) {
+  die "$PROG: confidence threshold must be nonnegative\n";
+}
+if ($confidence_threshold > 1) {
+  die "$PROG: confidence threshold must be no greater than 1\n";
+}
+if ($minimum_hit_groups < 0) {
+  die "$PROG: minimum number of hit groups must be nonnegative\n";
+}
+
+my $auto_detect = ! $compressed;
+if ($auto_detect) {
+  auto_detect_file_format();
+}
+
+# set flags for classifier
+my @flags;
+push @flags, "-H", $kht_file;
+push @flags, "-t", $taxonomy;
+push @flags, "-o", $opt_file;
+push @flags, "-p", $threads;
+push @flags, "-q" if $quick;
+push @flags, "-P" if $paired;
+push @flags, "-S" if $interleaved;
+push @flags, "-n" if $names_in_output;
+push @flags, "-T", $confidence_threshold;
+push @flags, "-U", $unclassified_out if defined $unclassified_out;
+push @flags, "-C", $classified_out if defined $classified_out;
+push @flags, "-O", $outfile if defined $outfile;
+push @flags, "-Q", $minimum_base_quality;
+push @flags, "-R", $report_filename if defined $report_filename;
+push @flags, "-m" if $use_mpa_style;
+push @flags, "-z" if $report_zero_counts;
+push @flags, "-M" if $memory_mapping;
+push @flags, "-g", $minimum_hit_groups;
+push @flags, "-K" if $report_minimizer_data;
+
+# Stupid hack to keep filehandles from closing before exec
+# filehandles opened inside for loop below go out of scope
+# and are closed at end of loop without this
+my @persistent_fhs;
+# handle compressed files by opening pipes from decompression programs
+if ($compressed) {
+  my @replacement_ARGV;
+  my $compression_program;
+  if ($gunzip) {
+    $compression_program = "gzip";
+  }
+  elsif ($bunzip2) {
+    $compression_program = "bzip2";
+  }
+  else {
+    die "$PROG: unrecognized compression program! This is a Kraken bug.\n";
+  }
+  for my $file (@ARGV) {
+    my $qm_file = quotemeta $file;
+    open my $fh, "$compression_program -dc $qm_file |"
+      or die "$PROG: error opening pipe from $compression_program for $file: $!\n";
+    # Have to unset close-on-exec flags to make these pipes stay open across
+    # exec call
+    my $flags = fcntl $fh, F_GETFD, 0 or die "$PROG: fcntl GETFD error: $!\n";
+    fcntl $fh, F_SETFD, ($flags & ~FD_CLOEXEC) or die "$PROG: fcntl SETFD error: $!\n";
+    push @persistent_fhs, $fh;
+    my $fd = fileno $fh;
+    push @replacement_ARGV, "/dev/fd/$fd";
+  }
+  @ARGV = @replacement_ARGV;
+}
+
+exec $CLASSIFY, @flags, @ARGV;
+die "$PROG: exec error: $!\n";
+
+sub usage {
+  my $exit_code = @_ ? shift : 64;
+  my $default_db = "none";
+  eval { $default_db = '"' . kraken2lib::find_db() . '"'; };
+  my $def_thread_ct = exists $ENV{"KRAKEN2_NUM_THREADS"} ? (0 + $ENV{"KRAKEN2_NUM_THREADS"}) : 1;
+  print STDERR <<EOF;
+Usage: $PROG [options] <filename(s)>
+
+Options:
+  --db NAME               Name for Kraken 2 DB
+                          (default: $default_db)
+  --threads NUM           Number of threads (default: $def_thread_ct)
+  --quick                 Quick operation (use first hit or hits)
+  --unclassified-out FILENAME
+                          Print unclassified sequences to filename
+  --classified-out FILENAME
+                          Print classified sequences to filename
+  --output FILENAME       Print output to filename (default: stdout); "-" will
+                          suppress normal output
+  --confidence FLOAT      Confidence score threshold (default: 0.0); must be
+                          in [0, 1].
+  --minimum-base-quality NUM
+                          Minimum base quality used in classification (def: 0,
+                          only effective with FASTQ input).
+  --report FILENAME       Print a report with aggregrate counts/clade to file
+  --use-mpa-style         With --report, format report output like Kraken 1's
+                          kraken-mpa-report
+  --report-zero-counts    With --report, report counts for ALL taxa, even if
+                          counts are zero
+  --report-minimizer-data With --report, report minimizer and distinct minimizer
+                          count information in addition to normal Kraken report
+  --memory-mapping        Avoids loading database into RAM
+  --paired                The filenames provided have paired-end reads
+  --interleaved           The filename provided has paired-end reads
+  --use-names             Print scientific names instead of just taxids
+  --gzip-compressed       Input files are compressed with gzip
+  --bzip2-compressed      Input files are compressed with bzip2
+  --minimum-hit-groups NUM
+                          Minimum number of hit groups (overlapping k-mers
+                          sharing the same minimizer) needed to make a call
+                          (default: $minimum_hit_groups)
+  --help                  Print this message
+  --version               Print version information
+
+If none of the *-compressed flags are specified, and the filename provided
+is a regular file, automatic format detection is attempted.
+EOF
+  exit $exit_code;
+}
+
+sub display_help {
+  usage(0);
+}
+
+sub display_version {
+  print "Kraken version #####=VERSION=#####\n";
+  print "Copyright 2013-2023, Derrick Wood (dwood\@cs.jhu.edu)\n";
+  exit 0;
+}
+
+sub auto_detect_file_format {
+  my $magic;
+  my $filename = $ARGV[0];
+
+  # Don't try to auto-detect when you can't unread data
+  if (! -f $filename) {
+    return;
+  }
+
+  # read 2-byte magic number to determine type of compression (if any)
+  open FILE, "<", $filename;
+  read FILE, $magic, 2;
+  close FILE;
+  if ($magic eq $GZIP_MAGIC) {
+    $compressed = 1;
+    $gunzip = 1;
+  }
+  elsif ($magic eq $BZIP2_MAGIC) {
+    $compressed = 1;
+    $bunzip2 = 1;
+  }
+}
