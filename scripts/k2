@@ -75,10 +75,10 @@ class FTP:
 
         def inner(block):
             nonlocal f, remote_size, pb
-            f.write(block)
+            written = 0
+            while written < len(block):
+                written += f.write(block[written:])
             size_on_disk = f.tell()
-            # if size_on_disk > remote_size:
-            #     size_on_disk = remote_size
             pb.progress(size_on_disk)
             LOG.debug(
                 "{:s} {: >10s}\r".format(
