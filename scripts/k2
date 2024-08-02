@@ -482,9 +482,8 @@ def spawn_masking_subprocess(output_file, protein=False):
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
     if masking_binary.find("k2mask") >= 0:
         # k2mask can run multithreaded
-        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(
-            multiprocessing.cpu_count() // 2
-        )
+        threads = int(os.environ.get("KRAKEN2_NUM_THREADS", multiprocessing.cpu_count()))
+        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(threads)
 
     p = subprocess.Popen(
         argv, shell=True, stdin=subprocess.PIPE, stdout=output_file
