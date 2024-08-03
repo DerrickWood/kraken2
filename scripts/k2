@@ -22,6 +22,7 @@ import tempfile
 import threading
 import urllib
 import urllib.error
+import datetime
 from urllib.error import HTTPError, ContentTooShortError
 import urllib.parse
 import urllib.request
@@ -1130,6 +1131,7 @@ def build_kraken2_db(args):
         os.remove("accmap.tmp")
         move("seqid2taxid.map.tmp", "seqid2taxid.map")
         LOG.info("Created sequence ID to taxonomy ID map\n")
+    start = datetime.datetime.now()
     estimate_capacity_binary = find_kraken2_binary("estimate_capacity")
     argv = [estimate_capacity_binary, "-S", construct_seed_template(args)]
     if args.protein:
@@ -1156,11 +1158,13 @@ def build_kraken2_db(args):
                     proc.stdin.write(data)
     estimate = proc.communicate()[0].decode()
     required_capacity = (int(estimate.strip()) + 8192) / args.load_factor
+    end = datetime.datetime.now()
     LOG.info(
         "Estimated hash table requirement: {:s}\n".format(
             format_bytes(required_capacity * 4)
         )
     )
+    LOG.info("Time to estimate hash table requirement: {:s}\n".format(str(end - start)))
     if args.max_db_size:
         if args.max_db_size < required_capacity * 4:
             args.max_db_size = int(args.max_db_size / 4)
@@ -1172,6 +1176,7 @@ def build_kraken2_db(args):
     if os.path.isfile("hash.k2d"):
         LOG.info("Hash table already present, skipping build\n")
     else:
+        start = datetime.datetime.now()
         LOG.info("Starting database build\n")
         build_db_bin = find_kraken2_binary("build_db")
         argv = [
@@ -1215,6 +1220,8 @@ def build_kraken2_db(args):
         move("taxo.k2d.tmp", "taxo.k2d")
         move("opts.k2d.tmp", "opts.k2d")
         LOG.info("Finished building database\n")
+        end = datetime.datetime.now()
+        LOG.info("Time to build database: {:s}\n".format(str(end - start)))
 
 
 # Parses RDP sequence data to create Kraken taxonomy
