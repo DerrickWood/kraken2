@@ -2133,6 +2133,13 @@ def make_add_to_library_parser(subparsers):
         help="Name of Kraken 2 database"
     )
     parser.add_argument(
+        "--threads",
+        type=int,
+        metavar="THREADS",
+        default=1,
+        help="The number of threads/processes k2 uses when processing library files."
+    )
+    parser.add_argument(
         "--file",
         "--files",
         type=str,
