@@ -508,7 +508,7 @@ def mask_files(input_filenames, output_filename, protein=False, threads=1):
         for i, input_filename in enumerate(input_filenames):
             library_name = os.path.basename(os.getcwd())
             if library_name == "added":
-                LOG.info("Masking low-complexity regions of added library.")
+                LOG.info("Masking low-complexity regions of added library {}\n".format(input_filename))
             else:
                 LOG.info(
                     "Masking low-complexity regions of downloaded library {:s}\n".format(
@@ -518,6 +518,38 @@ def mask_files(input_filenames, output_filename, protein=False, threads=1):
             with open(input_filename, "rb") as fin:
                 masker(fin, i + 1 == number_of_files)
 
+
+def add_file(args, filename, hashes):
+    LOG.info("Adding " + filename + " to library " + args.db + "\n")
+    filehash = hash_file(filename)
+    if filehash in hashes:
+        LOG.info(filename + " already added to library.\n")
+        LOG.info("If not the case, remove the  entry from added.md5\n")
+        return
+    destination = os.path.basename(filename)
+    ext = ".faa" if args.protein else "fna"
+    if not destination.endswith(ext):
+        base, _ = os.path.splitext(destination)
+        destination = base + "." + ext
+    if os.path.exists(destination):
+        LOG.warning(
+            "{} already exists in added, appending file hash to ensure uniqueness.\n".format(destination)
+        )
+        base, ext = os.path.splitext(destination)
+        destination = base + "_" + filehash + ext
+    prelim_map_filename = "prelim_map_" + filehash + ".txt"
+    with open(prelim_map_filename, mode="a") as out_file:
+        with open(filename, "r") as in_file:
+            scan_fasta_file(in_file, out_file, lenient=True, seq_name_to_url_table=filename)
+        shutil.copyfile(filename, destination)
+    if not args.no_masking:
+        mask_files(
+            [destination], destination + ".masked", protein=args.protein, threads=args.threads
+        )
+        shutil.move(destination + ".masked", destination)
+    LOG.info("Added " + filename + " to library " + args.db + "\n")
+
+    return (filename, filehash, destination)
 
 def add_to_library(args):
     if not os.path.isdir(args.db):
@@ -532,36 +564,14 @@ def add_to_library(args):
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
             hashes = [line.split()[0] for line in in_file.readlines()]
-    for filename in args.files:
-        filehash = hash_file(filename)
-        if filehash in hashes:
-            LOG.info(filename + " already added to library.\n")
-            LOG.info("If not the case, remove the  entry from added.md5\n")
-            return
-        destination = os.path.basename(filename)
-        ext = ".faa" if args.protein else "fna"
-        if not destination.endswith(ext):
-            base, _ = os.path.splitext(destination)
-            destination = base + "." + ext
-        if os.path.exists(destination):
-            LOG.warning(
-                "{} already exists in added, appending file hash to ensure uniqueness.\n".format(destination)
-            )
-            base, ext = os.path.splitext(destination)
-            destination = base + "_" + filehash + ext
-        prelim_map_filename = "prelim_map_" + filehash + ".txt"
-        with open(prelim_map_filename, mode="a") as out_file:
-            with open(filename, "r") as in_file:
-                scan_fasta_file(in_file, out_file, lenient=True, seq_name_to_url_table=filename)
-            shutil.copyfile(filename, destination)
-        if not args.no_masking:
-            mask_files(
-                [destination], destination + ".masked", protein=args.protein, threads=args.threads
-            )
-            shutil.move(destination + ".masked", destination)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
+        futures = []
+        for filename in args.files:
+            futures.append(pool.submit(add_file, args, filename, hashes))
         with open("added.md5", "a") as out_file:
-            out_file.write(filehash + "\t" + filename + "\t" + destination + "\n")
-        LOG.info("Added " + filename + " to library " + args.db + "\n")
+            for future in concurrent.futures.as_completed(futures):
+                (filehash, filename, destination) = future.result()
+                out_file.write(filehash + "\t" + filename + "\t" + destination + "\n")
 
 
 def make_manifest_from_assembly_summary(
