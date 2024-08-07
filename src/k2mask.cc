@@ -285,7 +285,7 @@ std::ofstream skipMaskedSequences(gzistream &is) {
               break;
           }
         } else {
-          std::cerr << "Could not file masked sequence in input" << std::endl;
+          std::cerr << "Could not find masked sequence in input" << std::endl;
           std::cerr << "Please delete masked_sequences.txt before retrying." << std::endl;
           exit(EXIT_FAILURE);
         }
@@ -390,9 +390,7 @@ int main(int argc, char **argv) {
   }
   gzistream is(infile.c_str());
   std::ofstream maskedSequences;
-  if (fileExists("masked_sequences.txt")) {
-    continueMasking = true;
-  }
+
   auto outputFileMode = std::ios::out | std::ios::trunc;
   if (continueMasking) {
     outputFileMode = std::ios::app;
