@@ -15,6 +15,7 @@ import logging
 import lzma
 import math
 import os
+import random
 import re
 import shutil
 import signal
@@ -128,7 +129,8 @@ class FTP:
                     try:
                         cb = self._progress_bar(f, remote_size)
                         self.ftp.retrbinary(
-                            "RETR " + filepath, cb, rest=f.tell())
+                            "RETR " + filepath, cb, rest=f.tell()
+                        )
                         break
                     except KeyboardInterrupt:
                         f.flush()
@@ -255,7 +257,7 @@ def get_binary_options(binary_pathname):
     proc = subprocess.Popen(binary_pathname, stderr=subprocess.PIPE)
     lines = proc.stderr.readlines()
     for line in lines:
-        match = re.search(br"\s(-\w)\s", line)
+        match = re.search(rb"\s(-\w)\s", line)
         if not match:
             continue
         options.append(match.group(1).decode())
@@ -265,7 +267,8 @@ def get_binary_options(binary_pathname):
 def construct_seed_template(args):
     if int(args.minimizer_len / 4) < args.minimizer_spaces:
         LOG.error(
-            "Number of minimizer spaces, {}, exceeds max for minimizer length, {}; max: {}\n".format(
+            "Number of minimizer spaces, {}, exceeds max for"
+            "minimizer length, {}; max: {}\n".format(
                 args.minimizer_spaces,
                 args.minimizer_len,
                 int(args.minimizer_len / 4),
@@ -276,6 +279,10 @@ def construct_seed_template(args):
         "1" * (args.minimizer_len - 2 * args.minimizer_spaces)
         + "01" * args.minimizer_spaces
     )
+
+
+def future_raised_exception(future):
+    return future.done() and future.result() is None
 
 
 def wrapper_args_to_binary_args(opts, argv, binary_args):
@@ -307,7 +314,7 @@ def find_kraken2_binary(name):
     # if called from within kraken2 project root, search the src dir
     project_root = get_parent_directory(script_parent_directory)
     if "src" in os.listdir(project_root) and name in os.listdir(
-            os.path.join(project_root, "src")
+        os.path.join(project_root, "src")
     ):
         return os.path.join(project_root, os.path.join("src", name))
     # not found in these likely places, exit
@@ -344,14 +351,23 @@ def find_database(database_name):
     return database_path
 
 
-def remove_files(*filepaths):
+def remove_files(filepaths):
+    total_size = 0
+
     for fname in filepaths:
         if not os.path.exists(fname):
             continue
         elif os.path.isdir(fname):
-            shutil.rmtree(fname)
+            for dirpath, _, files in os.walk(fname):
+                for file in files:
+                    file = os.path.join(dirpath, file)
+                    filepaths.append(file)
         else:
-            os.remove(fname)
+            LOG.info("Removing {}\n".format(fname))
+            total_size += os.path.getsize(fname)
+            # os.remove(fname)
+
+    return total_size
 
 
 def check_seqid(seqid):
@@ -366,6 +382,12 @@ def check_seqid(seqid):
         if match:
             taxid = match.group(1)
     return taxid
+
+
+def hash_string(string):
+    md5 = hashlib.md5()
+    md5.update(string)
+    return md5.hexdigest()
 
 
 def hash_file(filename, buf_size=8192):
@@ -396,19 +418,21 @@ def hash_file(filename, buf_size=8192):
 # an accession number ("ACCNUM") for the sequence ID listed in the second
 # column.
 #
-def scan_fasta_file(in_file, out_file, lenient=False, seq_name_to_url_table=None):
-    LOG.info("Generating prelim_map.txt.\n")
+def scan_fasta_file(
+    in_file, out_file, lenient=False, sequence_to_url=None
+):
+    LOG.info("Generating prelim_map.txt for {}.\n".format(in_file.name))
     iterator = in_file
     iterator_is_dict = False
-    if type(seq_name_to_url_table) is dict:
-        iterator = seq_name_to_url_table
+    if type(sequence_to_url) is dict:
+        iterator = sequence_to_url
         iterator_is_dict = True
     for line in iterator:
         if not line.startswith(">"):
             continue
-        remote_filepath = seq_name_to_url_table
+        remote_filepath = sequence_to_url
         if iterator_is_dict:
-            remote_filepath = seq_name_to_url_table[line]
+            remote_filepath = sequence_to_url[line]
         for match in re.finditer(r"(?:^>|\x01)(\S+) (.*)", line):
             seqid = match.group(1)
             taxid = check_seqid(seqid)
@@ -419,10 +443,20 @@ def scan_fasta_file(in_file, out_file, lenient=False, seq_name_to_url_table=None
                 else:
                     sys.exit(1)
             if re.match(r"^\d+$", taxid):
-                out_file.write("TAXID\t{:s}\t{:s}\t{:s}\t{:s}\n".format(seqid, taxid, comment, remote_filepath))
+                out_file.write(
+                    "TAXID\t{:s}\t{:s}\t{:s}\t{:s}\n".format(
+                        seqid, taxid, comment, remote_filepath
+                    )
+                )
             else:
-                out_file.write("ACCNUM\t{:s}\t{:s}\t{:s}\t{:s}\n".format(seqid, taxid, comment, remote_filepath))
-    LOG.info("Finished generating prelim_map.txt.\n")
+                out_file.write(
+                    "ACCNUM\t{:s}\t{:s}\t{:s}\t{:s}\n".format(
+                        seqid, taxid, comment, remote_filepath
+                    )
+                )
+    LOG.info(
+        "Finished generating prelim_map.txt for {}.\n".format(in_file.name)
+    )
 
 
 # This function is part of the Kraken 2 taxonomic sequence
@@ -466,17 +500,17 @@ def lookup_accession_numbers(
                 break
     if target_lists:
         LOG.warning(
-            "{}/{} accession numbers remain unmapped, see unmapped_accessions.txt in {} directory\n".format(
-                len(target_lists),
-                initial_target_count,
-                os.path.abspath(os.curdir))
+            "{}/{} accession numbers remain unmapped, "
+            "see unmapped_accessions.txt in {} directory\n"
+            .format(len(target_lists), initial_target_count,
+                    os.path.abspath(os.curdir))
         )
         with open("unmapped_accessions.txt", "w") as f:
             for k in target_lists:
                 f.write(k + "\n")
 
 
-def spawn_masking_subprocess(output_file, protein=False, threads=1):
+def spawn_masking_subprocess(output_file, threads, protein=False):
     masking_binary = "segmasker" if protein else "k2mask"
     if "MASKER" in os.environ:
         masking_binary = os.environ["MASKER"]
@@ -485,71 +519,84 @@ def spawn_masking_subprocess(output_file, protein=False, threads=1):
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
     if masking_binary.find("k2mask") >= 0:
         # k2mask can run multithreaded
-        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(threads)
+        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(
+            threads
+        )
 
+    cwd = os.path.dirname(os.path.abspath(output_file.name))
     p = subprocess.Popen(
-        argv, shell=True, stdin=subprocess.PIPE, stdout=output_file
+        argv, shell=True, cwd=cwd,
+        stdin=subprocess.PIPE, stdout=output_file
     )
 
-    def masker(input_file, final=False):
-        shutil.copyfileobj(input_file, p.stdin)
-        if final:
-            p.stdin.close()
-            p.wait()
-
-    return masker
+    return p
 
 
 # Mask low complexity sequences in the database
-def mask_files(input_filenames, output_filename, protein=False, threads=1):
+def mask_files(input_filenames, output_filename, threads, protein=False):
     with open(output_filename, "wb") as fout:
-        masker = spawn_masking_subprocess(fout, protein, threads=threads)
-        number_of_files = len(input_filenames)
+        masker = spawn_masking_subprocess(fout, threads, protein)
+        # number_of_files = len(input_filenames)
         for i, input_filename in enumerate(input_filenames):
             library_name = os.path.basename(os.getcwd())
             if library_name == "added":
-                LOG.info("Masking low-complexity regions of added library {}\n".format(input_filename))
+                LOG.info(
+                    "Masking low-complexity regions of added "
+                    "library {}\n".format(input_filename)
+                )
             else:
                 LOG.info(
-                    "Masking low-complexity regions of downloaded library {:s}\n".format(
-                        library_name
-                    )
+                    "Masking low-complexity regions of downloaded "
+                    "library {:s}\n".format(library_name)
                 )
             with open(input_filename, "rb") as fin:
-                masker(fin, i + 1 == number_of_files)
+                shutil.copyfileobj(fin, masker.stdin)
+                # masker(fin, i + 1 == number_of_files)
+        masker.stdin.close()
+        if masker.wait() != 0:
+            LOG.error("Error while masking {}\n".format(input_filename))
 
 
 def add_file(args, filename, hashes):
-    LOG.info("Adding " + filename + " to library " + args.db + "\n")
-    filehash = hash_file(filename)
-    if filehash in hashes:
-        LOG.info(filename + " already added to library.\n")
-        LOG.info("If not the case, remove the  entry from added.md5\n")
-        return
+    already_added = False
+    filehash = None
+    if filename in hashes:
+        already_added = True
+
+    filehash = hashes.get(filename) or hash_file(filename)
     destination = os.path.basename(filename)
-    ext = ".faa" if args.protein else "fna"
-    if not destination.endswith(ext):
-        base, _ = os.path.splitext(destination)
-        destination = base + "." + ext
-    if os.path.exists(destination):
-        LOG.warning(
-            "{} already exists in added, appending file hash to ensure uniqueness.\n".format(destination)
+    ext = ".faa" if args.protein else ".fna"
+    base, _ = os.path.splitext(destination)
+    destination = base + "_" + filehash + ext
+    if already_added:
+        LOG.info(
+            "Already added: " + filename + " to library. "
+            "Please remove the entry from added.md5 if this"
+            " is not the case.\n"
         )
-        base, ext = os.path.splitext(destination)
-        destination = base + "_" + filehash + ext
+        return (filename, filehash, destination)
+
+    LOG.info("Adding " + filename + " to library " + args.db + "\n")
     prelim_map_filename = "prelim_map_" + filehash + ".txt"
     with open(prelim_map_filename, mode="a") as out_file:
         with open(filename, "r") as in_file:
-            scan_fasta_file(in_file, out_file, lenient=True, seq_name_to_url_table=filename)
+            scan_fasta_file(
+                in_file, out_file, lenient=True, sequence_to_url=filename
+            )
         shutil.copyfile(filename, destination)
+
     if not args.no_masking:
         mask_files(
-            [destination], destination + ".masked", protein=args.protein, threads=args.threads
+            [destination],
+            destination + ".masked",
+            threads=args.masker_threads,
+            protein=args.protein,
         )
         shutil.move(destination + ".masked", destination)
     LOG.info("Added " + filename + " to library " + args.db + "\n")
 
     return (filename, filehash, destination)
+
 
 def add_to_library(args):
     if not os.path.isdir(args.db):
@@ -563,15 +610,27 @@ def add_to_library(args):
     hashes = []
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
-            hashes = [line.split()[0] for line in in_file.readlines()]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
+            hashes = dict([line.split()[:2] for line in in_file.readlines()])
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=args.threads
+    ) as pool:
         futures = []
-        for filename in args.files:
-            futures.append(pool.submit(add_file, args, filename, hashes))
+        files = map(lambda f: glob.glob(f, recursive=True), args.files)
+        for filename in itertools.chain(*files):
+            future = pool.submit(add_file, args, filename, hashes)
+            if future_raised_exception(future):
+                LOG.error(
+                    "Error while adding file to library\n"
+                )
+                raise future.exception()
+            futures.append(future)
         with open("added.md5", "a") as out_file:
             for future in concurrent.futures.as_completed(futures):
-                (filehash, filename, destination) = future.result()
-                out_file.write(filehash + "\t" + filename + "\t" + destination + "\n")
+                result = future.result()
+                (filename, filehash, destination) = result
+                out_file.write(
+                    filename + "\t" + filehash + "\t" + destination + "\n"
+                )
 
 
 def make_manifest_from_assembly_summary(
@@ -598,83 +657,55 @@ def make_manifest_from_assembly_summary(
     return manifest_to_taxid
 
 
-# def assign_taxid_to_sequences(manifest_to_taxid, is_protein):
-#     LOG.info("Assigning taxonomic IDs to sequences\n")
-#     out_filename = "library.faa" if is_protein else "library.fna"
-#     sequence_name_to_remote_filepath = {}
-#     with open(out_filename, "w") as f:
-#         projects_added = 0
-#         total_projects = len(manifest_to_taxid)
-#         sequences_added = 0
-#         ch_added = 0
-#         ch = "aa" if is_protein else "bp"
-#         max_out_chars = 0
-
-#         out_line = progress_line(
-#             projects_added, total_projects, sequences_added, ch_added, ch
-#         )
-#         LOG.debug("\r{:s}\r{:s}".format(" ", out_line))
-#         for filepath in sorted(manifest_to_taxid):
-#             remote_filepath = urllib.parse.urljoin("/genomes/", filepath)
-#             taxid = manifest_to_taxid[filepath]
-#             with gzip.open(filepath, "rt") as in_file:
-#                 while True:
-#                     line = in_file.readline()
-#                     if line == "":
-#                         break
-#                     if line.startswith(">"):
-#                         line = line.replace(
-#                             ">", ">kraken:taxid|" + taxid + "|", 1
-#                         )
-#                         sequence_name_to_remote_filepath[line] = remote_filepath
-#                         sequences_added += 1
-#                     else:
-#                         ch_added += len(line) - 1
-#                     f.write(line)
-#             projects_added += 1
-#             max_out_chars = max(len(out_line), max_out_chars)
-#             space_line = " " * max_out_chars
-#             out_line = progress_line(
-#                 projects_added, total_projects, sequences_added, ch_added, ch
-#             )
-#             LOG.debug("\r{:s}\r{:s}".format(space_line, out_line))
-#         LOG.info("\nFinished assigning taxonomic IDs to sequences\n")
-
-#         return sequence_name_to_remote_filepath
-
-def assign_taxids(filepath, manifest_to_taxid):
+def assign_taxids(args, filepath, manifest_to_taxid):
     sequences_added = 0
     ch_added = 0
-    #nonlocal sequence_name_to_remote_filepath
-    # remote_filepath = urllib.parse.urljoin("/genomes/", filepath)
     taxid = manifest_to_taxid[filepath]
     out_filepath = os.path.splitext(filepath)[0]
+    masker = None
+    sequence_to_url = {}
+
     with open(out_filepath, "w") as out_file:
+        if not args.no_masking:
+            masker = spawn_masking_subprocess(
+                out_file, args.masker_threads, False
+            )
         with gzip.open(filepath, "rt") as in_file:
             while True:
                 line = in_file.readline()
                 if line == "":
                     break
                 if line.startswith(">"):
-                    line = line.replace(
-                        ">", ">kraken:taxid|" + taxid + "|", 1
-                    )
-                    # sequence_name_to_remote_filepath[line] = remote_filepath
+                    line = line.replace(">", ">kraken:taxid|" + taxid + "|", 1)
+                    sequence_to_url[line] = filepath
                     sequences_added += 1
                 else:
                     ch_added += len(line) - 1
-                out_file.write(line)
-    return (sequences_added, ch_added)
+                if not masker:
+                    out_file.write(line)
+                else:
+                    masker.stdin.write(line.encode())
+        if masker:
+            masker.stdin.close()
+            masker.wait()
 
-def assign_taxid_to_sequences(manifest_to_taxid, is_protein, threads=1):
-    LOG.info("Assigning taxonomic IDs to sequences\n")
-    library_filename = "library.faa" if is_protein else "library.fna"
-    sequence_name_to_remote_filepath = {}
+    return (sequences_added, ch_added, sequence_to_url)
+
+
+def assign_taxid_to_sequences(args, manifest_to_taxid):
+    if args.no_masking:
+        LOG.info("Assigning taxonomic IDs to sequences\n")
+    else:
+        LOG.info(
+            "Assigning taxonomic IDs and masking sequences\n"
+        )
+    library_filename = "library.faa" if args.protein else "library.fna"
+    sequence_to_url = {}
     projects_added = 0
     total_projects = len(manifest_to_taxid)
     sequences_added = 0
     ch_added = 0
-    ch = "aa" if is_protein else "bp"
+    ch = "aa" if args.protein else "bp"
 
     out_line = progress_line(
         projects_added, total_projects, sequences_added, ch_added, ch
@@ -682,16 +713,25 @@ def assign_taxid_to_sequences(manifest_to_taxid, is_protein, threads=1):
 
     LOG.debug("\r{:s}\r{:s}".format(" ", out_line))
     filepaths = sorted(manifest_to_taxid)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
         futures = []
         max_out_line_len = 0
         for filepath in filepaths:
-            futures.append(pool.submit(assign_taxids, filepath, manifest_to_taxid))
+            future = pool.submit(
+                assign_taxids, args, filepath, manifest_to_taxid
+            )
+            if future_raised_exception(future):
+                LOG.error(
+                    "Error encountered while assigning tax IDs\n"
+                )
+                raise future.exception()
+            futures.append(future)
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             sequences_added += result[0]
             ch_added += result[1]
             projects_added += 1
+            sequence_to_url.update(result[2])
             out_line = progress_line(
                 projects_added, total_projects, sequences_added, ch_added, ch
             )
@@ -699,18 +739,22 @@ def assign_taxid_to_sequences(manifest_to_taxid, is_protein, threads=1):
             spaces = " " * max_out_line_len
             LOG.debug("\r{:s}\r{:s}".format(spaces, out_line))
 
-    # assign_taxids(filepaths[0])
-    LOG.info("\nFinished assigning taxonomic IDs to sequences\n")
+    if args.no_masking:
+        LOG.info("\nFinished assigning taxonomic IDs to sequences\n")
+    else:
+        LOG.info("\nFinished assigning taxonomic IDs and masking sequences\n")
 
-    LOG.info("Generating {:s}\n".format( library_filename))
+    LOG.info("Generating {:s}\n".format(library_filename))
     with open(library_filename, "w") as out_file:
-        for filepath in [os.path.splitext(filepath)[0] for filepath in filepaths]:
+        for filepath in [
+            os.path.splitext(filepath)[0] for filepath in filepaths
+        ]:
             with open(filepath, "r") as in_file:
                 shutil.copyfileobj(in_file, out_file)
 
     LOG.info("Finished generating {:s}\n".format(library_filename))
 
-    return sequence_name_to_remote_filepath
+    return sequence_to_url
 
 
 def progress_line(projects, total_projects, seqs, chars, ch):
@@ -734,6 +778,10 @@ def progress_line(projects, total_projects, seqs, chars, ch):
     return line
 
 
+# The following three functions have dummy return values. This is
+# so that we can check whether a future stopped running as a
+# result of an exception, so that we can stop the main process
+# early.
 def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
     if isinstance(compressed_filenames, str):
         compressed_filenames = [compressed_filenames]
@@ -755,6 +803,8 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
                     decompress_file(gz, out, buf_size)
             os.rename(out_filename + ".tmp", out_filename)
 
+    return True
+
 
 def decompress_file(in_file, out_file, buf_size=8129):
     LOG.info(
@@ -766,6 +816,20 @@ def decompress_file(in_file, out_file, buf_size=8129):
             os.path.join(os.getcwd(), in_file.name)
         )
     )
+
+    return True
+
+
+def decompress_and_mask(filepath, masker_threads):
+    out_filepath = os.path.splitext(filepath)[0]
+    with open(out_filepath, "w") as out_file:
+        masker = spawn_masking_subprocess(out_file, masker_threads)
+        with gzip.open(filepath, "rb") as in_file:
+            decompress_file(in_file, masker.stdin)
+        masker.stdin.close()
+        masker.wait()
+
+    return True
 
 
 def download_log(filename, total_size=None):
@@ -793,7 +857,9 @@ def http_download_file(url, local_name=None, call_back=None):
         os.makedirs(os.path.dirname(local_name), exist_ok=True)
     with urllib.request.urlopen(url) as conn:
         remote_size = int(conn.headers["Content-Length"])
-        local_size = os.stat(local_name).st_size if os.path.exists(local_name) else 0
+        local_size = (
+            os.stat(local_name).st_size if os.path.exists(local_name) else 0
+        )
         if local_size == remote_size:
             LOG.info(
                 "Already downloaded {:s}\n".format(get_abs_path(local_name))
@@ -807,9 +873,16 @@ def http_download_file(url, local_name=None, call_back=None):
     clear_console_line()
     LOG.info("Saved {:s} to {:s}\n".format(local_name, os.getcwd()))
 
+
 def http_download_file2(server, urls, save_to=None, md5sums=None):
     files_downloaded = 0
-    conn = http.client.HTTPSConnection(server)
+    conn = None
+    if isinstance(server, str):
+        conn = http.client.HTTPSConnection(server, timeout=60)
+    else:
+        conn = server
+        server = conn.host
+    md5 = md5sums if md5sums else {}
     for url in urls:
         url = url.strip()
         filename = os.path.basename(url)
@@ -819,49 +892,75 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
         local_directory = os.path.dirname(local_name)
         os.makedirs(os.path.dirname(local_name), exist_ok=True)
 
-        if os.path.exists(local_name):
-            md5 = []
-            if md5sums is None:
-                remote_dirname = os.path.dirname(url)
-                conn.request("GET", "/" + remote_dirname + "/md5checksums.txt")
-                response = conn.getresponse()
-
-                if response.status == 200:
-                    md5 = response.readlines()
-                else:
-                    response.read()
-                    conn.request("GET", "/" + url + ".md5")
+        try:
+            if os.path.exists(local_name):
+                if filename not in md5:
+                    checksums = []
+                    remote_dirname = os.path.dirname(url)
+                    conn.request(
+                        "GET", "/" + remote_dirname + "/md5checksums.txt"
+                    )
                     response = conn.getresponse()
-                    if response.status == 200:
-                        md5 = response.readlines()
-                response.read()
-            else:
-                md5 = md5sums
 
-            if len(md5) > 0:
-                found = False
-                for entry in md5:
-                    (md5sum, remote_filename) = entry.split()
-                    if remote_filename.decode().endswith(filename) and md5sum.decode() == hash_file(local_name):
-                        found = True
-                        break
-                if found:
-                    LOG.info("Already downloaded {:s}\n".format(urllib.parse.urljoin(server, url)))
+                    if response.status == 200:
+                        checksums = response.readlines()
+                    else:
+                        response.read()
+                        conn.request("GET", "/" + url + ".md5")
+                        response = conn.getresponse()
+                        if response.status == 200:
+                            checksums = response.readlines()
+                    response.read()
+                    if len(checksums) > 0:
+                        for checksum in checksums:
+                            (md5sum, remote_filename) = checksum.split()
+                            remote_filename = os.path.basename(
+                                remote_filename.decode()
+                            )
+                            md5[remote_filename] = md5sum.decode()
+
+                if filename in md5 and md5[filename] == hash_file(local_name):
+                    LOG.info(
+                        "Already downloaded {:s}\n".format(
+                            urllib.parse.urljoin(server, url)
+                        )
+                    )
+                    # Server can potentially end the connection while we
+                    # waiting for the md5 hash to be computed. It does not
+                    # hut to reconnect to avoid failures when trying to
+                    # retrieve the file.
+                    conn.connect()
                     continue
-        LOG.info("Beginning download of {:s}\n".format(server + "/" + url))
-        with open(local_name, "wb") as out_file:
-            conn.request("GET", "/" + url)
-            response = conn.getresponse()
-            if response.status == 200:
-                shutil.copyfileobj(response, out_file)
-            else:
-                LOG.warning("Unable to download file {}\n".format(url))
+            LOG.info("Beginning download of {:s}\n".format(server + "/" + url))
+            with open(local_name, "wb") as out_file:
+                conn.request("GET", "/" + url)
+                response = conn.getresponse()
+                if response.status == 200:
+                    shutil.copyfileobj(response, out_file, 8192)
+                elif response.status == 404:
+                    LOG.warning(
+                        "Cannot find file: {}.\n"
+                        "Please report this issue to NCBI.\n".format(url)
+                    )
+                else:
+                    LOG.error(
+                        "Error downloading file: {}.\n"
+                        "Reason: {}\n".format(url, response.reason)
+                    )
+                    response.read()
+                    sys.exit(1)
+
+        except http.client.RemoteDisconnected:
+            conn.connect()
+            LOG.warning("Unable to download " + url + ", will try again\n")
+            urls.append(url)
+            continue
+
         LOG.info("Saved {:s} to {:s}\n".format(filename, local_directory))
         files_downloaded += 1
 
-    conn.close()
-
     return files_downloaded
+
 
 def make_file_filter(file_handle, regex):
     def inner(listing):
@@ -890,7 +989,7 @@ def get_manifest_and_md5sums(server, remote_directory, regex):
 
     with open("manifest.txt", "w") as out:
         for line in sstream.getvalue().split():
-            out.write(urllib.parse.urljoin(remote_directory, line) + '\n')
+            out.write(urllib.parse.urljoin(remote_directory, line) + "\n")
 
     sstream.truncate(0)
     sstream.seek(0)
@@ -903,60 +1002,45 @@ def get_manifest_and_md5sums(server, remote_directory, regex):
     ftp.retrbinary("RETR " + install_file, callback=bstream.write)
     ftp.close()
 
-    md5sums = [line for line in bstream.getvalue().split(b'\n') if line.find(b"plasmid") != -1]
-
+    md5sums = {}
+    for line in bstream.getvalue().split(b"\n"):
+        if line.find(b"plasmid") == -1:
+            continue
+        (md5, filename) = line.split()
+        md5sums[filename.decode()] = md5.decode()
     return md5sums
 
-# def check_if_files_exists(server, remote_dir, filepaths):
-#     total_size = 0
-#     filepaths_found = []
 
-#     conn = http.client.HTTPSConnection(server)
-#     for filepath in filepaths:
-#         filepath = filepath.strip()
-#         url = urllib.parse.urljoin(remote_dir, filepath)
-#         # if not ftp.exists(url):
-#         conn.request('HEAD', '/' + url)
-#         resp = conn.getresponse()
-#         resp.close()
-#         if resp.status != 200:
-#             if filepath_to_taxid_table:
-#                 del filepath_to_taxid_table[filepaths[i]]
-#             LOG.warning(
-#                 "{:s} does not exist on server, skipping\n".format(
-#                     remote_dir + filepath
-#                 )
-#             )
-#             continue
-
-#         filepaths_found.append(filepath)
-#         total_size += int(resp.getheader("Content-Length"))
-
-#     conn.close()
-#     return (filepaths_found, total_size)
-
-# Rewrite this so we don't check if files exist on server it takes too m
 def download_files_from_manifest(
-        server,
-        threads=1,
-        manifest_filename="manifest.txt",
-        filepath_to_taxid_table=None,
-        md5sums=None
+    server,
+    threads=1,
+    manifest_filename="manifest.txt",
+    filepath_to_taxid_table=None,
+    md5sums=None,
 ):
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
         with open(manifest_filename, "r") as f:
             filepaths = f.readlines()
+            random.shuffle(filepaths)
             partitions = []
             futures = []
             step = len(filepaths) // threads
             if step == 0:
                 step = 1
             for i in range(0, len(filepaths), step):
-                partitions.append(filepaths[i:i + step])
-            # http_download_file2(server, filepaths, None, None)
+                partitions.append(filepaths[i:i+step])
             for partition in partitions:
-                futures.append(pool.submit(http_download_file2, server, partition, None, md5sums))
+                future = pool.submit(
+                    http_download_file2, server, partition, None, md5sums
+                )
+                if future_raised_exception(future):
+                    LOG.error(
+                        "Error encounted while trying to download files\n"
+                    )
+                    raise future.exception()
+                futures.append(future)
             concurrent.futures.wait(futures)
+
 
 def download_taxonomy(args):
     taxonomy_path = os.path.join(args.db, "taxonomy")
@@ -972,11 +1056,33 @@ def download_taxonomy(args):
                     filename = "pub/taxonomy/accession2taxid/"
                     filename += "nucl_" + subsection + ".accession2taxid.gz"
                     maps.add(os.path.basename(filename))
-                    futures.append(pool.submit(http_download_file2, NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)))
+                    future = pool.submit(
+                        http_download_file2,
+                        NCBI_SERVER,
+                        [filename],
+                        save_to=os.path.abspath(os.curdir),
+                    )
+                    if future_raised_exception(future):
+                        LOG.error(
+                            "Error encountered while downloading file\n"
+                        )
+                        raise future.exception()
+                    futures.append(future)
             else:
                 filename = "/pub/taxonomy/accession2taxid/"
                 filename += "prot.accession2taxid.gz"
-                futures.append(pool.submit(http_download_file2, NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)))
+                future = pool.submit(
+                    http_download_file2,
+                    NCBI_SERVER,
+                    [filename],
+                    save_to=os.path.abspath(os.curdir),
+                )
+                if future_raised_exception(future):
+                    LOG.error(
+                        "Error encountered while downloading file\n"
+                    )
+                    raise future.exception()
+                futures.append(future)
                 maps.add(os.path.basename(filename))
 
             for future in concurrent.futures.as_completed(futures):
@@ -984,16 +1090,26 @@ def download_taxonomy(args):
                 maps_downloaded = set(glob.glob("*.accession2taxid.gz"))
                 map_to_decompress = maps_downloaded.intersection(maps)
                 for gz_filename in map_to_decompress:
-                    if not os.path.exists(gz_filename[:-3]) or download_count != 0:
-                        futures.append(pool.submit(decompress_files, gz_filename))
+                    if not os.path.exists(gz_filename[:-3])\
+                       or download_count != 0:
+                        future = pool.submit(decompress_files, [gz_filename])
+                        if future_raised_exception(future):
+                            LOG.error(
+                                "Error encountered while decompressing file\n"
+                            )
+                            raise future.exception()
+                        futures.append(future)
                     maps.remove(gz_filename)
 
     LOG.info("Downloading taxonomy tree data\n")
     filename = "pub/taxonomy/taxdump.tar.gz"
-    http_download_file2(NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir))
+    http_download_file2(
+        NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
+    )
     LOG.info("Untarring taxonomy tree data\n")
     with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
         tar.extractall()
+
 
 def download_genomic_library(args):
     library_filename = "library.faa" if args.protein else "library.fna"
@@ -1019,13 +1135,16 @@ def download_genomic_library(args):
         if args.library == "human":
             remote_dir_name = "vertebrate_mammalian/Homo_sapiens"
         try:
-            url = "genomes/refseq/{:s}/assembly_summary.txt".format(remote_dir_name)
-            http_download_file2(NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir))
+            url = "genomes/refseq/{:s}/assembly_summary.txt".format(
+                remote_dir_name
+            )
+            http_download_file2(
+                NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
+            )
         except urllib.error.URLError:
             LOG.error(
-                "Error downloading assembly summary file for {:s}, exiting\n".format(
-                    args.library
-                )
+                "Error downloading assembly summary file for {:s}, "
+                "exiting\n".format(args.library)
             )
             sys.exit(1)
         if args.library == "human":
@@ -1042,46 +1161,119 @@ def download_genomic_library(args):
             download_files_from_manifest(
                 NCBI_SERVER,
                 args.threads,
-                filepath_to_taxid_table=filepath_to_taxid_table
+                filepath_to_taxid_table=filepath_to_taxid_table,
             )
-            seq_name_to_url_table = \
-                assign_taxid_to_sequences(filepath_to_taxid_table, args.protein, threads=args.threads)
+            sequence_to_url = assign_taxid_to_sequences(
+                args, filepath_to_taxid_table
+            )
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
                 out_file.write("# prelim_map for " + args.library + "\n")
-                scan_fasta_file(in_file, out_file, seq_name_to_url_table=seq_name_to_url_table)
+                scan_fasta_file(
+                    in_file,
+                    out_file,
+                    sequence_to_url=sequence_to_url,
+                )
     elif args.library == "plasmid":
+        library_pathname = os.path.join(args.db, "library")
         library_pathname = os.path.join(library_pathname, args.library)
+        library_filename = "library.faa" if args.protein else "library.fna"
+        library_filename = os.path.join(library_pathname, library_filename)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
         pat = ".faa.gz" if args.protein else ".fna.gz"
-        md5 = get_manifest_and_md5sums(NCBI_SERVER, "genomes/refseq/plasmid/", pat)
-        download_files_from_manifest(
-            NCBI_SERVER,
-            args.threads,
-            md5sums=md5
+        md5 = get_manifest_and_md5sums(
+            NCBI_SERVER, "genomes/refseq/plasmid/", pat
         )
-        seq_name_to_url_table = {}
+        download_files_from_manifest(NCBI_SERVER, args.threads, md5sums=md5)
+        sequence_to_url = {}
         LOG.info("Generating {}\n".format(library_filename))
-        with open(library_filename, "w") as library:
-            with open("manifest.txt", "r") as manifest:
-                for filename in manifest:
-                    filename = filename.strip()
-                    with gzip.open(filename, "rt") as f:
-                        for line in f:
-                            if line.startswith(">"):
-                                seq_name_to_url_table[line.strip()] = filename
-                            library.write(line)
+        filenames = []
+        with open("manifest.txt", "r") as manifest:
+            filenames = manifest.readlines()
+        filenames = sorted(filenames)
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
+            futures = []
+            for filename in filenames:
+                filename = filename.strip()
+                if not args.no_masking:
+                    future = pool.submit(
+                        decompress_and_mask, filename, args.masker_threads
+                    )
+                    if future_raised_exception(future):
+                        LOG.error(
+                            "Error encountered while decompressing"
+                            " or masking files\n"
+                        )
+                        raise future.exception()
+                    futures.append(future)
+                else:
+                    future = pool.submit(decompress_files, [filename])
+                    if future_raised_exception(future):
+                        LOG.error(
+                            "Error encountered while decompressing files\n"
+                        )
+                        raise future.exception()
+                    futures.append(future)
+            result = concurrent.futures.wait(
+                futures,
+                return_when=concurrent.futures.FIRST_EXCEPTION
+            )
+            if len(result.not_done) > 0:
+                LOG.error(
+                    "Encountered error while downloading Plasmid library\n"
+                )
+                sys.exit(1)
+        LOG.info("Generating {}\n".format(library_filename))
+        with open(library_filename, "w") as out_file:
+            for filename in filenames:
+                in_filename = os.path.splitext(filename)[0]
+                with open(in_filename, "r") as in_file:
+                    for line in in_file:
+                        if line.startswith(">"):
+                            sequence_to_url[line.strip()] = filename
+                        out_file.write(line)
+
         LOG.info("Finished generating {}\n".format(library_filename))
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
                 out_file.write("# prelim_map for " + args.library + "\n")
-                scan_fasta_file(in_file, out_file, seq_name_to_url_table=seq_name_to_url_table)
+                scan_fasta_file(
+                    in_file,
+                    out_file,
+                    sequence_to_url=sequence_to_url,
+                )
     elif args.library in ["nr", "nt"]:
         protein_lib = args.library == "nr"
         if protein_lib and not args.protein:
             LOG.error(
-                "{:s} is a protein database, and the Kraken2 database specified is nucleotide".format(
+                "{:s} is a protein database, and the Kraken2 database"
+                " specified is nucleotide".format(args.library)
+            )
+            sys.exit(1)
+        library_pathname = os.path.join(library_pathname, args.library)
+        os.makedirs(library_pathname, exist_ok=True)
+        os.chdir(library_pathname)
+        url = "blast/db/FASTA/" + args.library + ".gz"
+        http_download_file2(
+            NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
+        )
+        with gzip.open(args.library + ".gz", mode="rt") as in_file:
+            with open(library_filename, "w") as out_file:
+                shutil.copyfileobj(in_file, out_file)
+        with open(library_filename, "r") as in_file:
+            with open("prelim_map.txt", "w") as out_file:
+                out_file.write("# prelim_map for " + args.library + "\n")
+                scan_fasta_file(
+                    in_file,
+                    out_file,
+                    sequence_to_url="blast/db/FASTA/nt.gz",
+                    lenient=True,
+                )
+    elif args.library in ["UniVec", "UniVec_Core"]:
+        if args.protein:
+            LOG.error(
+                "{:s} is available for nucleotide databases only\n".format(
                     args.library
                 )
             )
@@ -1089,25 +1281,11 @@ def download_genomic_library(args):
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
-        url = "blast/db/FASTA/" + args.library + ".gz"
-        http_download_file2(NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir))
-        with gzip.open(args.library + ".gz", mode="rt") as in_file:
-            with open(library_filename, "w") as out_file:
-                shutil.copyfileobj(in_file, out_file)
-        with open(library_filename, "r") as in_file:
-            with open("prelim_map.txt", "w") as out_file:
-                out_file.write("# prelim_map for " + args.library + "\n")
-                scan_fasta_file(in_file, out_file, seq_name_to_url_table="blast/db/FASTA/nt.gz", lenient=True)
-    elif args.library in ["UniVec", "UniVec_Core"]:
-        if args.protein:
-            LOG.error(
-                "{:s} is available for nucleotide databases only\n".format(args.library)
-            )
-            sys.exit(1)
-        library_pathname = os.path.join(library_pathname, args.library)
-        os.makedirs(library_pathname, exist_ok=True)
-        os.chdir(library_pathname)
-        http_download_file2(NCBI_SERVER, ["pub/UniVec/" + args.library], save_to=os.path.abspath(os.curdir))
+        http_download_file2(
+            NCBI_SERVER,
+            ["pub/UniVec/" + args.library],
+            save_to=os.path.abspath(os.curdir),
+        )
         special_taxid = 28384
         LOG.info(
             "Assigning taxonomy ID of {:d} to all sequences\n".format(
@@ -1127,13 +1305,22 @@ def download_genomic_library(args):
         with open("library.fna", "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
                 out_file.write("# prelim_map for " + args.library + "\n")
-                scan_fasta_file(in_file, out_file, seq_name_to_url_table="pub/UniVec/" + args.library)
-    if not args.no_masking:
+                scan_fasta_file(
+                    in_file,
+                    out_file,
+                    sequence_to_url="pub/UniVec/" + args.library,
+                )
+    if not args.no_masking\
+       and args.library in ["UniVec", "UniVec_Core", "nt", "nr"]:
         mask_files(
-            [library_filename], library_filename + ".masked", args.protein, threads=args.threads
+            [library_filename],
+            library_filename + ".masked",
+            args.masker_threads,
+            args.protein
         )
         shutil.move(library_filename + ".masked", library_filename)
     LOG.info("Added {:s} to {:s}\n".format(args.library, args.db))
+
 
 def get_abs_path(filename):
     return os.path.abspath(filename)
@@ -1186,12 +1373,16 @@ def read_from_files(filename1, filename2=None):
             for seq1, seq2 in itertools.zip_longest(f1, f2):
                 if seq1 is None:
                     LOG.error(
-                        "{} contains more sequences than {}".format(filename1, filename2)
+                        "{} contains more sequences than {}".format(
+                            filename1, filename2
+                        )
                     )
                     sys.exit(1)
                 if seq2 is None:
                     LOG.error(
-                        "{} contains more sequences than {}".format(filename2, filename1)
+                        "{} contains more sequences than {}".format(
+                            filename2, filename1
+                        )
                     )
                     sys.exit(1)
                 yield (seq1, seq2)
@@ -1234,12 +1425,15 @@ def build_kraken2_db(args):
                 for filename in prelim_map_filenames:
                     with open(filename, "r") as in_file:
                         shutil.copyfileobj(in_file, out_file)
-    if os.path.isfile("seqid2taxid.map"):
+
+    if os.path.exists("seqid2taxid.map"):
         LOG.info("Sequence ID to taxonomy ID map already present, skipping\n")
     else:
         LOG.info("Creating sequence ID to taxonomy ID map\n")
         with open("prelim_map.txt", "w") as out_file:
-            for dirpath, dirnames, filenames in os.walk("library", followlinks=True):
+            for dirpath, dirnames, filenames in os.walk(
+                "library", followlinks=True
+            ):
                 if "prelim_map.txt" in filenames:
                     for line in open(
                         os.path.join(
@@ -1276,7 +1470,8 @@ def build_kraken2_db(args):
                 )
             else:
                 LOG.error(
-                    "Accession to taxid map files are required to build this database.\n"
+                    "Accession to taxid map files are required to"
+                    " build this database.\n"
                 )
                 LOG.error(
                     "Run k2 download-taxonomy --db {:s} again".format(args.db)
@@ -1295,21 +1490,39 @@ def build_kraken2_db(args):
     fasta_filenames = glob.glob(
         os.path.join("library", os.path.join("**", "*.f[an]a")), recursive=True
     )
-    if not dwk2():
-        argv.extend(fasta_filenames)
-    LOG.info("Running: " + " ".join(argv) + "\n")
-    proc = subprocess.Popen(
-        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
-    )
-    if dwk2():
-        for filename in fasta_filenames:
-            with open(filename, "rb") as in_file:
-                while True:
-                    data = in_file.read(8192)
-                    if not data:
-                        break
-                    proc.stdin.write(data)
-    estimate = proc.communicate()[0].decode()
+    estimate = ""
+    if os.path.exists("estimated_capacity"):
+        estimated_capacity_mtime = \
+            os.path.getmtime("estimated_capacity")
+        seqid_to_taxid_map_mtime = os.path.getmtime("seqid2taxid.map")
+        if estimated_capacity_mtime > seqid_to_taxid_map_mtime:
+            LOG.info(
+                "An estimated_capacity file exists and is newer "
+                "than seqid2taxid.map , reading the estimated "
+                "capacity from estimated_capacity file.\n"
+            )
+            with open("estimated_capacity", "r") as in_file:
+                estimate = in_file.read()
+
+    if estimate == "":
+        if not dwk2():
+            argv.extend(fasta_filenames)
+        LOG.info("Running: " + " ".join(argv) + "\n")
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
+        if dwk2():
+            for filename in fasta_filenames:
+                with open(filename, "rb") as in_file:
+                    while True:
+                        data = in_file.read(8192)
+                        if not data:
+                            break
+                        proc.stdin.write(data)
+        estimate = proc.communicate()[0].decode()
+        with open("estimated_capacity", "w") as out_file:
+            out_file.write(estimate)
+
     required_capacity = (int(estimate.strip()) + 8192) / args.load_factor
     LOG.info(
         "Estimated hash table requirement: {:s}\n".format(
@@ -1364,7 +1577,9 @@ def build_kraken2_db(args):
                         break
                     proc.stdin.write(data)
         proc.stdin.close()
-        proc.wait()
+        if proc.wait() != 0:
+            LOG.error("Encountered error while building database\n")
+            sys.exit(1)
 
         move("hash.k2d.tmp", "hash.k2d")
         move("taxo.k2d.tmp", "taxo.k2d")
@@ -1419,9 +1634,8 @@ def build_rdp_taxonomy(f):
                 match = re.search("([^;]+);([^;]+)$", node)
                 if match is None:
                     LOG.error(
-                        'BFS processing encountered formatting eror, "{:s}"\n'.format(
-                            node
-                        )
+                        'BFS processing encountered formatting eror, "{:s}"\n'
+                        .format(node)
                     )
                     sys.exit(1)
                 display_name, rank = match.group(1), match.group(2)
@@ -1542,7 +1756,9 @@ def build_16S_silva(args):
                 out_file.write(line)
     if not args.no_masking:
         filename = os.path.join("library", "silva.fna")
-        mask_files([filename], filename + ".masked")
+        mask_files(
+            [filename], filename + ".masked", args.threads
+        )
         shutil.move(filename + ".masked", filename)
 
     os.chdir(os.path.pardir)
@@ -1665,7 +1881,7 @@ def build_16S_gg(args):
     )
     if not args.no_masking:
         filename = os.path.join("library", "gg.fna")
-        mask_files([filename], filename + ".masked")
+        mask_files([filename], filename + ".masked", args.threads)
         shutil.move(filename + ".masked", filename)
     os.chdir(os.path.abspath(os.path.pardir))
     build_kraken2_db(args)
@@ -1697,7 +1913,9 @@ def build_16S_rdp(args):
         shutil.move(filename, os.path.join("library", new_filename))
         if not args.no_masking:
             new_filename = os.path.join("library", new_filename)
-            mask_files([new_filename], new_filename + ".masked")
+            mask_files(
+                [new_filename], new_filename + ".masked", args.threads
+            )
             shutil.move(new_filename + ".masked", new_filename)
 
     build_kraken2_db(args)
@@ -1888,7 +2106,9 @@ def inspect_db(args):
         os.path.join(database_pathname, "opts.k2d"),
     ]
     wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
-    sys.exit(subprocess.call(argv))
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+    shutil.copyfileobj(process.stdout, args.output)
+    sys.exit(process.wait())
 
 
 def format_bytes(size):
@@ -1906,11 +2126,10 @@ def clean_up(filenames):
     LOG.info("Removing the following files: {}\n".format(filenames))
     # walk the directory tree to get the size of the individual files
     # sum them up to get the usage stat
-    disk_usage_before = shutil.disk_usage(os.getcwd()).used
-    remove_files(*filenames)
-    disk_usage_after = shutil.disk_usage(os.getcwd()).used
-    freed = disk_usage_before - disk_usage_after
-    LOG.info("Cleaned up {:s} of space\n".format(format_bytes(freed)))
+    space_freed = format_bytes(remove_files(filenames))
+    LOG.info(
+        "Cleaned up {:s} of space\n".format(space_freed)
+    )
 
 
 def clean_db(args):
@@ -1918,53 +2137,63 @@ def clean_db(args):
     if args.pattern:
         clean_up(glob.glob(args.pattern, recursive=False))
     else:
-        clean_up(["data", "library", "taxonomy", "seqid2taxid.map", "prelim_map.txt"])
+        clean_up(
+            [
+                "data",
+                "library",
+                "taxonomy",
+                "seqid2taxid.map",
+                "prelim_map.txt",
+            ]
+        )
 
 
 def make_build_parser(subparsers):
     parser = subparsers.add_parser(
         "build",
-        help="Create DB from library\
-              (requires taxonomy downloaded and at least one file\
-              in library)",
+        help="Build a database from library\
+              (requires taxonomy which can be downloading\
+              via download-taxonomy subcommand, and at least one library\
+              which can be added via the download-library or\
+              add-to-library subcommands)",
     )
     parser.add_argument(
         "--db",
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken 2 database"
+        help="Pathname to database folder where building will take place.",
     )
     group = parser.add_argument_group("special")
     mutex_group = group.add_mutually_exclusive_group()
     mutex_group.add_argument(
-        "--standard", action="store_true", help="Make standard database"
+        "--standard",
+        action="store_true",
+        help="Make standard database which includes: archaea,\
+               bacteria, human, plasmid, UniVec_Core, and viral."
     )
     mutex_group.add_argument(
         "--special",
         type=str,
         choices=["greengenes", "rdp", "silva"],
-        help="Build special database",
+        help="Build special database. RDP is currently unavailable\
+              as URLs no longer work.",
     )
     group.add_argument(
         "--no-masking",
         action="store_true",
         help="Avoid masking low-complexity sequences prior to\
-              building; masking requires dustmasker or segmasker to be\
-              installed",
+              building database.",
     )
 
     parser.add_argument(
-        "--kmer-len",
-        type=int,
-        metavar="INT",
-        help="K-mer length in bp/aa"
+        "--kmer-len", type=int, metavar="INT", help="K-mer length in bp/aa"
     )
     parser.add_argument(
         "--minimizer-len",
         type=int,
         metavar="INT",
-        help="Minimizer length in bp/aa"
+        help="Minimizer length in bp/aa",
     )
     parser.add_argument(
         "--minimizer-spaces",
@@ -1985,7 +2214,7 @@ def make_build_parser(subparsers):
         type=float,
         metavar="FLOAT (0,1]",
         default=0.7,
-        help="Proportion of the hash table to be populated",
+        help="Proportion of the hash table to be populated (default: 0.7)",
     )
     parser.add_argument(
         "--fast-build",
@@ -2017,14 +2246,14 @@ def make_build_parser(subparsers):
         type=int,
         metavar="INT",
         default=16384,
-        help="Read block size"
+        help="Read block size (default: 16384)",
     )
     parser.add_argument(
         "--sub-block-size",
         type=int,
         metavar="INT",
         default=0,
-        help="Read subblock size"
+        help="Read subblock size",
     )
     parser.add_argument(
         "--minimum-bits-for-taxid",
@@ -2051,7 +2280,7 @@ def make_download_taxonomy_parser(subparsers):
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken 2 database"
+        help="Pathname to Kraken2 database",
     )
     parser.add_argument(
         "--protein",
@@ -2081,7 +2310,7 @@ def make_download_library_parser(subparsers):
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken 2 database"
+        help="Pathname to Kraken2 database",
     )
     parser.add_argument(
         "--library",
@@ -2109,13 +2338,6 @@ def make_download_library_parser(subparsers):
         help="Files being added are for a protein database",
     )
     parser.add_argument(
-        "--no-masking",
-        action="store_true",
-        help="Avoid masking low-complexity sequences prior to\
-              building; masking requires dustmasker or segmasker to be\
-              installed",
-    )
-    parser.add_argument(
         "--log",
         type=str,
         metavar="FILENAME",
@@ -2127,7 +2349,24 @@ def make_download_library_parser(subparsers):
         type=int,
         metavar="THREADS",
         default=1,
-        help="The number of threads/processes k2 uses when downloading and processing library files."
+        help="The number of threads/processes k2 uses when downloading\
+              and processing library files.",
+    )
+    masking_parser = parser.add_mutually_exclusive_group()
+    masking_parser.add_argument(
+        "--no-masking",
+        action="store_true",
+        help="Avoid asking low-complexity sequences prior to\
+              building; masking requires dustmasker or segmasker to be\
+              installed",
+    )
+    masking_parser.add_argument(
+        "--masker-threads",
+        type=int,
+        default=4,
+        metavar="K2MASK_THREADS",
+        help="Number of threads used by k2mask during masking\
+              process (default: 4)"
     )
 
 
@@ -2140,14 +2379,15 @@ def make_add_to_library_parser(subparsers):
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken 2 database"
+        help="Pathname to Kraken2 database",
     )
     parser.add_argument(
         "--threads",
         type=int,
         metavar="THREADS",
         default=1,
-        help="The number of threads/processes k2 uses when processing library files."
+        help="The number of threads/processes k2 uses when\
+              adding library files."
     )
     parser.add_argument(
         "--file",
@@ -2155,7 +2395,17 @@ def make_add_to_library_parser(subparsers):
         type=str,
         nargs="+",
         dest="files",
-        help="Pathname of file(s) to be added to library",
+        help="""Pathname or patterns of file(s) to be added to library.
+                Supported pattern are as follows:
+              ? - A question-mark is a pattern that shall match any
+                  character.
+              * - An asterisk is a pattern that shall match multiple
+                  characters.
+              [ - The open bracket shall introduce a pattern bracket
+                  expression.
+             ** - will match any files and zero or more directories,
+                  subdirectories and symbolic links to directories.
+        """,
     )
     parser.add_argument(
         "--protein",
@@ -2163,18 +2413,34 @@ def make_add_to_library_parser(subparsers):
         help="Files being added are for a protein database",
     )
     parser.add_argument(
+        "--log",
+        type=str,
+        metavar="FILENAME",
+        default=None,
+        help="Specify a log filename (default: stderr)",
+    )
+    # parser.add_argument(
+    #     "--skip-md5",
+    #     action="store_true",
+    #     help="K2 will by default perform an MD5 check to determine whether\
+    #          a file has already been added. This option will allow the user\
+    #          to skip this and instead simply compare filenames."
+    # )
+    masking_parser = parser.add_mutually_exclusive_group()
+    masking_parser.add_argument(
         "--no-masking",
         action="store_true",
         help="Avoid asking low-complexity sequences prior to\
               building; masking requires dustmasker or segmasker to be\
               installed",
     )
-    parser.add_argument(
-        "--log",
-        type=str,
-        metavar="FILENAME",
-        default=None,
-        help="Specify a log filename (default: stderr)",
+    masking_parser.add_argument(
+        "--masker-threads",
+        type=int,
+        metavar="K2MASK_THREADS",
+        default=4,
+        help="Number of threads used by k2mask during masking process\
+              (default: 4)"
     )
 
 
@@ -2187,7 +2453,7 @@ def make_classify_parser(subparsers):
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken2 DB"
+        help="Pathname to Kraken2 database.",
     )
     parser.add_argument(
         "--threads",
@@ -2295,7 +2561,8 @@ def make_classify_parser(subparsers):
         metavar="INT",
         default=2,
         help="Minimum number of hit groups (overlapping k-mers\
-              sharing the same minimizer) needed to make a call",
+              sharing the same minimizer) needed to make a call\
+              (default 2)",
     )
     parser.add_argument(
         "--log",
@@ -2308,7 +2575,7 @@ def make_classify_parser(subparsers):
         "filenames",
         nargs="+",
         type=str,
-        help="Filenames to be classified, supports bz2, gzip, and xz"
+        help="Filenames to be classified, supports bz2, gzip, and xz",
     )
 
 
@@ -2319,7 +2586,7 @@ def make_inspect_parser(subparsers):
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken2 DB"
+        help="Pathname to Kraken2 database",
     )
     parser.add_argument(
         "--threads",
@@ -2349,18 +2616,25 @@ def make_inspect_parser(subparsers):
         default=None,
         help="Specify a log filename (default: stderr)",
     )
+    parser.add_argument(
+        "--output", "--out",
+        type=argparse.FileType("w"),
+        metavar="FILENAME",
+        default=sys.stdout,
+        help="Write inspect output to FILENAME (default: stdout)"
+    )
 
 
 def make_clean_parser(subparsers):
     parser = subparsers.add_parser(
-        "clean", help="Removes all intermediary files from database"
+        "clean", help="Removes unwanted files from database"
     )
     parser.add_argument(
         "--db",
         type=str,
         metavar="PATHNAME",
         required=True,
-        help="Name of Kraken2 DB"
+        help="Pathname to Kraken2 database",
     )
     parser.add_argument(
         "--log",
@@ -2374,7 +2648,16 @@ def make_clean_parser(subparsers):
         type=str,
         metavar="SHELL_REGEX",
         default=None,
-        help="Files that match this regular expression will be deleted."
+        help="""Files that match this regular expression will be deleted.
+              ? - A question-mark is a pattern that shall match any
+                  character.
+              * - An asterisk is a pattern that shall match multiple
+                  characters.
+              [ - The open bracket shall introduce a pattern bracket
+                  expression.
+             ** - will match any files and zero or more directories,
+                  subdirectories and symbolic links to directories.
+        """
     )
 
 
@@ -2408,13 +2691,13 @@ def setup_logger(filename=None):
     if filename:
         logger.setLevel(logging.INFO)
         handler = logging.FileHandler(filename)
-        formatter = logging.Formatter("%(asctime)s: %(message)s")
+        formatter = logging.Formatter("[%(levelname)s - %(asctime)s]: %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     else:
         logger.setLevel(logging.DEBUG)
         handler = logging.StreamHandler()
-        formatter = logging.Formatter("%(message)s")
+        formatter = logging.Formatter("[%(levelname)s - %(asctime)s]: %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     return logger
@@ -2479,9 +2762,8 @@ def k2_main():
             )
         if args.minimizer_len > args.kmer_len:
             LOG.error(
-                "Minimizer length ({}) must not be greater than kmer length {}\n".format(
-                    args.minimizer_len, args.kmer_len
-                )
+                "Minimizer length ({}) must not be greater than kmer "
+                "length {}\n".format(args.minimizer_len, args.kmer_len)
             )
             sys.exit(1)
         if args.load_factor <= 0 or args.load_factor > 1:
@@ -2491,7 +2773,8 @@ def k2_main():
             sys.exit(1)
         if args.minimizer_len <= 0 or args.minimizer_len > 31:
             LOG.error(
-                "Minimizer length must be a positive integer and cannot exceed 31\n"
+                "Minimizer length must be a positive integer "
+                "and cannot exceed 31.\n"
             )
             sys.exit(1)
         if args.standard:
@@ -2516,6 +2799,7 @@ def k2_main():
 
 def sigint(signum, frame):
     sys.exit(1)
+
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, sigint)
