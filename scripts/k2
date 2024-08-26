@@ -358,14 +358,41 @@ def remove_files(filepaths):
         if not os.path.exists(fname):
             continue
         elif os.path.isdir(fname):
-            for dirpath, _, files in os.walk(fname):
-                for file in files:
-                    file = os.path.join(dirpath, file)
-                    filepaths.append(file)
+            with os.scandir(fname) as iter:
+                directories = []
+                for entry in iter:
+                    if entry.is_dir():
+                        directories.append(entry.path)
+                    else:
+                        filepaths.append(entry.path)
+                if len(directories) >= 4:
+                    total_size += remove_files_parallel(directories)
+                else:
+                    filepaths.extend(directories)
         else:
             LOG.info("Removing {}\n".format(fname))
             total_size += os.path.getsize(fname)
-            # os.remove(fname)
+            os.remove(fname)
+
+    for fname in filepaths:
+        if os.path.isdir(fname):
+            shutil.rmtree(fname)
+
+    return total_size
+
+
+def remove_files_parallel(filepaths):
+    total_size = 0
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as pool:
+        futures = []
+        for fname in filepaths:
+            if not os.path.exists(fname):
+                continue
+            future = pool.submit(remove_files, [fname])
+
+        for future in concurrent.futures.as_completed(futures):
+            total_size += future.result()
 
     return total_size
 
