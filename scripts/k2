@@ -2133,7 +2133,9 @@ def inspect_db(args):
         os.path.join(database_pathname, "opts.k2d"),
     ]
     wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
-    process = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+    process = subprocess.Popen(
+        argv, stdout=subprocess.PIPE, universal_newlines=True
+    )
     shutil.copyfileobj(process.stdout, args.output)
     sys.exit(process.wait())
 
