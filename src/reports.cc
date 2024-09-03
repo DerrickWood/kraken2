@@ -198,7 +198,7 @@ void ReportKrakenStyle(string filename, bool report_zeros, bool report_kmer_data
   taxon_counters_t clade_counters = GetCladeCounters(taxonomy, call_counters);
 
   ofstream ofs(filename);
-
+  char rank_code = 'R';
   // Special handling of the unclassified sequences
   if (total_unclassified != 0 || report_zeros) {
     READCOUNTER rc(total_unclassified, 0);
@@ -207,7 +207,7 @@ void ReportKrakenStyle(string filename, bool report_zeros, bool report_kmer_data
   }
   // DFS through the taxonomy, printing nodes as encountered
   KrakenReportDFS(1, ofs, report_zeros, report_kmer_data, taxonomy,
-                  clade_counters, call_counters, total_seqs, 'R', -1, 0);
+                  clade_counters, call_counters, total_seqs, rank_code, -1, 0);
 }
 
 }  // end namespace
