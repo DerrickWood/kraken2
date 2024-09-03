@@ -75,7 +75,10 @@ void MMapFile::LoadFile() {
   #endif
 
   size_t page_size = getpagesize();
-  char buf[thread_ct][page_size];
+  char **buf = new char*[thread_ct];// [page_size];
+  for (auto i = 0; i < thread_ct; i++) {
+    buf[i] = new char[page_size];
+  }
 
   #pragma omp parallel
   {
@@ -91,6 +94,12 @@ void MMapFile::LoadFile() {
       memcpy(buf[thread], fptr_ + pos, this_page_size);
     }
   }
+
+  for (auto i = 0; i < thread_ct; i++) {
+    delete[] buf[i];
+  }
+
+  delete[] buf;
 
   #ifdef _OPENMP
   omp_set_num_threads(old_thread_ct);

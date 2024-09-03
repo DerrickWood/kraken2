@@ -217,7 +217,7 @@ void Taxonomy::Init(const char *filename, bool memory_mapping) {
   else {
     std::ifstream ifs(filename);
     file_backed_ = false;
-    char magic[strlen(FILE_MAGIC) + 1];
+    char *magic = new char[strlen(FILE_MAGIC) + 1];
     memset(magic, 0, strlen(FILE_MAGIC) + 1);
     ifs.read(magic, strlen(FILE_MAGIC));
     if (strcmp(magic, FILE_MAGIC) != 0)
@@ -233,6 +233,7 @@ void Taxonomy::Init(const char *filename, bool memory_mapping) {
     ifs.read((char *) rank_data_, rank_data_len_);
     if (! ifs)
       errx(EX_DATAERR, "read exhausted taxonomy information in %s", filename);
+    delete[] magic;
   }
 }
 
