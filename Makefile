@@ -2,6 +2,7 @@
 
 SCRIPTS = scripts/*.sh \
 	scripts/*.pl \
+	scripts/*.pm \
 	scripts/k2 \
 	scripts/kraken2-build \
 	scripts/kraken2 \
