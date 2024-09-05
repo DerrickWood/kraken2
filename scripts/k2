@@ -351,7 +351,7 @@ def find_database(database_name):
     return database_path
 
 
-def remove_files(filepaths):
+def remove_files(filepaths, forked=False):
     total_size = 0
 
     for fname in filepaths:
@@ -365,7 +365,7 @@ def remove_files(filepaths):
                         directories.append(entry.path)
                     else:
                         filepaths.append(entry.path)
-                if len(directories) >= 4:
+                if not forked and len(directories) >= 4:
                     total_size += remove_files_parallel(directories)
                 else:
                     filepaths.extend(directories)
@@ -374,9 +374,10 @@ def remove_files(filepaths):
             total_size += os.path.getsize(fname)
             os.remove(fname)
 
-    for fname in filepaths:
-        if os.path.isdir(fname):
-            shutil.rmtree(fname)
+    if not forked:
+        for fname in filepaths:
+            if os.path.isdir(fname):
+                shutil.rmtree(fname)
 
     return total_size
 
@@ -389,7 +390,8 @@ def remove_files_parallel(filepaths):
         for fname in filepaths:
             if not os.path.exists(fname):
                 continue
-            future = pool.submit(remove_files, [fname])
+            future = pool.submit(remove_files, [fname], True)
+            futures.append(future)
 
         for future in concurrent.futures.as_completed(futures):
             total_size += future.result()
@@ -2157,7 +2159,7 @@ def clean_up(filenames):
     # sum them up to get the usage stat
     space_freed = format_bytes(remove_files(filenames))
     LOG.info(
-        "Cleaned up {:s} of space\n".format(space_freed)
+        "Cleaned up {} of space\n".format(space_freed)
     )
 
 
