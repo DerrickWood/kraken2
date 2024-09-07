@@ -1138,6 +1138,7 @@ def download_taxonomy(args):
     LOG.info("Untarring taxonomy tree data\n")
     with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
         tar.extractall()
+    LOG.info("Finished Untarring taxonomy tree data")
 
 
 def download_genomic_library(args):
@@ -2138,7 +2139,11 @@ def inspect_db(args):
     process = subprocess.Popen(
         argv, stdout=subprocess.PIPE, universal_newlines=True
     )
-    shutil.copyfileobj(process.stdout, args.output)
+    if args.output == "-":
+        shutil.copyfileobj(process.stdout, sys.stdout)
+    else:
+        with open(args.output, "w") as fout:
+            shutil.copyfileobj(process.stdout, fout)
     sys.exit(process.wait())
 
 
@@ -2649,9 +2654,9 @@ def make_inspect_parser(subparsers):
     )
     parser.add_argument(
         "--output", "--out",
-        type=argparse.FileType("w"),
+        type=str,
         metavar="FILENAME",
-        default=sys.stdout,
+        default="-",
         help="Write inspect output to FILENAME (default: stdout)"
     )
 
