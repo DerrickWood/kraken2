@@ -636,7 +636,7 @@ def add_to_library(args):
     os.makedirs(added_pathname, exist_ok=True)
     args.files = [os.path.abspath(f) for f in args.files]
     os.chdir(added_pathname)
-    hashes = []
+    hashes = {}
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
             hashes = dict([line.split()[:2] for line in in_file.readlines()])
@@ -2060,6 +2060,7 @@ def make_seqid_to_taxid_map(
 
 
 def classify(args):
+    args.db = os.path.realpath(args.db)
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
     if database_path is None:
@@ -2135,14 +2136,19 @@ def inspect_db(args):
         "-o",
         os.path.join(database_pathname, "opts.k2d"),
     ]
+    # dump_table does not save the table header to file.
+    # This is a workaround helps enables us to capture
+    # the entire output.
+    output_filename, args.output = args.output, None
     wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
     process = subprocess.Popen(
         argv, stdout=subprocess.PIPE, universal_newlines=True
     )
-    if args.output == "-":
+
+    if output_filename == "-":
         shutil.copyfileobj(process.stdout, sys.stdout)
     else:
-        with open(args.output, "w") as fout:
+        with open(output_filename, "w") as fout:
             shutil.copyfileobj(process.stdout, fout)
     sys.exit(process.wait())
 
