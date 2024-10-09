@@ -1555,6 +1555,14 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url="pub/UniVec/" + args.library,
                 )
+    else:
+        if args.library.startswith("GCF"):
+            download_dataset_by_project(args, "accession", [args.library])
+        elif args.library.startswith("PRJ"):
+            download_dataset_by_project(args, "bioproject", [args.library])
+        else:
+            download_dataset_by_project(args, "taxon", [args.library])
+
     if not args.no_masking\
        and args.library in ["UniVec", "UniVec_Core", "nt", "nr"]:
         mask_files(
@@ -1564,13 +1572,6 @@ def download_genomic_library(args):
             args.protein
         )
         shutil.move(library_filename + ".masked", library_filename)
-    else:
-        if args.library.startswith("GCF"):
-            download_dataset_by_project(args, "accession", [args.library])
-        elif args.library.startswith("PRJ"):
-            download_dataset_by_project(args, "bioproject", [args.library])
-        else:
-            download_dataset_by_project(args, "taxon", [args.library])
     LOG.info("Added {:s} to {:s}\n".format(args.library, args.db))
 
 
