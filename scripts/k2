@@ -11,6 +11,7 @@ import http.client
 import inspect
 import io
 import itertools
+import json
 import logging
 import lzma
 import math
@@ -28,10 +29,12 @@ import urllib
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 LOG = None
 SCRIPT_PATHNAME = None
 
+NCBI_REST_API = "api.ncbi.nlm.nih.gov"
 NCBI_SERVER = "ftp.ncbi.nlm.nih.gov"
 GREENGENES_SERVER = "greengenes.microbio.me"
 SILVA_SERVER = "ftp.arb-silva.de"
@@ -415,7 +418,7 @@ def check_seqid(seqid):
 
 def hash_string(string):
     md5 = hashlib.md5()
-    md5.update(string)
+    md5.update(string.encode())
     return md5.hexdigest()
 
 
@@ -699,7 +702,10 @@ def assign_taxids(args, filepath, manifest_to_taxid):
             masker = spawn_masking_subprocess(
                 out_file, args.masker_threads, False
             )
-        with gzip.open(filepath, "rt") as in_file:
+        opener = open
+        if filepath.endswith(".gz"):
+            opener = gzip.open
+        with opener(filepath, "rt") as in_file:
             while True:
                 line = in_file.readline()
                 if line == "":
@@ -719,6 +725,211 @@ def assign_taxids(args, filepath, manifest_to_taxid):
             masker.wait()
 
     return (sequences_added, ch_added, sequence_to_url)
+
+
+def download_dataset_by_project(args, endpoint, identifiers):
+    library_pathname = os.path.join(args.db, "library")
+    os.chdir(library_pathname)
+    oldwd = os.path.curdir
+
+    for identifier in identifiers:
+        os.makedirs(identifier, exist_ok=True)
+        os.chdir(identifier)
+        download_and_process_accessions(args, endpoint, identifier)
+        os.chdir(oldwd)
+
+
+def download_and_process_accessions(args, endpoint, identifier):
+    api = http.client.HTTPSConnection(NCBI_REST_API)
+    accession_to_taxid = {}
+    base_uri = "/datasets/v2alpha/genome/{}/{}/dataset_report?filters.assembly_source=refseq&page_size=1000".format(endpoint, identifier)
+    uri = base_uri
+    old_page_token = ""
+
+    while True:
+        api.request("GET", uri)
+        response = api.getresponse()
+        results = response.readlines()[0]
+        results = json.loads(results)
+        response.close()
+
+        for report in results["reports"]:
+            accession_to_taxid[report["accession"]] =\
+                report["organism"]["tax_id"]
+        if "next_page_token" in results \
+           and results["next_page_token"] != old_page_token:
+            uri = base_uri + "&page_token={}".format(results["next_page_token"])
+            old_page_token = results["next_page_token"]
+        else:
+            break
+
+    api.close()
+
+    filepath_to_taxid = download_accessions(args, accession_to_taxid)
+    # download_files_from_manifest(
+    #     NCBI_SERVER,
+    #     args.threads,
+    #     filepath_to_taxid_table=filepath_to_taxid,
+    # )
+    sequence_to_url = assign_taxid_to_sequences(
+        args, filepath_to_taxid
+    )
+
+    library_filename = "library.faa" if args.protein else "library.fna"
+    with open(library_filename, "r") as in_file:
+        with open("prelim_map.txt", "w") as out_file:
+            out_file.write("# prelim_map for " + args.library + "\n")
+            scan_fasta_file(
+                in_file,
+                out_file,
+                sequence_to_url=sequence_to_url,
+            )
+
+
+def download_accessions(args, accession_to_taxid):
+    number_of_partitions = math.ceil(len(accession_to_taxid) / 400)
+    number_of_partitions = max(args.threads, number_of_partitions)
+    accessions = sorted(list(accession_to_taxid.keys()))
+    partitions = partition_list(accessions, number_of_partitions)
+
+    filepath_to_taxid = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
+        download_futures = []
+        for partition in partitions:
+            download_futures.append(
+                pool.submit(download_zip_from_ncbi, args, partition)
+            )
+        unzip_futures = []
+        for future in concurrent.futures.as_completed(download_futures):
+            unzip_futures.append(
+                pool.submit(extract_fastas_from_zip_file, future.result())
+            )
+        for future in concurrent.futures.as_completed(unzip_futures):
+            accession_to_filepath = future.result()
+            for accession, filepath in accession_to_filepath.items():
+                filepath_to_taxid[filepath] = str(accession_to_taxid[accession])
+
+    return filepath_to_taxid
+
+
+def extract_fastas_from_zip_file(filename):
+    accession_to_filepath = {}
+
+    with zipfile.ZipFile(filename) as zip:
+        for entry in zip.namelist():
+            if entry.endswith(".fna"):
+                dir_components = ["genomes", "all"]
+                filename = os.path.basename(entry)
+                dirname = filename.replace("_genomic.fna", "")
+                accession = dirname.split(".")[0].replace("_", "")
+                dir_components.extend(partition_list(accession, 4))
+                dir_components.append(dirname)
+                dir_components.append(filename)
+
+                filepath = os.path.join("", *dir_components)
+                zip.extract(entry, os.path.curdir)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                shutil.move(entry, filepath)
+
+                accession = re.match(r"GC[AF]_\d{9}\.\d+", filename).group()
+                accession_to_filepath[accession] = filepath
+
+    return accession_to_filepath
+
+
+def download_zip_from_ncbi(args, accessions):
+    api = http.client.HTTPSConnection(NCBI_REST_API)
+    accessions = ",".join(accessions)
+    md5 = hash_string(accessions)
+    accessions = urllib.parse.quote(accessions)
+    os.makedirs("zip", exist_ok=True)
+    filename = md5 + ".zip"
+    filename = os.path.join("zip", filename)
+    annotation_type = "PROT_FASTA" if args.protein else "GENOME_FASTA"
+    resource_path = "/datasets/v2alpha/genome/accession/{}/download?include_annotation_type={}".format(accessions, annotation_type)
+
+    api.request("GET", resource_path)
+    res = api.getresponse()
+
+    with open(filename, "wb") as fout:
+        shutil.copyfileobj(res, fout)
+
+    res.close()
+
+    return filename
+
+
+def partition_list(list, num_partitions):
+    partitions = []
+    step = math.ceil(len(list) / num_partitions)
+    for i in range(0, len(list), step):
+        partitions.append(list[i:i+step])
+
+    return partitions
+
+
+def map_accessions_to_links(accessions):
+    api = http.client.HTTPSConnection(NCBI_REST_API)
+    conn = http.client.HTTPSConnection(NCBI_SERVER)
+
+    size = len(accessions)
+    start = 0
+    stop = min(size, 300)
+    base_uri = "/datasets/v2alpha/genome/accession/{}/links"
+    accession_to_filepath = {}
+
+    while True:
+        query = ",".join(accessions[start:stop])
+        query = urllib.parse.quote(query)
+        api.request("GET", base_uri.format(query))
+        req = api.getresponse()
+        results = req.readlines()[0]
+        results = json.loads(results)
+
+        for entry in results["assembly_links"]:
+            if entry["assembly_link_type"] == "FTP_LINK":
+                filepath = get_download_path(
+                    conn, entry["resource_link"], False
+                )
+                accession_to_filepath[entry["accession"]] = filepath
+        start, stop = stop, min(size, stop + 300)
+
+        if start == stop:
+            break
+    api.close()
+
+    return accession_to_filepath
+
+
+def map_accessions_to_links_parallel(accessions):
+    futures = []
+    accession_to_filepath = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        for partition in partition_list(accessions, 6):
+            future = pool.submit(map_accessions_to_links, partition)
+            futures.append(future)
+    for future in concurrent.futures.as_completed(futures):
+        accession_to_filepath.update(future.result())
+
+    return accession_to_filepath
+
+
+def get_download_path(conn, resource_link, protein):
+    dir = os.path.basename(resource_link)
+    filename = dir + "_genomic.fna.gz"
+    resource_link += "/"
+    if protein:
+        filename = dir + "_protein.faa.gz"
+    resource_link = urllib.parse.urljoin(resource_link, filename)
+    path = urllib.parse.urlparse(resource_link).path
+    conn.request("HEAD", path)
+    response = conn.getresponse()
+    if response.status != 200:
+        LOG.error("Unable to find ...")
+        sys.exit(1)
+    response.close()
+
+    return path
 
 
 def assign_taxid_to_sequences(args, manifest_to_taxid):
@@ -1146,13 +1357,17 @@ def download_genomic_library(args):
     library_pathname = os.path.join(args.db, "library")
     LOG.info("Adding {:s} to {:s}\n".format(args.library, args.db))
     if args.library in [
-        "archaea",
-        "bacteria",
-        "viral",
-        "fungi",
-        "plant",
-        "human",
-        "protozoa",
+            "archaea",
+            "bacteria",
+            "viral",
+            "fungi",
+            "invertebrate",
+            "plant",
+            "human",
+            "mitochondrion",
+            "protozoa",
+            "vertebrate_mammalian",
+            "vertebrate_other"
     ]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
@@ -1204,7 +1419,7 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library == "plasmid":
+    elif args.library == "plasmid" or args.library == "plastid":
         library_pathname = os.path.join(args.db, "library")
         library_pathname = os.path.join(library_pathname, args.library)
         library_filename = "library.faa" if args.protein else "library.fna"
@@ -1213,7 +1428,7 @@ def download_genomic_library(args):
         os.chdir(library_pathname)
         pat = ".faa.gz" if args.protein else ".fna.gz"
         md5 = get_manifest_and_md5sums(
-            NCBI_SERVER, "genomes/refseq/plasmid/", pat
+            NCBI_SERVER, "genomes/refseq/{}/".format(args.library), pat
         )
         download_files_from_manifest(NCBI_SERVER, args.threads, md5sums=md5)
         sequence_to_url = {}
@@ -1349,6 +1564,13 @@ def download_genomic_library(args):
             args.protein
         )
         shutil.move(library_filename + ".masked", library_filename)
+    else:
+        if args.library.startswith("GCF"):
+            download_dataset_by_project(args, "accession", [args.library])
+        elif args.library.startswith("PRJ"):
+            download_dataset_by_project(args, "bioproject", [args.library])
+        else:
+            download_dataset_by_project(args, "taxon", [args.library])
     LOG.info("Added {:s} to {:s}\n".format(args.library, args.db))
 
 
@@ -2358,20 +2580,25 @@ def make_download_library_parser(subparsers):
         "--library",
         type=str,
         required=True,
-        choices=[
-            "archaea",
-            "bacteria",
-            "plasmid",
-            "viral",
-            "human",
-            "fungi",
-            "plant",
-            "protozoa",
-            "nr",
-            "nt",
-            "UniVec",
-            "UniVec_Core",
-        ],
+        # choices=[
+        #     "archaea",
+        #     "bacteria",
+        #     "plasmid",
+        #     "plastid",
+        #     "viral",
+        #     "human",
+        #     "invertebrate",
+        #     "fungi",
+        #     "plant",
+        #     "protozoa",
+        #     "vertebrate_other"
+        #     "vertebrate_mammalian",
+        #     "mitochondrion",
+        #     "nr",
+        #     "nt",
+        #     "UniVec",
+        #     "UniVec_Core",
+        # ],
         help="Name of library to download",
     )
     parser.add_argument(
