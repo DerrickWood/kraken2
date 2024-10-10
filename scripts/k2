@@ -733,14 +733,16 @@ def download_dataset_by_project(args, endpoint, identifiers):
     oldwd = os.path.curdir
 
     for identifier in identifiers:
-        os.makedirs(identifier, exist_ok=True)
-        os.chdir(identifier)
+        dirname = identifier.lower().replace(" ", "_")
+        os.makedirs(dirname, exist_ok=True)
+        os.chdir(dirname)
         download_and_process_accessions(args, endpoint, identifier)
         os.chdir(oldwd)
 
 
 def download_and_process_accessions(args, endpoint, identifier):
     api = http.client.HTTPSConnection(NCBI_REST_API)
+    identifier = urllib.parse.quote(identifier)
     accession_to_taxid = {}
     base_uri = "/datasets/v2alpha/genome/{}/{}/dataset_report?filters.assembly_source=refseq&page_size=1000".format(endpoint, identifier)
     uri = base_uri
@@ -764,13 +766,11 @@ def download_and_process_accessions(args, endpoint, identifier):
             break
 
     api.close()
+    LOG.info(
+        "Found {} accession(s) associated with {}\n".format(len(accession_to_taxid), identifier)
+    )
 
     filepath_to_taxid = download_accessions(args, accession_to_taxid)
-    # download_files_from_manifest(
-    #     NCBI_SERVER,
-    #     args.threads,
-    #     filepath_to_taxid_table=filepath_to_taxid,
-    # )
     sequence_to_url = assign_taxid_to_sequences(
         args, filepath_to_taxid
     )
@@ -809,12 +809,15 @@ def download_accessions(args, accession_to_taxid):
             for accession, filepath in accession_to_filepath.items():
                 filepath_to_taxid[filepath] = str(accession_to_taxid[accession])
 
+    shutil.rmtree("ncbi_dataset", ignore_errors=True)
+
     return filepath_to_taxid
 
 
 def extract_fastas_from_zip_file(filename):
     accession_to_filepath = {}
 
+    LOG.info("Extracting FASTA files from {}\n".format(os.path.abspath(filename)))
     with zipfile.ZipFile(filename) as zip:
         for entry in zip.namelist():
             if entry.endswith(".fna"):
@@ -829,6 +832,7 @@ def extract_fastas_from_zip_file(filename):
                 filepath = os.path.join("", *dir_components)
                 zip.extract(entry, os.path.curdir)
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                LOG.debug("Copying {} to {}\n".format(os.path.abspath(entry), os.path.abspath(filepath)))
                 shutil.move(entry, filepath)
 
                 accession = re.match(r"GC[AF]_\d{9}\.\d+", filename).group()
@@ -841,10 +845,11 @@ def download_zip_from_ncbi(args, accessions):
     api = http.client.HTTPSConnection(NCBI_REST_API)
     accessions = ",".join(accessions)
     md5 = hash_string(accessions)
-    accessions = urllib.parse.quote(accessions)
     os.makedirs("zip", exist_ok=True)
     filename = md5 + ".zip"
+    LOG.info("Downloading {} from NCBI containing the following accessions: {}\n".format(filename, accessions))
     filename = os.path.join("zip", filename)
+    accessions = urllib.parse.quote(accessions)
     annotation_type = "PROT_FASTA" if args.protein else "GENOME_FASTA"
     resource_path = "/datasets/v2alpha/genome/accession/{}/download?include_annotation_type={}".format(accessions, annotation_type)
 
@@ -855,6 +860,7 @@ def download_zip_from_ncbi(args, accessions):
         shutil.copyfileobj(res, fout)
 
     res.close()
+    LOG.info("Saved {} to {}\n".format(os.path.basename(filename), os.path.abspath(filename)))
 
     return filename
 
@@ -1364,7 +1370,6 @@ def download_genomic_library(args):
             "invertebrate",
             "plant",
             "human",
-            "mitochondrion",
             "protozoa",
             "vertebrate_mammalian",
             "vertebrate_other"
@@ -1419,7 +1424,7 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library == "plasmid" or args.library == "plastid":
+    elif args.library in ["plasmid", "plastid", "mitochondrion"]:
         library_pathname = os.path.join(args.db, "library")
         library_pathname = os.path.join(library_pathname, args.library)
         library_filename = "library.faa" if args.protein else "library.fna"
