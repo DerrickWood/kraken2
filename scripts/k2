@@ -231,6 +231,94 @@ class ProgressBar:
         return math.floor(self.current / self.step)
 
 
+class NCBI_URI_Builder:
+    def __init__(self, *path_components):
+        path_components = list(path_components)
+        for i, component in enumerate(path_components):
+            if isinstance(component, list):
+                component = ",".join(component)
+            path_components[i] = urllib.parse.quote(component)
+        self.filters = {}
+        self.path = "/datasets/v2alpha/genome/{}".format("/".join(path_components))
+
+    def assembly_source(self, source=None):
+        if source:
+            self.filters["filters.assembly_source"] = urllib.parse.quote(source)
+        return self
+
+    def assembly_levels(self, levels):
+        if levels:
+            self.filters["filters.assembly_level"] = levels
+        return self
+
+    def assembly_version(self, version=None):
+        if version:
+            self.filters["filters.assembly_version"] = version
+        return self
+
+    def exclude_paired_reports(self, exclude_pairs=False):
+        if exclude_pairs:
+            self.filters["filters.exclude_paired_reports"] = "true"
+        return self
+
+    def has_annotation(self, annotated=False):
+        if annotated:
+            self.filters["filters.has_annotation"] = "true"
+        return self
+
+    def search_text(self, text=None):
+        if text:
+            self.filters["filters.search_text"] = urllib.parse.quote(text)
+        return self
+
+    def reference_only(self, reference_only=False):
+        if reference_only:
+            self.filters["filters.reference_only"] = reference_only
+        return self
+
+    def page_size(self, size=None):
+        if size:
+            self.filters["page_size"] = size
+        return self
+
+    def page_token(self, token=None):
+        if token:
+            self.filters["page_token"] = token
+        return self
+
+    def include_annotation_type(self, annotation_type=None):
+        if annotation_type:
+            self.filters["include_annotation_type"] = annotation_type
+        return self
+
+    def set_filters_from_args(self, args):
+        for k, v in vars(args).items():
+            if hasattr(self, k):
+                self = getattr(self, k)(v)
+
+    def build(self):
+        filters = []
+        for k, v in self.filters.items():
+            if isinstance(v, list):
+                for value in v:
+                    filters.append("{}={}".format(k, value))
+            else:
+                filters.append("{}={}".format(k, v))
+        query = "&".join(filters)
+        split = urllib.parse.SplitResult(
+            scheme="",
+            netloc="",
+            path=self.path,
+            query=query,
+            fragment=""
+        )
+
+        return urllib.parse.urlunsplit(split)
+
+    def reset(self):
+        self.filters.clear()
+
+
 def clear_console_line():
     LOG.debug("\33[2K\r")
 
@@ -729,6 +817,7 @@ def assign_taxids(args, filepath, manifest_to_taxid):
 
 def download_dataset_by_project(args, endpoint, identifiers):
     library_pathname = os.path.join(args.db, "library")
+    os.makedirs(library_pathname, exist_ok=True)
     os.chdir(library_pathname)
     oldwd = os.path.curdir
 
@@ -744,30 +833,39 @@ def download_and_process_accessions(args, endpoint, identifier):
     api = http.client.HTTPSConnection(NCBI_REST_API)
     identifier = urllib.parse.quote(identifier)
     accession_to_taxid = {}
-    base_uri = "/datasets/v2alpha/genome/{}/{}/dataset_report?filters.assembly_source=refseq&page_size=1000".format(endpoint, identifier)
-    uri = base_uri
+    builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
+    builder.set_filters_from_args(args)
+    builder = builder.page_size(1000)
     old_page_token = ""
 
     while True:
-        api.request("GET", uri)
+        api.request("GET", builder.build())
         response = api.getresponse()
         results = response.readlines()[0]
         results = json.loads(results)
         response.close()
+
+        if not results:
+            LOG.error(
+                "Could not find any accessions matching the query: {}\n"
+                .format(identifier)
+            )
+            sys.exit(1)
 
         for report in results["reports"]:
             accession_to_taxid[report["accession"]] =\
                 report["organism"]["tax_id"]
         if "next_page_token" in results \
            and results["next_page_token"] != old_page_token:
-            uri = base_uri + "&page_token={}".format(results["next_page_token"])
+            builder = builder.page_token(results["next_page_token"])
             old_page_token = results["next_page_token"]
         else:
             break
 
     api.close()
     LOG.info(
-        "Found {} accession(s) associated with {}\n".format(len(accession_to_taxid), identifier)
+        "Found {} accession(s) associated with {}\n"
+        .format(len(accession_to_taxid), identifier)
     )
 
     filepath_to_taxid = download_accessions(args, accession_to_taxid)
@@ -787,12 +885,48 @@ def download_and_process_accessions(args, endpoint, identifier):
 
 
 def download_accessions(args, accession_to_taxid):
-    number_of_partitions = math.ceil(len(accession_to_taxid) / 400)
-    number_of_partitions = max(args.threads, number_of_partitions)
     accessions = sorted(list(accession_to_taxid.keys()))
-    partitions = partition_list(accessions, number_of_partitions)
-
     filepath_to_taxid = {}
+    zip_file_list = []
+
+    zip_filename_to_accessions = {}
+    extension = ".faa" if args.protein else ".fna"
+    if os.path.exists("zips"):
+        downloaded_accessions = {}
+        for zip_filename in os.listdir("zips"):
+            zip_filename = os.path.join("zips", zip_filename)
+            if zip_filename.endswith(".zip"):
+                with zipfile.ZipFile(zip_filename) as zip:
+                    for filename in zip.namelist():
+                        match = re.search(r"GC[AF]_\d{9}\.\d+", filename)
+                        if match and filename.endswith(extension):
+                            accession = match.group()
+                            downloaded_accessions[accession] = zip_filename
+                zip_file_list.append(zip_filename)
+
+        if downloaded_accessions:
+            unfetched_accessions = []
+            for accession in accessions:
+                if accession in downloaded_accessions:
+                    LOG.info(
+                        "Already downloaded accession: {}, skipping\n"
+                        .format(accession)
+                    )
+                    zip_filename = downloaded_accessions[accession]
+                    if zip_filename in zip_filename_to_accessions:
+                        zip_filename_to_accessions[zip_filename].append(accession)
+                    else:
+                        zip_filename_to_accessions[zip_filename] = [accession]
+                else:
+                    unfetched_accessions.append(accession)
+            accessions = unfetched_accessions
+
+    partitions = []
+    if accessions:
+        number_of_partitions = math.ceil(len(accessions) / 400)
+        number_of_partitions = max(args.threads, number_of_partitions)
+        partitions = partition_list(accessions, number_of_partitions)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         download_futures = []
         for partition in partitions:
@@ -802,7 +936,11 @@ def download_accessions(args, accession_to_taxid):
         unzip_futures = []
         for future in concurrent.futures.as_completed(download_futures):
             unzip_futures.append(
-                pool.submit(extract_fastas_from_zip_file, future.result())
+                pool.submit(extract_fastas_from_zip_file, future.result(), args.protein)
+            )
+        for zip_filename, accessions in zip_filename_to_accessions.items():
+            unzip_futures.append(
+                pool.submit(extract_fastas_from_zip_file, zip_filename, args.protein, accessions)
             )
         for future in concurrent.futures.as_completed(unzip_futures):
             accession_to_filepath = future.result()
@@ -814,28 +952,37 @@ def download_accessions(args, accession_to_taxid):
     return filepath_to_taxid
 
 
-def extract_fastas_from_zip_file(filename):
+def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
     accession_to_filepath = {}
 
-    LOG.info("Extracting FASTA files from {}\n".format(os.path.abspath(filename)))
+    suffix = "_protein.faa" if protein else "_genomic.fna"
+    LOG.info(
+        "Extracting FASTA files from {}\n".format(os.path.abspath(filename))
+    )
     with zipfile.ZipFile(filename) as zip:
         for entry in zip.namelist():
-            if entry.endswith(".fna"):
+            if entry.endswith(suffix):
                 dir_components = ["genomes", "all"]
                 filename = os.path.basename(entry)
-                dirname = filename.replace("_genomic.fna", "")
-                accession = dirname.split(".")[0].replace("_", "")
-                dir_components.extend(partition_list(accession, 4))
+                dirname = filename.replace(suffix, "")
+                accession = re.search(r"GC[AF]_\d{9}\.\d+", filename).group()
+                if accessions_to_extract and\
+                   accession not in accessions_to_extract:
+                    continue
+                modified_accession = accession.replace("_", "")
+                dir_components.extend(partition_list(modified_accession, 4))
                 dir_components.append(dirname)
                 dir_components.append(filename)
 
                 filepath = os.path.join("", *dir_components)
                 zip.extract(entry, os.path.curdir)
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
-                LOG.debug("Copying {} to {}\n".format(os.path.abspath(entry), os.path.abspath(filepath)))
+                LOG.debug(
+                    "Copying {} to {}\n".format(
+                        os.path.abspath(entry), os.path.abspath(filepath)
+                    )
+                )
                 shutil.move(entry, filepath)
-
-                accession = re.match(r"GC[AF]_\d{9}\.\d+", filename).group()
                 accession_to_filepath[accession] = filepath
 
     return accession_to_filepath
@@ -845,22 +992,36 @@ def download_zip_from_ncbi(args, accessions):
     api = http.client.HTTPSConnection(NCBI_REST_API)
     accessions = ",".join(accessions)
     md5 = hash_string(accessions)
-    os.makedirs("zip", exist_ok=True)
-    filename = md5 + ".zip"
-    LOG.info("Downloading {} from NCBI containing the following accessions: {}\n".format(filename, accessions))
-    filename = os.path.join("zip", filename)
+    os.makedirs("zips", exist_ok=True)
+    filename = os.path.join("zips", md5 + ".zip")
+    tmp_filename = filename + ".tmp"
+    if os.path.exists(os.path.join("zip", filename)):
+        LOG.info(
+            "Already downloaded {} from NCBI which contains accessions: {}\n"
+            .format(os.path.basename(filename), accessions)
+        )
+        return filename
+    LOG.info(
+        "Downloading {} from NCBI containing the following accessions: {}\n"
+        .format(os.path.basename(filename), accessions)
+    )
     accessions = urllib.parse.quote(accessions)
     annotation_type = "PROT_FASTA" if args.protein else "GENOME_FASTA"
-    resource_path = "/datasets/v2alpha/genome/accession/{}/download?include_annotation_type={}".format(accessions, annotation_type)
+    builder = NCBI_URI_Builder("accession", accessions, "download")
+    builder = builder.include_annotation_type(annotation_type)
 
-    api.request("GET", resource_path)
+    api.request("GET", builder.build())
     res = api.getresponse()
 
-    with open(filename, "wb") as fout:
+    with open(tmp_filename, "wb") as fout:
         shutil.copyfileobj(res, fout)
 
     res.close()
-    LOG.info("Saved {} to {}\n".format(os.path.basename(filename), os.path.abspath(filename)))
+    shutil.move(tmp_filename, filename)
+    LOG.info("Saved {} to {}\n".format(
+        os.path.basename(filename),
+        os.path.abspath(filename)
+    ))
 
     return filename
 
@@ -1561,10 +1722,10 @@ def download_genomic_library(args):
                     sequence_to_url="pub/UniVec/" + args.library,
                 )
     else:
-        if args.library.startswith("GCF"):
-            download_dataset_by_project(args, "accession", [args.library])
-        elif args.library.startswith("PRJ"):
-            download_dataset_by_project(args, "bioproject", [args.library])
+        if args.library.upper().startswith("GCF") or args.library.upper().startswith("GCA"):
+            download_dataset_by_project(args, "accession", [args.library.upper()])
+        elif args.library.upper().startswith("PRJ"):
+            download_dataset_by_project(args, "bioproject", [args.library.upper()])
         else:
             download_dataset_by_project(args, "taxon", [args.library])
 
@@ -2606,6 +2767,29 @@ def make_download_library_parser(subparsers):
         #     "UniVec_Core",
         # ],
         help="Name of library to download",
+    )
+    parser.add_argument(
+        "--assembly-source",
+        type=str,
+        required=False,
+        choices=["refseq", "genbank", "all"],
+        default="refseq",
+        help="Download RefSeq (GCF_) or GenBank (GCA_) genome assemblies\
+              or both (default RefSeq)",
+    )
+    parser.add_argument(
+        "--assembly-levels",
+        type=str,
+        nargs="+",
+        choices=["chromosome", "complete_genome", "scaffold", "contig"],
+        default=["chromosome", "complete_genome"],
+        help="Only return genome assemblies that have one of the specified\
+              assembly levels (default chromosome and complete genome)"
+    )
+    parser.add_argument(
+        "--has-annotation",
+        action="store_true",
+        help="Return only annotated genome assemblies (default false)"
     )
     parser.add_argument(
         "--protein",
