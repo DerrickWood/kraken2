@@ -956,9 +956,6 @@ def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
     accession_to_filepath = {}
 
     suffix = "_protein.faa" if protein else "_genomic.fna"
-    LOG.info(
-        "Extracting FASTA files from {}\n".format(os.path.abspath(filename))
-    )
     with zipfile.ZipFile(filename) as zip:
         for entry in zip.namelist():
             if entry.endswith(suffix):
@@ -969,20 +966,30 @@ def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
                 if accessions_to_extract and\
                    accession not in accessions_to_extract:
                     continue
-                modified_accession = accession.replace("_", "")
+                modified_accession = accession.split(".")[0].replace("_", "")
                 dir_components.extend(partition_list(modified_accession, 4))
                 dir_components.append(dirname)
                 dir_components.append(filename)
 
                 filepath = os.path.join("", *dir_components)
-                zip.extract(entry, os.path.curdir)
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
-                LOG.debug(
-                    "Copying {} to {}\n".format(
-                        os.path.abspath(entry), os.path.abspath(filepath)
+                entry_size = zip.getinfo(entry).file_size
+                if os.path.exists(filepath) and os.stat(filepath).st_size == entry_size:
+                    LOG.info(
+                        "Already extracted {} from {}\n"
+                        .format(entry, os.path.abspath(filename))
                     )
-                )
-                shutil.move(entry, filepath)
+                else:
+                    LOG.info(
+                        "Extracting {} from {}\n".format(entry, os.path.abspath(filename))
+                    )
+                    zip.extract(entry, os.path.curdir)
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                    LOG.debug(
+                        "Moving {} to {}\n".format(
+                            os.path.abspath(entry), os.path.abspath(filepath)
+                        )
+                    )
+                    shutil.move(entry, filepath)
                 accession_to_filepath[accession] = filepath
 
     return accession_to_filepath
@@ -1118,7 +1125,7 @@ def assign_taxid_to_sequences(args, manifest_to_taxid):
         projects_added, total_projects, sequences_added, ch_added, ch
     )
 
-    LOG.debug("\r{:s}\r{:s}".format(" ", out_line))
+    LOG.debug("{:s}\r".format(out_line))
     filepaths = sorted(manifest_to_taxid)
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
         futures = []
@@ -1143,13 +1150,13 @@ def assign_taxid_to_sequences(args, manifest_to_taxid):
                 projects_added, total_projects, sequences_added, ch_added, ch
             )
             max_out_line_len = max(len(out_line), max_out_line_len)
-            spaces = " " * max_out_line_len
-            LOG.debug("\r{:s}\r{:s}".format(spaces, out_line))
+            padding = " " * (max_out_line_len - len(out_line))
+            LOG.debug("{:s}\r".format(out_line + padding))
 
     if args.no_masking:
-        LOG.info("\nFinished assigning taxonomic IDs to sequences\n")
+        LOG.info("Finished assigning taxonomic IDs to sequences\n")
     else:
-        LOG.info("\nFinished assigning taxonomic IDs and masking sequences\n")
+        LOG.info("Finished assigning taxonomic IDs and masking sequences\n")
 
     LOG.info("Generating {:s}\n".format(library_filename))
     with open(library_filename, "w") as out_file:
