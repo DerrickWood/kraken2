@@ -3,6 +3,7 @@
 import argparse
 import bz2
 import concurrent.futures
+import collections
 import ftplib
 import glob
 import gzip
@@ -38,6 +39,7 @@ NCBI_REST_API = "api.ncbi.nlm.nih.gov"
 NCBI_SERVER = "ftp.ncbi.nlm.nih.gov"
 GREENGENES_SERVER = "greengenes.microbio.me"
 SILVA_SERVER = "ftp.arb-silva.de"
+GTDB_SERVER = "data.gtdb.ecogenomic.org"
 
 WRAPPER_ARGS_TO_BIN_ARGS = {
     "block_size": "-B",
@@ -376,6 +378,11 @@ def future_raised_exception(future):
     return future.done() and future.result() is None
 
 
+def url_join(netloc, scheme="https", path="", query="", fragment=""):
+    split_result = urllib.parse.SplitResult(scheme, netloc, path, query, fragment)
+    return urllib.parse.urlunsplit(split_result)
+
+
 def wrapper_args_to_binary_args(opts, argv, binary_args):
     for k, v in vars(opts).items():
         if k not in WRAPPER_ARGS_TO_BIN_ARGS:
@@ -511,7 +518,7 @@ def hash_string(string):
 
 
 def hash_file(filename, buf_size=8192):
-    LOG.info("Calculating MD5 sum for {}.\n".format(filename))
+    LOG.info("Calculating MD5 sum for {}\n".format(filename))
     md5 = hashlib.md5()
     with open(filename, "rb") as in_file:
         while True:
@@ -553,10 +560,10 @@ def scan_fasta_file(
         remote_filepath = sequence_to_url
         if iterator_is_dict:
             remote_filepath = sequence_to_url[line]
-        for match in re.finditer(r"(?:^>|\x01)(\S+) (.*)", line):
+        for match in re.finditer(r"(?:^>|\x01)(\S+)(?: (.*))?", line):
             seqid = match.group(1)
             taxid = check_seqid(seqid)
-            comment = match.group(2)
+            comment = match.group(2) or ""
             if not taxid:
                 if lenient:
                     continue
@@ -777,14 +784,18 @@ def make_manifest_from_assembly_summary(
     return manifest_to_taxid
 
 
-def assign_taxids(args, filepath, manifest_to_taxid):
+def assign_taxids(args, filepath, manifest_to_taxid,
+                  accession_to_taxid={}, filepath_to_url={}):
     sequences_added = 0
     ch_added = 0
-    taxid = manifest_to_taxid[filepath]
-    out_filepath = os.path.splitext(filepath)[0]
+    # taxid = manifest_to_taxid[filepath]
+    out_filepath = ""
+    if filepath.endswith(".gz"):
+        out_filepath = os.path.splitext(filepath)[0]
+    else:
+        out_filepath = filepath + ".tmp"
     masker = None
     sequence_to_url = {}
-
     with open(out_filepath, "w") as out_file:
         if not args.no_masking:
             masker = spawn_masking_subprocess(
@@ -799,8 +810,18 @@ def assign_taxids(args, filepath, manifest_to_taxid):
                 if line == "":
                     break
                 if line.startswith(">"):
+                    taxid = manifest_to_taxid[filepath]
+                    if not taxid:
+                        match = re.search(r"GC[AF]_[0-9]{9}\.\d+", line)
+                        if not match or match.group(0) not in accession_to_taxid:
+                            LOG.error(
+                                "Unable to assign taxid to sequence {} in file {}\n"
+                                .format(line, in_file.name)
+                            )
+                            sys.exit(1)
+                        taxid = accession_to_taxid[match.group(0)]
                     line = line.replace(">", ">kraken:taxid|" + taxid + "|", 1)
-                    sequence_to_url[line] = filepath
+                    sequence_to_url[line] = filepath_to_url[filepath]
                     sequences_added += 1
                 else:
                     ch_added += len(line) - 1
@@ -808,6 +829,9 @@ def assign_taxids(args, filepath, manifest_to_taxid):
                     out_file.write(line)
                 else:
                     masker.stdin.write(line.encode())
+                taxid = ""
+        if out_filepath.endswith(".tmp"):
+            shutil.move(out_filepath, filepath)
         if masker:
             masker.stdin.close()
             masker.wait()
@@ -1106,7 +1130,10 @@ def get_download_path(conn, resource_link, protein):
     return path
 
 
-def assign_taxid_to_sequences(args, manifest_to_taxid):
+def assign_taxid_to_sequences(args,
+                              manifest_to_taxid,
+                              accession_to_taxid={},
+                              filepath_to_url={}):
     if args.no_masking:
         LOG.info("Assigning taxonomic IDs to sequences\n")
     else:
@@ -1132,7 +1159,9 @@ def assign_taxid_to_sequences(args, manifest_to_taxid):
         max_out_line_len = 0
         for filepath in filepaths:
             future = pool.submit(
-                assign_taxids, args, filepath, manifest_to_taxid
+                assign_taxids, args, filepath,
+                manifest_to_taxid, accession_to_taxid,
+                filepath_to_url
             )
             if future_raised_exception(future):
                 LOG.error(
@@ -1160,9 +1189,9 @@ def assign_taxid_to_sequences(args, manifest_to_taxid):
 
     LOG.info("Generating {:s}\n".format(library_filename))
     with open(library_filename, "w") as out_file:
-        for filepath in [
-            os.path.splitext(filepath)[0] for filepath in filepaths
-        ]:
+        for filepath in filepaths:
+            if filepath.endswith(".gz"):
+                filepath = os.path.splitext(filepath)[0]
             with open(filepath, "r") as in_file:
                 shutil.copyfileobj(in_file, out_file)
 
@@ -1311,28 +1340,24 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                 if filename not in md5:
                     checksums = []
                     remote_dirname = os.path.dirname(url)
-                    conn.request(
-                        "GET", "/" + remote_dirname + "/md5checksums.txt"
-                    )
-                    response = conn.getresponse()
-
-                    if response.status == 200:
-                        checksums = response.readlines()
-                    else:
-                        response.read()
-                        conn.request("GET", "/" + url + ".md5")
+                    for md5_filename in ["md5checksums.txt", filename + ".md5", "MD5SUM.txt"]:
+                        conn.request(
+                            "GET", "/" + remote_dirname + "/" + md5_filename
+                        )
                         response = conn.getresponse()
                         if response.status == 200:
                             checksums = response.readlines()
-                    response.read()
+                            response.close()
+                            break
+                        else:
+                            response.close()
                     if len(checksums) > 0:
                         for checksum in checksums:
                             (md5sum, remote_filename) = checksum.split()
                             remote_filename = os.path.basename(
                                 remote_filename.decode()
                             )
-                            md5[remote_filename] = md5sum.decode()
-
+                            md5[remote_filename] = os.path.basename(md5sum.decode())
                 if filename in md5 and md5[filename] == hash_file(local_name):
                     LOG.info(
                         "Already downloaded {:s}\n".format(
@@ -1340,8 +1365,8 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                         )
                     )
                     # Server can potentially end the connection while we
-                    # waiting for the md5 hash to be computed. It does not
-                    # hut to reconnect to avoid failures when trying to
+                    # waiting for the md5 hash to be computed. We have
+                    # to reconnect to avoid failures when trying to
                     # retrieve the file.
                     conn.connect()
                     continue
@@ -1363,6 +1388,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     )
                     response.read()
                     sys.exit(1)
+                response.close()
 
         except http.client.RemoteDisconnected:
             conn.connect()
@@ -1526,6 +1552,256 @@ def download_taxonomy(args):
     LOG.info("Finished Untarring taxonomy tree data")
 
 
+def download_gtdb_taxonomy(args, files, md5s):
+    taxonomy_path = os.path.join(args.db, "taxonomy")
+    os.makedirs(taxonomy_path, exist_ok=True)
+    os.chdir(taxonomy_path)
+
+    LOG.info("Dowloading GTDB taxonomy for bacteria and archaea\n")
+    http_download_file2(
+        GTDB_SERVER,
+        files,
+        save_to=os.path.abspath(os.curdir), md5sums=md5s
+    )
+    LOG.info("Finished downloading GTDB taxonomy for bacteria and archaea\n")
+
+
+def build_gtdb_taxonomy(in_file):
+    rank_codes = {
+        "d": "domain",
+        "p": "phylum",
+        "c": "class",
+        "o": "order",
+        "f": "family",
+        "g": "genus",
+        "s": "species",
+    }
+    accession_map = {}
+    seen_it = collections.defaultdict(int)
+    child_data = collections.defaultdict(lambda: collections.defaultdict(int))
+    for line in in_file:
+        line = line.strip()
+        accession, taxonomy_string = line.split("\t")
+        start = accession.find("GCA")
+        if start < 0:
+            start = accession.find("GCF")
+        accession = accession[start:]
+        taxonomy_string = re.sub("(;[a-z]__)+$", "", taxonomy_string)
+        accession_map[accession] = taxonomy_string
+        seen_it[taxonomy_string] += 1
+        if seen_it[taxonomy_string] > 1:
+            continue
+        while True:
+            match = re.search("(;[a-z]__[^;]+$)", taxonomy_string)
+            if not match:
+                break
+            level = match.group(1)
+            taxonomy_string = re.sub("(;[a-z]__[^;]+$)", "", taxonomy_string)
+            key = taxonomy_string + level
+            child_data[taxonomy_string][key] += 1
+            seen_it[taxonomy_string] += 1
+            if seen_it[taxonomy_string] > 1:
+                break
+        if seen_it[taxonomy_string] == 1:
+            child_data["root"][taxonomy_string] += 1
+
+    id_map = {}
+    next_node_id = 1
+    LOG.info("Generating nodes.dmp and names.dmp\n")
+    with open("names.dmp", "w") as names_file:
+        with open("nodes.dmp", "w") as nodes_file:
+            bfs_queue = [["root", 1]]
+            while len(bfs_queue) > 0:
+                node, parent_id = bfs_queue.pop()
+                display_name = node
+                rank = None
+                match = re.search("([a-z])__([^;]+)$", node)
+                if match:
+                    rank = rank_codes[match.group(1)]
+                    display_name = match.group(2)
+                rank = rank or "no rank"
+                node_id, next_node_id = next_node_id, next_node_id + 1
+                id_map[node] = node_id
+                names_file.write(
+                    "{:d}\t|\t{:s}\t|\t-\t|\tscientific name\t|\n".format(
+                        node_id, display_name
+                    )
+                )
+                nodes_file.write(
+                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(
+                        node_id, parent_id, rank
+                    )
+                )
+                children = (
+                    sorted([key for key in child_data[node]])
+                    if node in child_data
+                    else []
+                )
+                for node in children:
+                    bfs_queue.insert(0, [node, node_id])
+    with open("accession2taxid.map", "w") as f:
+        for accession in sorted([key for key in accession_map]):
+            taxid = id_map[accession_map[accession]]
+            f.write("{:s}\t{:d}\n".format(accession, taxid))
+
+
+def download_gtdb_genomes(args, remote_filepath, md5s):
+    db_pathname = os.path.abspath(args.db)
+    os.chdir(db_pathname)
+    for directory in ["taxonomy", "library"]:
+        os.makedirs(directory, exist_ok=True)
+    filename = os.path.basename(remote_filepath)
+    filepath = os.path.abspath(filename)
+    http_download_file2(
+        GTDB_SERVER, [remote_filepath],
+        save_to=os.curdir, md5sums=md5s
+    )
+    accession_to_filepath = {}
+    filepaths_without_accession = []
+    ext = ".faa" if args.protein else ".fna"
+    if filename.endswith(".tar.gz"):
+        with tarfile.open(filepath, "r:gz") as tar:
+            for member in tar.getmembers():
+                if member.isfile() and re.search(ext, member.name):
+                    if re.search("GC[AF]", member.name):
+                        filename = os.path.basename(member.name)
+                        accession = re.search(
+                            r"(GC[AF]_\d{9}\.\d+)", filename
+                        ).group(1)
+                        if os.path.exists(member.name)\
+                           and member.size == os.stat(member.name).st_size:
+                            LOG.info(
+                                "Already extracted {}...skipping\n"
+                                .format(member.name)
+                            )
+                        else:
+                            LOG.info("Extracting {}\n".format(member.name))
+                            tar.extract(member)
+                            LOG.info(
+                                "Finished extracting {}\n"
+                                .format(member.name)
+                            )
+                        accession_to_filepath[accession] =\
+                            os.path.abspath(member.name)
+                    else:
+                        # We do not check if a file has already been extracted here
+                        LOG.info("Extracting {}\n".format(member.name))
+                        tar.extract(member)
+                        LOG.info(
+                            "Finished extracting {}\n".format(member.name)
+                        )
+                        filepaths_without_accession.append(
+                            os.path.abspath(member.name)
+                        )
+    else:
+        filepaths_without_accession.append(os.path.abspath(filepath))
+
+    return (accession_to_filepath, filepaths_without_accession)
+
+
+def build_gtdb_database(args):
+    db_pathname = os.path.abspath(args.db)
+    os.makedirs(db_pathname, exist_ok=True)
+    os.chdir(db_pathname)
+    md5_url = url_join(GTDB_SERVER, path="/releases/latest/MD5SUM.txt")
+    http_download_file(md5_url)
+    files_needed = collections.defaultdict(list)
+    md5s = {}
+
+    with open("MD5SUM.txt", "r") as in_file:
+        # filename_regex = r"genomes|genes|fna"
+        filename_regex = "|".join(args.gtdb_files)
+        pattern = re.compile(filename_regex)
+        candidate_files = []
+        if args.protein:
+            filename_regex = r"protein|faa"
+        for line in in_file:
+            md5sum, filepath = line.split()
+            filepath = urllib.parse.urljoin("releases/latest/", filepath)
+            # remove the release tag since they do not appear in the "latest"
+            # file listings
+            filepath = re.sub(r"_r\d+", "", filepath)
+            if filepath.find("genomic_files") != -1:
+                candidate_files.append(os.path.basename(filepath))
+            if re.search(r"taxonomy.*\.tsv$", filepath):
+                files_needed["taxonomy"].append(filepath)
+            elif re.search(pattern, filepath):
+                files_needed["fasta"].append(filepath)
+            filepath = os.path.basename(filepath)
+            md5s[filepath] = md5sum
+
+    if len(files_needed["fasta"]) == 0:
+        LOG.error("Could not find any files matching {}\n"
+                  .format(", ".join(args.gtdb_files)))
+        LOG.error("Here are a list of candidates:\n{}\n"
+                  .format("\n".join(candidate_files)))
+        sys.exit(1)
+    download_gtdb_taxonomy(args, files_needed["taxonomy"], md5s)
+    os.chdir(os.path.join(db_pathname, "taxonomy"))
+    LOG.info("Merging Archaea and Bacteria taxonomies\n")
+    with open("merged_taxonomy.tsv", "w") as file_out:
+        for tax_filename in files_needed["taxonomy"]:
+            tax_filename = os.path.basename(tax_filename)
+            with open(tax_filename, "r") as file_in:
+                shutil.copyfileobj(file_in, file_out)
+    LOG.info("Finished merging Archaea and Bacteria taxonomies\n")
+
+    with open("merged_taxonomy.tsv", "r") as in_file:
+        build_gtdb_taxonomy(in_file)
+
+    workers = len(files_needed["fasta"])
+    futures = []
+    accession_to_filepath = {}
+    # These files are not tied to a single accession, but
+    # instead each sequence in the FASTA has its own accession.
+    filepaths_without_accessions = []
+    filepath_to_url = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for remote_filepath in files_needed["fasta"]:
+            futures.append(pool.submit(
+                download_gtdb_genomes, args, remote_filepath, md5s
+            ))
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            accession_to_filepath.update(result[0])
+            filepaths_without_accessions.extend(result[1])
+            for accession, filepath in result[0]:
+                accession_to_filepath[accession] = filepath
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, remote_filepath)
+            for filepath in result[1]:
+                filepaths_without_accessions.append(filepath)
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, remote_filepath)
+
+    os.chdir(os.path.join(db_pathname, "taxonomy"))
+    accession_to_taxid = {}
+    with open("accession2taxid.map", "r") as in_file:
+        for line in in_file:
+            accession, taxid = line.split()
+            accession_to_taxid[accession] = taxid
+    filepath_to_taxid_table = {}
+    os.chdir(os.path.join(db_pathname, "library"))
+    for accession, filepath in accession_to_filepath.items():
+        filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
+    for filepath in filepaths_without_accessions:
+        filepath_to_taxid_table[filepath] = ""
+
+    sequence_to_url = assign_taxid_to_sequences(
+        args, filepath_to_taxid_table,
+        accession_to_taxid, filepath_to_url
+    )
+    with open("library.fna", "r") as in_file:
+        with open("prelim_map.txt", "w") as out_file:
+            out_file.write("# prelim_map for gtdb\n")
+            scan_fasta_file(
+                in_file,
+                out_file,
+                sequence_to_url=sequence_to_url,
+            )
+
+    os.chdir(db_pathname)
+    build_kraken2_db(args)
+
+
 def download_genomic_library(args):
     library_filename = "library.faa" if args.protein else "library.fna"
     library_pathname = os.path.join(args.db, "library")
@@ -1573,16 +1849,20 @@ def download_genomic_library(args):
                             f2.write(line)
             os.rename("grc.txt", "assembly_summary.txt")
         with open("assembly_summary.txt", "r") as f:
+            filepath_to_url = {}
             filepath_to_taxid_table = make_manifest_from_assembly_summary(
                 f, args.protein
             )
+            for filepath in filepath_to_taxid_table:
+                filepath_to_url[filepath] = url_join(NCBI_SERVER, path=filepath)
             download_files_from_manifest(
                 NCBI_SERVER,
                 args.threads,
                 filepath_to_taxid_table=filepath_to_taxid_table,
             )
             sequence_to_url = assign_taxid_to_sequences(
-                args, filepath_to_taxid_table
+                args, filepath_to_taxid_table,
+                filepath_to_url=filepath_to_url
             )
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
@@ -2193,7 +2473,7 @@ def build_16S_silva(args):
 
 # Parses Greengenes taxonomy file to create Kraken taxonomy
 # and sequence ID -> taxonomy ID mapping
-# Input (as <>): gg_13_5_taxonomy.txt
+# Input: gg_13_5_taxonomy.txt
 def build_gg_taxonomy(in_file):
     rank_codes = {
         "k": "superkingdom",
@@ -2593,7 +2873,7 @@ def make_build_parser(subparsers):
               (requires taxonomy which can be downloading\
               via download-taxonomy subcommand, and at least one library\
               which can be added via the download-library or\
-              add-to-library subcommands)",
+              add-to-library subcommands).",
     )
     parser.add_argument(
         "--db",
@@ -2613,9 +2893,16 @@ def make_build_parser(subparsers):
     mutex_group.add_argument(
         "--special",
         type=str,
-        choices=["greengenes", "rdp", "silva"],
+        choices=["greengenes", "rdp", "silva", "gtdb"],
         help="Build special database. RDP is currently unavailable\
               as URLs no longer work.",
+    )
+    group.add_argument(
+        "--gtdb-files",
+        type=str,
+        nargs="+",
+        help="A list of files or regex matching the files needed to build\
+              the special database."
     )
     group.add_argument(
         "--no-masking",
@@ -2623,7 +2910,14 @@ def make_build_parser(subparsers):
         help="Avoid masking low-complexity sequences prior to\
               building database.",
     )
-
+    group.add_argument(
+        "--masker-threads",
+        type=int,
+        default=4,
+        metavar="K2MASK_THREADS",
+        help="Number of threads used by k2mask during masking\
+              process (default: 4)"
+    )
     parser.add_argument(
         "--kmer-len", type=int, metavar="INT", help="K-mer length in bp/aa"
     )
@@ -2720,6 +3014,16 @@ def make_download_taxonomy_parser(subparsers):
         required=True,
         help="Pathname to Kraken2 database",
     )
+    # parser.add_argument(
+    #     "--source",
+    #     type=str,
+    #     choices=[
+    #         "GTDB",
+    #         "NCBI"
+    #     ],
+    #     default="NCBI",
+    #     help="From which database should the files be downloaded"
+    # )
     parser.add_argument(
         "--protein",
         action="store_true",
@@ -3250,10 +3554,16 @@ def k2_main():
                 build_16S_gg(args)
             elif args.special == "silva":
                 build_16S_silva(args)
+            elif args.special == "gtdb":
+                if not args.gtdb_files:
+                    LOG.error("Please specify a list of files or pattern of\
+                    the files needed to build a GTDB database.\n")
+                    sys.exit(1)
+                build_gtdb_database(args)
             else:
+                # build_16S_rdp(args)
                 LOG.error("RDP database no longer supported.\n")
                 sys.exit(1)
-                # build_16S_rdp(args)
         else:
             if args.no_masking:
                 LOG.warning(
