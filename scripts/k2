@@ -1767,10 +1767,10 @@ def build_gtdb_database(args):
             filepaths_without_accessions.extend(result[1])
             for accession, filepath in result[0].items():
                 accession_to_filepath[accession] = filepath
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, remote_filepath)
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
             for filepath in result[1]:
                 filepaths_without_accessions.append(filepath)
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, remote_filepath)
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
 
     os.chdir(os.path.join(db_pathname, "taxonomy"))
     accession_to_taxid = {}
