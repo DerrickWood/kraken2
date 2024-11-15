@@ -251,7 +251,7 @@ SDust *mask(SDust *sd) {
         for (int i = sd->ranges[j].start; i < sd->ranges[j].finish; i++)
           s[i] = processMaskedNucleotide(s[i]);
       }
-      sd->ranges.clear();
+      sd->reset();
     }
   }
   return sd;
