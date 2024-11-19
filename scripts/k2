@@ -892,9 +892,19 @@ def download_and_process_accessions(args, endpoint, identifier):
         .format(len(accession_to_taxid), identifier)
     )
 
+    # We're downloading the accessions as a ZIP from NCBI
+    # we need to map find the individual dowload links for
+    # each accession separately.
+    accessions = list(accession_to_taxid.keys())
+    accession_to_url = map_accessions_to_url_parallel(args, accessions)
+
     filepath_to_taxid = download_accessions(args, accession_to_taxid)
+    filepath_to_url = {}
+    for filepath in filepath_to_taxid.keys():
+        accession = re.search(r"GC[AF]_\d{9}\.\d+", filepath).group()
+        filepath_to_url[filepath] = accession_to_url[accession]
     sequence_to_url = assign_taxid_to_sequences(
-        args, filepath_to_taxid
+        args, filepath_to_taxid, filepath_to_url=filepath_to_url
     )
 
     library_filename = "library.faa" if args.protein else "library.fna"
@@ -1066,7 +1076,7 @@ def partition_list(list, num_partitions):
     return partitions
 
 
-def map_accessions_to_links(accessions):
+def map_accessions_to_url(accessions):
     api = http.client.HTTPSConnection(NCBI_REST_API)
     conn = http.client.HTTPSConnection(NCBI_SERVER)
 
@@ -1074,7 +1084,7 @@ def map_accessions_to_links(accessions):
     start = 0
     stop = min(size, 300)
     base_uri = "/datasets/v2alpha/genome/accession/{}/links"
-    accession_to_filepath = {}
+    accession_to_url = {}
 
     while True:
         query = ",".join(accessions[start:stop])
@@ -1089,27 +1099,27 @@ def map_accessions_to_links(accessions):
                 filepath = get_download_path(
                     conn, entry["resource_link"], False
                 )
-                accession_to_filepath[entry["accession"]] = filepath
+                accession_to_url[entry["accession"]] = url_join(NCBI_SERVER, path=filepath)
         start, stop = stop, min(size, stop + 300)
 
         if start == stop:
             break
     api.close()
 
-    return accession_to_filepath
+    return accession_to_url
 
 
-def map_accessions_to_links_parallel(accessions):
+def map_accessions_to_url_parallel(args, accessions):
     futures = []
-    accession_to_filepath = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        for partition in partition_list(accessions, 6):
-            future = pool.submit(map_accessions_to_links, partition)
+    accession_to_url = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
+        for partition in partition_list(accessions, args.threads):
+            future = pool.submit(map_accessions_to_url, partition)
             futures.append(future)
     for future in concurrent.futures.as_completed(futures):
-        accession_to_filepath.update(future.result())
+        accession_to_url.update(future.result())
 
-    return accession_to_filepath
+    return accession_to_url
 
 
 def get_download_path(conn, resource_link, protein):
