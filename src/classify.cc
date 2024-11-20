@@ -56,6 +56,7 @@ struct Options {
   int minimum_hit_groups;
   bool use_memory_mapping;
   bool match_input_order;
+  int batch_size;
 };
 
 struct ClassificationStats {
@@ -118,10 +119,9 @@ int main(int argc, char **argv) {
   opts.minimum_quality_score = 0;
   opts.minimum_hit_groups = 0;
   opts.use_memory_mapping = false;
-
+  opts.batch_size = 0;
   taxon_counters_t taxon_counters; // stats per taxon
   ParseCommandLine(argc, argv, opts);
-
   omp_set_num_threads(opts.num_threads);
 
   cerr << "Loading database information...";
@@ -274,8 +274,15 @@ void ProcessFiles(const char *filename1, const char *filename2,
       {  // Input processing block
         if (! opts.paired_end_processing) {
           // Unpaired data?  Just read in a sized block
-          ok_read = reader1.LoadBlock(*fptr1, (size_t)(3 * 1024 * 1024));
-        }
+          if (opts.batch_size > 0){
+            // Load a defined number of sequences
+              ok_read = reader1.LoadBatch(*fptr1, opts.batch_size);
+          }
+          else {
+              ok_read = reader1.LoadBlock(*fptr1, (size_t)(3 * 1024 * 1024));
+            }
+          }
+          
         else if (! opts.single_file_pairs) {
           // Paired data in 2 files?  Read a line-counted batch from each file.
           ok_read = reader1.LoadBatch(*fptr1, NUM_FRAGMENTS_PER_THREAD);
@@ -738,7 +745,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSMK")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:b:nmzqPSMK")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -806,6 +813,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'M' :
         opts.use_memory_mapping = true;
         break;
+      case 'b' :
+        opts.batch_size = atoi(optarg);
+        break;
     }
   }
 
@@ -845,6 +855,7 @@ void usage(int exit_code) {
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl
-       << "  -K               In comb. w/ -R, provide minimizer information in report" << endl;
+       << "  -K               In comb. w/ -R, provide minimizer information in report" << endl
+       << "  -b NUM           Seq read batch size. (def. read blocks by memory size)" << endl;
   exit(exit_code);
 }

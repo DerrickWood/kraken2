@@ -49,6 +49,7 @@ my $use_mpa_style = 0;
 my $report_zero_counts = 0;
 my $minimum_hit_groups = 2;
 my $report_minimizer_data = 0;
+my $batch_size = 0;
 
 GetOptions(
   "help" => \&display_help,
@@ -72,6 +73,7 @@ GetOptions(
   "report-zero-counts" => \$report_zero_counts,
   "minimum-hit-groups=i" => \$minimum_hit_groups,
   "report-minimizer-data" => \$report_minimizer_data,
+  "batch-size" => \$batch_size,
 );
 
 if (! defined $threads) {
@@ -140,6 +142,7 @@ push @flags, "-z" if $report_zero_counts;
 push @flags, "-M" if $memory_mapping;
 push @flags, "-g", $minimum_hit_groups;
 push @flags, "-K" if $report_minimizer_data;
+push @flags, "-b" if $batch_size;
 
 # Stupid hack to keep filehandles from closing before exec
 # filehandles opened inside for loop below go out of scope
@@ -216,6 +219,7 @@ Options:
                           Minimum number of hit groups (overlapping k-mers
                           sharing the same minimizer) needed to make a call
                           (default: $minimum_hit_groups)
+  --batch-size            Seq read batch size. (default: read blocks by memory size)
   --help                  Print this message
   --version               Print version information
 
