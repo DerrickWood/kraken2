@@ -1351,11 +1351,21 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     checksums = []
                     remote_dirname = os.path.dirname(url)
                     for md5_filename in ["md5checksums.txt", filename + ".md5", "MD5SUM.txt"]:
+                        # Check if file exists before trying to download.
+                        # This avoids NCBI sending BadStatusLine when
+                        # making the request.
                         conn.request(
-                            "GET", "/" + remote_dirname + "/" + md5_filename
+                            "HEAD", "/" + remote_dirname + "/" + md5_filename
                         )
                         response = conn.getresponse()
                         if response.status == 200:
+                            response.close()
+                            # If we have found the file, then go ahead
+                            # and download.
+                            conn.request(
+                                "GET", "/" + remote_dirname + "/" + md5_filename
+                            )
+                            response = conn.getresponse()
                             checksums = response.readlines()
                             response.close()
                             break
