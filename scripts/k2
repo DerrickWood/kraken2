@@ -2214,7 +2214,8 @@ def build_kraken2_db(args):
         args, argv, get_binary_options(estimate_capacity_binary)
     )
     fasta_filenames = glob.glob(
-        os.path.join("library", os.path.join("**", "*.f[an]a")), recursive=True
+        os.path.join("library", os.path.join("*", "*.f[an]a")),
+        recursive=False
     )
     estimate = ""
     if os.path.exists("estimated_capacity"):
@@ -2246,6 +2247,7 @@ def build_kraken2_db(args):
                             break
                         proc.stdin.write(data)
         estimate = proc.communicate()[0].decode()
+        proc.stdin.close()
         with open("estimated_capacity", "w") as out_file:
             out_file.write(estimate)
 
