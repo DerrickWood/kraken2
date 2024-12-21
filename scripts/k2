@@ -1659,15 +1659,17 @@ def build_gtdb_taxonomy(in_file):
                 )
                 for node in children:
                     bfs_queue.insert(0, [node, node_id])
-    with open("accession2taxid.map", "w") as f:
+    with open("gtdb.accession2taxid", "w") as f:
         for accession in sorted([key for key in accession_map]):
             taxid = id_map[accession_map[accession]]
-            f.write("{:s}\t{:d}\n".format(accession, taxid))
+            accession_without_revision = accession.split(".")[0]
+            f.write("{:s}\t{:s}\t{:d}\t-\n".format(
+                accession_without_revision,
+                accession, taxid
+            ))
 
 
 def download_gtdb_genomes(args, remote_filepath, md5s):
-    db_pathname = os.path.abspath(args.db)
-    os.chdir(db_pathname)
     for directory in ["taxonomy", "library"]:
         os.makedirs(directory, exist_ok=True)
     filename = os.path.basename(remote_filepath)
@@ -1676,11 +1678,14 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
         GTDB_SERVER, [remote_filepath],
         save_to=os.curdir, md5sums=md5s
     )
+    os.chdir("library")
     accession_to_filepath = {}
     filepaths_without_accession = []
     ext = ".faa" if args.protein else ".fna"
+    library = ""
     if filename.endswith(".tar.gz"):
         with tarfile.open(filepath, "r:gz") as tar:
+            library = tar.getnames()[0]
             for member in tar.getmembers():
                 if member.isfile() and re.search(ext, member.name):
                     if re.search("GC[AF]", member.name):
@@ -1714,9 +1719,10 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
                             os.path.abspath(member.name)
                         )
     else:
+        library = filename.split(".")[0]
         filepaths_without_accession.append(os.path.abspath(filepath))
 
-    return (accession_to_filepath, filepaths_without_accession)
+    return (library, accession_to_filepath, filepaths_without_accession)
 
 
 def build_gtdb_database(args):
@@ -1750,8 +1756,8 @@ def build_gtdb_database(args):
             filepath = os.path.basename(filepath)
             md5s[filepath] = md5sum
 
-    if len(files_needed["fasta"]) == 0:
-        LOG.error("Could not find any files matching {}\n"
+    if len(files_needed["fasta"]) != len(args.gtdb_files):
+        LOG.error("At least one of the files did not match: {}\n"
                   .format(", ".join(args.gtdb_files)))
         LOG.error("Here are a list of candidates:\n{}\n"
                   .format("\n".join(candidate_files)))
@@ -1774,49 +1780,58 @@ def build_gtdb_database(args):
     accession_to_filepath = {}
     # These files are not tied to a single accession, but
     # instead each sequence in the FASTA has its own accession.
-    filepaths_without_accessions = []
-    filepath_to_url = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+
+    os.chdir(os.path.join(db_pathname, "taxonomy"))
+    accession_to_taxid = {}
+    with open("gtdb.accession2taxid", "r") as in_file:
+        for line in in_file:
+            base_accession, accession, taxid, gi = line.split("\t")
+            accession_to_taxid[accession] = taxid
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
         for remote_filepath in files_needed["fasta"]:
+            os.chdir(db_pathname)
             futures.append(pool.submit(
                 download_gtdb_genomes, args, remote_filepath, md5s
             ))
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
-            accession_to_filepath.update(result[0])
-            filepaths_without_accessions.extend(result[1])
-            for accession, filepath in result[0].items():
+            library = result[0]
+            filepaths_without_accessions = []
+            filepath_to_url = {}
+
+            for accession, filepath in result[1].items():
                 accession_to_filepath[accession] = filepath
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
-            for filepath in result[1]:
+                filepath_to_url[filepath] =\
+                    url_join(GTDB_SERVER, path=remote_filepath)
+            for filepath in result[2]:
                 filepaths_without_accessions.append(filepath)
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
+                filepath_to_url[filepath] =\
+                    url_join(GTDB_SERVER, path=remote_filepath)
 
-    os.chdir(os.path.join(db_pathname, "taxonomy"))
-    accession_to_taxid = {}
-    with open("accession2taxid.map", "r") as in_file:
-        for line in in_file:
-            accession, taxid = line.split()
-            accession_to_taxid[accession] = taxid
-    filepath_to_taxid_table = {}
-    os.chdir(os.path.join(db_pathname, "library"))
-    for accession, filepath in accession_to_filepath.items():
-        filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
-    for filepath in filepaths_without_accessions:
-        filepath_to_taxid_table[filepath] = ""
+            filepath_to_taxid_table = {}
+            library_pathname = os.path.join(db_pathname,
+                                            os.path.join("library", library))
+            os.makedirs(library_pathname, exist_ok=True)
+            os.chdir(library_pathname)
+            for accession, filepath in accession_to_filepath.items():
+                filepath_to_taxid_table[filepath] =\
+                    accession_to_taxid[accession]
+            for filepath in filepaths_without_accessions:
+                filepath_to_taxid_table[filepath] = ""
 
-    sequence_to_url = assign_taxid_to_sequences(
-        args, filepath_to_taxid_table,
-        accession_to_taxid, filepath_to_url
-    )
-    with open("library.fna", "r") as in_file:
-        with open("prelim_map.txt", "w") as out_file:
-            out_file.write("# prelim_map for gtdb\n")
-            scan_fasta_file(
-                in_file,
-                out_file,
-                sequence_to_url=sequence_to_url,
+            sequence_to_url = assign_taxid_to_sequences(
+                args, filepath_to_taxid_table,
+                accession_to_taxid, filepath_to_url
             )
+            with open("library.fna", "r") as in_file:
+                with open("prelim_map.txt", "w") as out_file:
+                    out_file.write("# prelim_map for {:s}\n".format(library))
+                    scan_fasta_file(
+                        in_file,
+                        out_file,
+                        sequence_to_url=sequence_to_url,
+                    )
 
     os.chdir(db_pathname)
     build_kraken2_db(args)
@@ -2453,6 +2468,7 @@ def build_silva_taxonomy(in_file):
 
 # Build a 16S database from Silva data
 def build_16S_silva(args):
+    args.db = os.path.abspath(args.db)
     os.makedirs(args.db, exist_ok=True)
     os.chdir(args.db)
     for directory in ["data", "taxonomy", "library"]:
@@ -2477,19 +2493,22 @@ def build_16S_silva(args):
         os.path.join("data", taxonomy_prefix + ".acc_taxid"), "seqid2taxid.map"
     )
     with gzip.open(os.path.join("data", fasta_filename), "rt") as in_file:
-        with open(os.path.join("library", "silva.fna"), "w") as out_file:
+        os.chdir("library")
+        os.makedirs("silva", exist_ok=True)
+        os.chdir("silva")
+        with open("library.fna", "w") as out_file:
             for line in in_file:
                 if not line.startswith(">"):
                     line = line.replace("U", "T")
                 out_file.write(line)
     if not args.no_masking:
-        filename = os.path.join("library", "silva.fna")
+        filename = "library.fna"
         mask_files(
             [filename], filename + ".masked", args.threads
         )
         shutil.move(filename + ".masked", filename)
 
-    os.chdir(os.path.pardir)
+    os.chdir(args.db)
     build_kraken2_db(args)
 
 
@@ -2585,6 +2604,7 @@ def build_gg_taxonomy(in_file):
 
 # Build a 16S database from Greengenes data
 def build_16S_gg(args):
+    args.db = os.path.abspath(args.db)
     os.makedirs(args.db, exist_ok=True)
     gg_version = "gg_13_5"
     remote_directory = "/greengenes_release/" + gg_version
@@ -2605,13 +2625,17 @@ def build_16S_gg(args):
     move(os.path.join("data", "seqid2taxid.map"), os.getcwd())
     move(
         os.path.join("data", gg_version + ".fasta"),
-        os.path.join("library", "gg.fna"),
+        os.path.join("library", "library.fna"),
     )
+    os.chdir("library")
+    os.makedirs("greengenes", exist_ok=True)
+    move("library.fna", "greengenes")
+    os.chdir("greengenes")
     if not args.no_masking:
-        filename = os.path.join("library", "gg.fna")
+        filename = "library.fna"
         mask_files([filename], filename + ".masked", args.threads)
-        shutil.move(filename + ".masked", filename)
-    os.chdir(os.path.abspath(os.path.pardir))
+        move(filename + ".masked", filename)
+    os.chdir(args.db)
     build_kraken2_db(args)
 
 
