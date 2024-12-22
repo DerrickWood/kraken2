@@ -17,6 +17,7 @@ import logging
 import lzma
 import math
 import os
+import pty
 import random
 import re
 import shutil
@@ -2044,10 +2045,13 @@ def download_genomic_library(args):
                     sequence_to_url="pub/UniVec/" + args.library,
                 )
     else:
-        if args.library.upper().startswith("GCF") or args.library.upper().startswith("GCA"):
-            download_dataset_by_project(args, "accession", [args.library.upper()])
+        if args.library.upper().startswith("GCF")\
+           or args.library.upper().startswith("GCA"):
+            download_dataset_by_project(args, "accession",
+                                        [args.library.upper()])
         elif args.library.upper().startswith("PRJ"):
-            download_dataset_by_project(args, "bioproject", [args.library.upper()])
+            download_dataset_by_project(args, "bioproject",
+                                        [args.library.upper()])
         else:
             download_dataset_by_project(args, "taxon", [args.library])
 
@@ -2189,6 +2193,7 @@ def build_kraken2_db(args):
                 "No preliminary seqid/taxid mapping files found, aborting\n"
             )
             sys.exit(1)
+        total_sequences = 0
         with open("prelim_map.txt", "r") as in_file:
             with open("seqid2taxid.map.tmp", "w") as seqid2taxid_file:
                 with open("accmap.tmp", "w") as accmap_file:
@@ -2201,6 +2206,7 @@ def build_kraken2_db(args):
                             seqid2taxid_file.write(new_line)
                         elif line.startswith("ACCNUM"):
                             accmap_file.write(new_line)
+                        total_sequences += 1
         if os.path.getsize("accmap.tmp") > 0:
             accession2taxid_filenames = glob.glob("taxonomy/*.accession2taxid")
             if accession2taxid_filenames:
@@ -2221,6 +2227,7 @@ def build_kraken2_db(args):
         os.remove("accmap.tmp")
         move("seqid2taxid.map.tmp", "seqid2taxid.map")
         LOG.info("Created sequence ID to taxonomy ID map\n")
+
     estimate_capacity_binary = find_kraken2_binary("estimate_capacity")
     argv = [estimate_capacity_binary, "-S", construct_seed_template(args)]
     if args.protein:
@@ -2309,9 +2316,22 @@ def build_kraken2_db(args):
         )
 
         LOG.info("Running: " + " ".join(argv) + "\n")
+        total_sequences = 0
+        with open("seqid2taxid.map") as fin:
+            for line in fin:
+                total_sequences += 1
+
+        m_err, s_err = pty.openpty()
         proc = subprocess.Popen(
-            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
+            argv, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=s_err,
         )
+        thread = threading.Thread(
+            target=read_from_stderr,
+            args=(m_err, total_sequences)
+        )
+        thread.start()
         for filename in fasta_filenames:
             with open(filename, "rb") as in_file:
                 while True:
@@ -2319,7 +2339,11 @@ def build_kraken2_db(args):
                     if not data:
                         break
                     proc.stdin.write(data)
+
         proc.stdin.close()
+        thread.join()
+        os.close(m_err)
+        os.close(s_err)
         if proc.wait() != 0:
             LOG.error("Encountered error while building database\n")
             sys.exit(1)
@@ -2328,6 +2352,34 @@ def build_kraken2_db(args):
         move("taxo.k2d.tmp", "taxo.k2d")
         move("opts.k2d.tmp", "opts.k2d")
         LOG.info("Finished building database\n")
+
+
+def read_from_stderr(fd, total_sequences):
+    pb = ProgressBar(total_sequences)
+    buffer = b""
+    processing = True
+    while processing:
+        data = os.read(fd, 1024)
+        data = buffer + data
+        if len(data) == 0:
+            break
+        for line in data.split(b"\r"):
+            fields = line.split()
+            if line.startswith(b"Processed") and len(fields) > 1:
+                buffer = b""
+                progress = int(fields[1])
+                pb.progress(progress)
+                eol = '\r'
+                if pb.current == total_sequences:
+                    processing = False
+                    eol = '\n'
+                LOG.debug(
+                    "Processed:" +
+                    pb.get_bar() + " {}/{}{}"
+                    .format(progress, total_sequences, eol)
+                )
+            else:
+                buffer = line
 
 
 # Parses RDP sequence data to create Kraken taxonomy
