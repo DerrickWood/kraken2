@@ -2160,7 +2160,7 @@ def build_kraken2_db(args):
         sys.exit(1)
 
     prelim_map_filepaths = []
-    prelim_map_mtime = None
+    prelim_map_mtime = 0
     if os.path.isdir("library"):
         glob_path = os.path.join("library", "*")
         prelim_map_filepaths = glob.glob(
@@ -2168,12 +2168,9 @@ def build_kraken2_db(args):
         )
         for prelim_map_filepath in prelim_map_filepaths:
             mtime = os.path.getmtime(prelim_map_filepath)
-            if prelim_map_mtime is None:
-                prelim_map_mtime = mtime
-            elif mtime > prelim_map_mtime:
+            if mtime > prelim_map_mtime:
                 prelim_map_mtime = mtime
 
-    print(prelim_map_filepaths)
     if os.path.exists("seqid2taxid.map") and \
        os.path.getmtime("seqid2taxid.map") > prelim_map_mtime:
         LOG.info(
