@@ -2158,42 +2158,43 @@ def build_kraken2_db(args):
     if not os.path.isdir("library"):
         LOG.error("Cannot find library subdirectory in database\n")
         sys.exit(1)
-    if os.path.isdir(os.path.join("library", "added")):
-        added_dirpath = os.path.join("library", "added")
-        prelim_map_filenames = glob.glob(
-            os.path.join(added_dirpath, "prelim_map_*.txt")
-        )
-        if prelim_map_filenames:
-            with open(
-                os.path.join(added_dirpath, "prelim_map.txt"), "w"
-            ) as out_file:
-                for filename in prelim_map_filenames:
-                    with open(filename, "r") as in_file:
-                        shutil.copyfileobj(in_file, out_file)
 
-    if os.path.exists("seqid2taxid.map"):
-        LOG.info("Sequence ID to taxonomy ID map already present, skipping\n")
+    prelim_map_filepaths = []
+    prelim_map_mtime = None
+    if os.path.isdir("library"):
+        glob_path = os.path.join("library", "*")
+        prelim_map_filepaths = glob.glob(
+            os.path.join(glob_path, "prelim_map*.txt")
+        )
+        for prelim_map_filepath in prelim_map_filepaths:
+            mtime = os.path.getmtime(prelim_map_filepath)
+            if prelim_map_mtime is None:
+                prelim_map_mtime = mtime
+            elif mtime > prelim_map_mtime:
+                prelim_map_mtime = mtime
+
+    print(prelim_map_filepaths)
+    if os.path.exists("seqid2taxid.map") and \
+       os.path.getmtime("seqid2taxid.map") > prelim_map_mtime:
+        LOG.info(
+            "A seqid2taxid.map already present and newer"
+            " than any of the prelim_map.txt files, skipping\n"
+        )
     else:
-        LOG.info("Creating sequence ID to taxonomy ID map\n")
+        LOG.info("Concatenating prelim_map.txt files\n")
         with open("prelim_map.txt", "w") as out_file:
-            for dirpath, dirnames, filenames in os.walk(
-                "library", followlinks=True
-            ):
-                if "prelim_map.txt" in filenames:
-                    for line in open(
-                        os.path.join(
-                            os.path.abspath(dirpath), "prelim_map.txt"
-                        ),
-                        "r",
-                    ):
-                        out_file.write(line)
+            for prelim_map_filepath in prelim_map_filepaths:
+                with open(prelim_map_filepath, "r") as in_file:
+                    shutil.copyfileobj(in_file, out_file)
         if os.path.getsize("prelim_map.txt") == 0:
             os.remove("prelim_map.txt")
             LOG.error(
                 "No preliminary seqid/taxid mapping files found, aborting\n"
             )
             sys.exit(1)
+        LOG.info("Finished concatenating prelim_map.txt files\n")
         total_sequences = 0
+        LOG.info("Creating sequence ID to taxonomy ID map\n")
         with open("prelim_map.txt", "r") as in_file:
             with open("seqid2taxid.map.tmp", "w") as seqid2taxid_file:
                 with open("accmap.tmp", "w") as accmap_file:
