@@ -432,7 +432,7 @@ def get_parent_directory(pathname):
 
 def find_database(database_name):
     database_path = None
-    if database_name.find(os.path.sep) < 0:
+    if not os.path.isdir(database_name):
         if "KRAKEN2_DB_PATH" in os.environ:
             for directory in os.environ["KRAKEN2_DB_PATH"].split(":"):
                 if os.path.exists(os.path.join(directory, database_name)):
@@ -441,8 +441,8 @@ def find_database(database_name):
         else:
             if database_name in os.listdir(os.getcwd()):
                 database_path = database_name
-    elif os.path.exists(database_name):
-        database_path = database_name
+    else:
+        database_path = os.path.abspath(database_name)
     if database_path:
         for db_file in ["taxo.k2d", "hash.k2d", "opts.k2d"]:
             if not os.path.exists(os.path.join(database_path, db_file)):
@@ -2832,7 +2832,6 @@ def make_seqid_to_taxid_map(
 
 
 def classify(args):
-    args.db = os.path.realpath(args.db)
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
     if database_path is None:
