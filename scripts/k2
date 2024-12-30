@@ -2147,6 +2147,33 @@ def write_to_fifo(filenames, fifo1=None, fifo2=None):
                     file1.write(seq)
 
 
+def check_seqidmap():
+    LOG.info(
+        "Checking if there are invalid taxid in seqid2taxid.map\n"
+        "These taxids reported if found and will be removed from the file\n"
+    )
+    taxonomy_nodes = {}
+    with open(os.path.join("taxonomy", "nodes.dmp"), "r") as fin:
+        for entry in fin:
+            taxid, parent_taxid = entry.split("\t|")[:2]
+            taxonomy_nodes[taxid.strip()] = parent_taxid.strip()
+
+    with open("seqid2taxid.map.new", "w") as fout:
+        with open("seqid2taxid.map", "r") as fin:
+            for line in fin:
+                seqid, taxid = line.split("\t")
+                taxid = taxid.strip()
+                if taxid in taxonomy_nodes:
+                    fout.write(line)
+                else:
+                    LOG.error(
+                        "There is no entry for taxid, '{}', contained in, {},"
+                        "in nodes.dmp. Please contact NCBI about this\n"
+                        .format(seqid, taxid)
+                    )
+    shutil.move("seqid2taxid.map.new", "seqid2taxid.map")
+
+
 def build_kraken2_db(args):
     if not os.path.isdir(get_abs_path(args.db)):
         LOG.error('Cannot find Kraken 2 database: "{:s}\n'.format(args.db))
@@ -2225,6 +2252,7 @@ def build_kraken2_db(args):
         os.remove("accmap.tmp")
         move("seqid2taxid.map.tmp", "seqid2taxid.map")
         LOG.info("Created sequence ID to taxonomy ID map\n")
+        check_seqidmap()
 
     estimate_capacity_binary = find_kraken2_binary("estimate_capacity")
     argv = [estimate_capacity_binary, "-S", construct_seed_template(args)]
@@ -2339,12 +2367,12 @@ def build_kraken2_db(args):
                     proc.stdin.write(data)
 
         proc.stdin.close()
-        thread.join()
-        os.close(m_err)
-        os.close(s_err)
         if proc.wait() != 0:
             LOG.error("Encountered error while building database\n")
             sys.exit(1)
+        thread.join()
+        os.close(m_err)
+        os.close(s_err)
 
         move("hash.k2d.tmp", "hash.k2d")
         move("taxo.k2d.tmp", "taxo.k2d")
@@ -2358,9 +2386,10 @@ def read_from_stderr(fd, total_sequences):
     processing = True
     while processing:
         data = os.read(fd, 1024)
-        data = buffer + data
         if len(data) == 0:
-            break
+            processing = False
+        data = buffer + data
+        buffer = ""
         for line in data.split(b"\r"):
             fields = line.split()
             if line.startswith(b"Processed") and len(fields) > 1:
@@ -2835,14 +2864,14 @@ def classify(args):
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
     if database_path is None:
-        LOG.error("{:s} is not a valid database... exiting".format(args.db))
+        LOG.error("{:s} is not a valid database... exiting\n".format(args.db))
         sys.exit(1)
     if "paired" in args and len(args.filenames) % 2 != 0:
-        LOG.error("--paired requires an even number of file names")
+        LOG.error("--paired requires an even number of file names\n")
         sys.exit(1)
     if args.confidence < 0 or args.confidence > 1:
         LOG.error(
-            "--confidence, {:f}, must be between 0 and 1 inclusive".format(
+            "--confidence, {:f}, must be between 0 and 1 inclusive\n".format(
                 args.confidence
             )
         )
@@ -2865,7 +2894,7 @@ def classify(args):
                 os.mkfifo(fifo1_pathname, 0o600)
             except OSError:
                 LOG.error(
-                    "Unable to create FIFO for processing compressed files"
+                    "Unable to create FIFO for processing compressed files\n"
                 )
                 sys.exit(1)
             if "-P" in argv:
@@ -2874,7 +2903,7 @@ def classify(args):
                     os.mkfifo(fifo2_pathname, 0o600)
                 except OSError:
                     LOG.error(
-                        "Unable to create FIFO for processing compressed files"
+                        "Unable to create FIFO for processing compressed files\n"
                     )
                     sys.exit(1)
                 argv.extend([fifo1_pathname, fifo2_pathname])
