@@ -32,6 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 
 LOG = None
 SCRIPT_PATHNAME = None
@@ -971,11 +972,18 @@ def download_accessions(args, accession_to_taxid):
         unzip_futures = []
         for future in concurrent.futures.as_completed(download_futures):
             unzip_futures.append(
-                pool.submit(extract_fastas_from_zip_file, future.result(), args.protein)
+                pool.submit(
+                    extract_fastas_from_zip_file,
+                    future.result(), args.protein
+                )
             )
         for zip_filename, accessions in zip_filename_to_accessions.items():
             unzip_futures.append(
-                pool.submit(extract_fastas_from_zip_file, zip_filename, args.protein, accessions)
+                pool.submit(
+                    extract_fastas_from_zip_file,
+                    zip_filename, args.protein,
+                    accessions
+                )
             )
         for future in concurrent.futures.as_completed(unzip_futures):
             accession_to_filepath = future.result()
@@ -1077,13 +1085,14 @@ def partition_list(list, num_partitions):
     return partitions
 
 
-def map_accessions_to_url(accessions):
+def map_accessions_to_url(accessions, protein=False):
     api = http.client.HTTPSConnection(NCBI_REST_API)
     conn = http.client.HTTPSConnection(NCBI_SERVER)
 
     size = len(accessions)
     start = 0
-    stop = min(size, 300)
+    step = 20
+    stop = min(size, step)
     base_uri = "/datasets/v2alpha/genome/accession/{}/links"
     accession_to_url = {}
 
@@ -1093,15 +1102,16 @@ def map_accessions_to_url(accessions):
         api.request("GET", base_uri.format(query))
         req = api.getresponse()
         results = req.readlines()[0]
+        req.close()
         results = json.loads(results)
 
         for entry in results["assembly_links"]:
             if entry["assembly_link_type"] == "FTP_LINK":
                 filepath = get_download_path(
-                    conn, entry["resource_link"], False
+                    conn, entry["resource_link"], protein
                 )
                 accession_to_url[entry["accession"]] = url_join(NCBI_SERVER, path=filepath)
-        start, stop = stop, min(size, stop + 300)
+        start, stop = stop, min(size, stop + step)
 
         if start == stop:
             break
@@ -1115,7 +1125,9 @@ def map_accessions_to_url_parallel(args, accessions):
     accession_to_url = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         for partition in partition_list(accessions, args.threads):
-            future = pool.submit(map_accessions_to_url, partition)
+            future = pool.submit(
+                map_accessions_to_url, partition, args.protein
+            )
             futures.append(future)
     for future in concurrent.futures.as_completed(futures):
         accession_to_url.update(future.result())
@@ -1131,12 +1143,12 @@ def get_download_path(conn, resource_link, protein):
         filename = dir + "_protein.faa.gz"
     resource_link = urllib.parse.urljoin(resource_link, filename)
     path = urllib.parse.urlparse(resource_link).path
-    conn.request("HEAD", path)
-    response = conn.getresponse()
-    if response.status != 200:
-        LOG.error("Unable to find ...")
-        sys.exit(1)
-    response.close()
+    # conn.request("HEAD", path)
+    # response = conn.getresponse()
+    # if response.status != 200:
+    #     LOG.error("Unable to find ...")
+    #     sys.exit(1)
+    # response.close()
 
     return path
 
@@ -1236,6 +1248,30 @@ def progress_line(projects, total_projects, seqs, chars, ch):
 # so that we can check whether a future stopped running as a
 # result of an exception, so that we can stop the main process
 # early.
+# def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
+#     if isinstance(compressed_filenames, str):
+#         compressed_filenames = [compressed_filenames]
+#     if out_filename:
+#         if os.path.exists(out_filename + ".tmp"):
+#             os.remove(out_filename + ".tmp")
+#         with open(out_filename + ".tmp", "ab") as out_file:
+#             for filename in compressed_filenames:
+#                 with gzip.open(filename) as gz:
+#                     decompress_file(gz, out_file)
+#             os.rename(out_filename + ".tmp", out_filename)
+#     else:
+#         for filename in compressed_filenames:
+#             out_filename, ext = os.path.splitext(filename)
+#             if os.path.exists(out_filename + ".tmp"):
+#                 os.remove(out_filename + ".tmp")
+#             with gzip.open(filename) as gz:
+#                 with open(out_filename + ".tmp", "wb") as out:
+#                     decompress_file(gz, out, buf_size)
+#             os.rename(out_filename + ".tmp", out_filename)
+
+#     return True
+
+
 def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
     if isinstance(compressed_filenames, str):
         compressed_filenames = [compressed_filenames]
@@ -1244,7 +1280,7 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
             os.remove(out_filename + ".tmp")
         with open(out_filename + ".tmp", "ab") as out_file:
             for filename in compressed_filenames:
-                with gzip.open(filename) as gz:
+                with open(filename, "rb") as gz:
                     decompress_file(gz, out_file)
             os.rename(out_filename + ".tmp", out_filename)
     else:
@@ -1252,7 +1288,7 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
             out_filename, ext = os.path.splitext(filename)
             if os.path.exists(out_filename + ".tmp"):
                 os.remove(out_filename + ".tmp")
-            with gzip.open(filename) as gz:
+            with open(filename, "rb") as gz:
                 with open(out_filename + ".tmp", "wb") as out:
                     decompress_file(gz, out, buf_size)
             os.rename(out_filename + ".tmp", out_filename)
@@ -1264,7 +1300,13 @@ def decompress_file(in_file, out_file, buf_size=8129):
     LOG.info(
         "Decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name))
     )
-    shutil.copyfileobj(in_file, out_file, buf_size)
+    inflator = zlib.decompressobj(15 + 32)
+    while True:
+        data = in_file.read(buf_size)
+        if not data:
+            break
+        out_file.write(inflator.decompress(data))
+    # shutil.copyfileobj(in_file, out_file, buf_size)
     LOG.info(
         "Finished decompressing {:s}\n".format(
             os.path.join(os.getcwd(), in_file.name)
@@ -1482,6 +1524,8 @@ def download_files_from_manifest(
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
         with open(manifest_filename, "r") as f:
             filepaths = f.readlines()
+            # We try to reduce the risk of a single thread downloading
+            # many large files.
             random.shuffle(filepaths)
             partitions = []
             futures = []
@@ -2149,8 +2193,8 @@ def write_to_fifo(filenames, fifo1=None, fifo2=None):
 
 def check_seqidmap():
     LOG.info(
-        "Checking if there are invalid taxid in seqid2taxid.map\n"
-        "These taxids reported if found and will be removed from the file\n"
+        "Checking if there are invalid taxid in seqid2taxid.map. "
+        "These taxids will be logged if found and removed from the file\n"
     )
     taxonomy_nodes = {}
     with open(os.path.join("taxonomy", "nodes.dmp"), "r") as fin:
@@ -2166,7 +2210,7 @@ def check_seqidmap():
                 if taxid in taxonomy_nodes:
                     fout.write(line)
                 else:
-                    LOG.error(
+                    LOG.warning(
                         "There is no entry for taxid, '{}', contained in, {},"
                         "in nodes.dmp. Please contact NCBI about this\n"
                         .format(seqid, taxid)
@@ -2350,7 +2394,7 @@ def build_kraken2_db(args):
         m_err, s_err = pty.openpty()
         proc = subprocess.Popen(
             argv, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
+            stdout=s_err,
             stderr=s_err,
         )
         thread = threading.Thread(
@@ -2380,6 +2424,15 @@ def build_kraken2_db(args):
         LOG.info("Finished building database\n")
 
 
+def decompress_with_zlib(filename):
+    inflator = zlib.decompressobj(15 + 32)
+    with open(filename, "rb") as infile:
+        while True:
+            data = infile.read(8196)
+            if not data:
+                break
+            inflator.decompress(data)
+
 def read_from_stderr(fd, total_sequences):
     pb = ProgressBar(total_sequences)
     buffer = b""
@@ -2389,8 +2442,8 @@ def read_from_stderr(fd, total_sequences):
         if len(data) == 0:
             processing = False
         data = buffer + data
-        buffer = ""
-        for line in data.split(b"\r"):
+        buffer = b""
+        for line in data.splitlines(True):
             fields = line.split()
             if line.startswith(b"Processed") and len(fields) > 1:
                 buffer = b""
@@ -2405,6 +2458,8 @@ def read_from_stderr(fd, total_sequences):
                     pb.get_bar() + " {}/{}{}"
                     .format(progress, total_sequences, eol)
                 )
+            elif line.endswith(b"\n"):
+                LOG.debug(line.decode())
             else:
                 buffer = line
 
@@ -2942,13 +2997,13 @@ def inspect_db(args):
     output_filename, args.output = args.output, None
     wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
     process = subprocess.Popen(
-        argv, stdout=subprocess.PIPE, universal_newlines=True
+        argv, stdout=subprocess.PIPE
     )
 
     if output_filename == "-":
         shutil.copyfileobj(process.stdout, sys.stdout)
     else:
-        with open(output_filename, "w") as fout:
+        with open(output_filename, "wb") as fout:
             shutil.copyfileobj(process.stdout, fout)
     sys.exit(process.wait())
 
@@ -3428,7 +3483,7 @@ def make_classify_parser(subparsers):
         "--memory-mapping",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Avoids loading database into RAM",
+        help="Avoids loading entire database into RAM",
     )
     paired_group = parser.add_mutually_exclusive_group()
     paired_group.add_argument(
@@ -3516,6 +3571,12 @@ def make_inspect_parser(subparsers):
         metavar="FILENAME",
         default="-",
         help="Write inspect output to FILENAME (default: stdout)"
+    )
+    parser.add_argument(
+        "--memory-mapping",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Avoids loading entire database into RAM",
     )
 
 
