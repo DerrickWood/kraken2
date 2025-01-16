@@ -861,7 +861,7 @@ def download_and_process_accessions(args, endpoint, identifier):
     accession_to_taxid = {}
     builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
     builder.set_filters_from_args(args)
-    builder = builder.page_size(1000)
+    builder = builder.page_size(100)
     old_page_token = ""
 
     while True:
@@ -894,13 +894,20 @@ def download_and_process_accessions(args, endpoint, identifier):
         .format(len(accession_to_taxid), identifier)
     )
 
-    # We're downloading the accessions as a ZIP from NCBI
-    # we need to map find the individual dowload links for
-    # each accession separately.
     accessions = list(accession_to_taxid.keys())
     accession_to_url = map_accessions_to_url_parallel(args, accessions)
 
-    filepath_to_taxid = download_accessions(args, accession_to_taxid)
+    filepath_to_taxid = {}
+    with open("manifest.txt", "w") as fout:
+        for accession, url in accession_to_url.items():
+            # exclude the leading /
+            filepath = urllib.parse.urlparse(url).path[1:]
+            fout.write(filepath + "\n")
+            taxid = accession_to_taxid[accession]
+            filepath_to_taxid[filepath] = str(taxid)
+
+    download_files_from_manifest(NCBI_SERVER, args.threads)
+    # filepath_to_taxid = download_accessions(args, accession_to_taxid)
     filepath_to_url = {}
     for filepath in filepath_to_taxid.keys():
         accession = re.search(r"GC[AF]_\d{9}\.\d+", filepath).group()
@@ -1123,6 +1130,7 @@ def map_accessions_to_url(accessions, protein=False):
 def map_accessions_to_url_parallel(args, accessions):
     futures = []
     accession_to_url = {}
+    LOG.info("Fetching download links for accessions\n")
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         for partition in partition_list(accessions, args.threads):
             future = pool.submit(
@@ -1131,6 +1139,7 @@ def map_accessions_to_url_parallel(args, accessions):
             futures.append(future)
     for future in concurrent.futures.as_completed(futures):
         accession_to_url.update(future.result())
+    LOG.info("Finished fetching download links for accessions\n")
 
     return accession_to_url
 
