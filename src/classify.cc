@@ -159,8 +159,7 @@ int main(int argc, char **argv) {
         }
         ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
         i += 1;
-      }
-      else {
+      } else {
         ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
       }
     }
@@ -174,12 +173,12 @@ int main(int argc, char **argv) {
   if (! opts.report_filename.empty()) {
     if (opts.mpa_style_report)
       ReportMpaStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
-          taxon_counters);
+          taxon_counters, opts.num_threads);
     else {
       auto total_unclassified = stats.total_sequences - stats.total_classified;
       ReportKrakenStyle(opts.report_filename, opts.report_zero_counts,
           opts.report_kmer_data, taxonomy,
-          taxon_counters, stats.total_sequences, total_unclassified);
+          taxon_counters, stats.total_sequences, total_unclassified, opts.num_threads);
     }
   }
 
@@ -224,17 +223,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
     OutputStreamData &outputs,
     taxon_counters_t &total_taxon_counters)
 {
-  std::istream *fptr1 = nullptr, *fptr2 = nullptr;
-
-  if (filename1 == nullptr)
-    fptr1 = &std::cin;
-  else {
-    fptr1 = new std::ifstream(filename1);
-  }
-  if (opts.paired_end_processing && ! opts.single_file_pairs) {
-    fptr2 = new std::ifstream(filename2);
-  }
-
   // The priority queue for output is designed to ensure fragment data
   // is output in the same order it was input
   auto comparator = [](const OutputData &a, const OutputData &b) {
@@ -246,6 +234,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
   uint64_t next_output_block_id = 0;
   omp_lock_t output_lock;
   omp_init_lock(&output_lock);
+  BatchSequenceReader r1(filename1);
+  BatchSequenceReader r2(filename2);
 
   #pragma omp parallel
   {
@@ -257,8 +247,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
     ostringstream kraken_oss, c1_oss, c2_oss, u1_oss, u2_oss;
     ClassificationStats thread_stats = {0, 0, 0};
     vector<string> translated_frames(6);
-    BatchSequenceReader reader1, reader2;
-    Sequence seq1, seq2;
+    Sequence *seq1, *seq2;
+    BatchSequenceReader reader1(r1), reader2(r2);
     uint64_t block_id;
     OutputData out_data;
     taxon_counters_t thread_taxon_counters;
@@ -274,20 +264,20 @@ void ProcessFiles(const char *filename1, const char *filename2,
       {  // Input processing block
         if (! opts.paired_end_processing) {
           // Unpaired data?  Just read in a sized block
-          ok_read = reader1.LoadBlock(*fptr1, (size_t)(3 * 1024 * 1024));
+          ok_read = reader1.LoadBlock((size_t)(3 * 1024 * 1024));
         }
         else if (! opts.single_file_pairs) {
           // Paired data in 2 files?  Read a line-counted batch from each file.
-          ok_read = reader1.LoadBatch(*fptr1, NUM_FRAGMENTS_PER_THREAD);
+          ok_read = reader1.LoadBatch(NUM_FRAGMENTS_PER_THREAD);
           if (ok_read && opts.paired_end_processing)
-            ok_read = reader2.LoadBatch(*fptr2, NUM_FRAGMENTS_PER_THREAD);
+            ok_read = reader2.LoadBatch(NUM_FRAGMENTS_PER_THREAD);
         }
         else {
           auto frags = NUM_FRAGMENTS_PER_THREAD * 2;
           // Ensure frag count is even - just in case above line is changed
           if (frags % 2 == 1)
             frags++;
-          ok_read = reader1.LoadBatch(*fptr1, frags);
+          ok_read = reader1.LoadBatch(frags);
         }
         block_id = next_input_block_id++;
       }
@@ -303,44 +293,48 @@ void ProcessFiles(const char *filename1, const char *filename2,
       u2_oss.str("");
       thread_taxon_counters.clear();
 
-      while (true) {
-        auto valid_fragment = reader1.NextSequence(seq1);
+      while ((seq1 = reader1.NextSequence()) != NULL) {
+        auto valid_fragment = true;
+        // auto valid_fragment = (seq1 = reader1.NextSequence()) != nullptr;
         if (opts.paired_end_processing && valid_fragment) {
-          if (opts.single_file_pairs)
-            valid_fragment = reader1.NextSequence(seq2);
-          else
-            valid_fragment = reader2.NextSequence(seq2);
+          if (opts.single_file_pairs) {
+            seq2 = reader1.NextSequence();
+            valid_fragment = seq2 != nullptr;
+          } else {
+            seq2 = reader2.NextSequence();
+            valid_fragment = seq2 != nullptr;
+          }
         }
         if (! valid_fragment)
           break;
         thread_stats.total_sequences++;
         if (opts.minimum_quality_score > 0) {
-          MaskLowQualityBases(seq1, opts.minimum_quality_score);
+          MaskLowQualityBases(*seq1, opts.minimum_quality_score);
           if (opts.paired_end_processing)
-            MaskLowQualityBases(seq2, opts.minimum_quality_score);
+            MaskLowQualityBases(*seq2, opts.minimum_quality_score);
         }
-        auto call = ClassifySequence(seq1, seq2,
+        auto call = ClassifySequence(*seq1, *seq2,
             kraken_oss, hash, tax, idx_opts, opts, thread_stats, scanner,
             taxa, hit_counts, translated_frames, thread_taxon_counters);
         if (call) {
           char buffer[1024] = "";
           sprintf(buffer, " kraken:taxid|%llu",
               (unsigned long long) tax.nodes()[call].external_id);
-          seq1.header += buffer;
-          c1_oss << seq1.to_string();
+          seq1->header += buffer;
+          c1_oss << seq1->to_string();
           if (opts.paired_end_processing) {
-            seq2.header += buffer;
-            c2_oss << seq2.to_string();
+            seq2->header += buffer;
+            c2_oss << seq2->to_string();
           }
         }
         else {
-          u1_oss << seq1.to_string();
+          u1_oss << seq1->to_string();
           if (opts.paired_end_processing)
-            u2_oss << seq2.to_string();
+            u2_oss << seq2->to_string();
         }
-        thread_stats.total_bases += seq1.seq.size();
+        thread_stats.total_bases += seq1->seq.size();
         if (opts.paired_end_processing)
-          thread_stats.total_bases += seq2.seq.size();
+          thread_stats.total_bases += seq2->seq.size();
       }
 
       #pragma omp atomic
@@ -413,12 +407,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
         omp_unset_lock(&output_lock);
       }  // end while output loop
     }  // end while
-  }  // end parallel block
+  } // end parallel block
+
   omp_destroy_lock(&output_lock);
-  if (fptr1 != nullptr)
-    delete fptr1;
-  if (fptr2 != nullptr)
-    delete fptr2;
   if (outputs.kraken_output != nullptr)
     (*outputs.kraken_output) << std::flush;
   if (outputs.classified_output1 != nullptr)
@@ -592,9 +583,9 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   else
     koss << "U\t";
   if (! opts.paired_end_processing)
-    koss << dna.id << "\t";
+    koss << dna.header << "\t";
   else
-    koss << TrimPairInfo(dna.id) << "\t";
+    koss << TrimPairInfo(dna.header) << "\t";
 
   auto ext_call = taxonomy.nodes()[call].external_id;
   if (opts.print_scientific_name) {
@@ -728,7 +719,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
     return;
   if (dna.seq.size() != dna.quals.size())
     errx(EX_DATAERR, "%s: Sequence length (%d) != Quality string length (%d)",
-                     dna.id.c_str(), (int) dna.seq.size(), (int) dna.quals.size());
+                     dna.header.c_str(), (int) dna.seq.size(), (int) dna.quals.size());
   for (size_t i = 0; i < dna.seq.size(); i++) {
     if ((dna.quals[i] - '!') < minimum_quality_score)
       dna.seq[i] = 'x';

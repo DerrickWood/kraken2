@@ -15,8 +15,6 @@
 
 using std::string;
 using std::map;
-using std::cout;
-using std::queue;
 using std::cerr;
 using std::endl;
 using std::vector;
@@ -154,17 +152,17 @@ int main(int argc, char **argv) {
 
 // A quick but nondeterministic build
 void ProcessSequencesFast(const Options &opts,
-    const map<string, taxid_t> &ID_to_taxon_map,
-    CompactHashTable &kraken_index, const Taxonomy &taxonomy)
-{
+                          const map<string, taxid_t> &ID_to_taxon_map,
+                          CompactHashTable &kraken_index,
+                          const Taxonomy &taxonomy) {
   size_t processed_seq_ct = 0;
   size_t processed_ch_ct = 0;
 
-  #pragma omp parallel
+#pragma omp parallel
   {
     Sequence sequence;
     MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask,
-                             ! opts.input_is_protein, opts.toggle_mask);
+                             !opts.input_is_protein, opts.toggle_mask);
 
     BatchSequenceReader reader;
 
@@ -172,77 +170,94 @@ void ProcessSequencesFast(const Options &opts,
       // Declaration of "ok" and break need to be done outside of critical
       // section to conform with OpenMP spec.
       bool ok;
-      #pragma omp critical(reader)
-      ok = reader.LoadBlock(std::cin, opts.block_size);
-      if (! ok)
+      BatchSequenceReader reader_clone(reader);
+#pragma omp critical(reader)
+      ok = reader_clone.LoadBlock(opts.block_size);
+      if (!ok)
         break;
-      while (reader.NextSequence(sequence)) {
+      while (reader_clone.NextSequence(sequence)) {
         auto all_sequence_ids = ExtractNCBISequenceIDs(sequence.header);
         taxid_t taxid = 0;
         for (auto &seqid : all_sequence_ids) {
-          if (ID_to_taxon_map.count(seqid) == 0 || ID_to_taxon_map.at(seqid) == 0) continue;
+          if (ID_to_taxon_map.count(seqid) == 0 ||
+              ID_to_taxon_map.at(seqid) == 0)
+            continue;
           auto ext_taxid = ID_to_taxon_map.at(seqid);
-          taxid = taxonomy.LowestCommonAncestor(taxid, taxonomy.GetInternalID(ext_taxid));
+          taxid = taxonomy.LowestCommonAncestor(
+              taxid, taxonomy.GetInternalID(ext_taxid));
         }
         if (taxid) {
           // Add terminator for protein sequences if not already there
           if (opts.input_is_protein && sequence.seq.back() != '*')
             sequence.seq.push_back('*');
-          ProcessSequenceFast(sequence.seq, taxid, kraken_index, taxonomy, scanner,
-            opts.min_clear_hash_value);
-          #pragma omp atomic
+          ProcessSequenceFast(sequence.seq, taxid, kraken_index, taxonomy,
+                              scanner, opts.min_clear_hash_value);
+#pragma omp atomic
           processed_seq_ct++;
-          #pragma omp atomic
+#pragma omp atomic
           processed_ch_ct += sequence.seq.size();
         }
       }
       if (isatty(fileno(stderr))) {
-        #pragma omp critical(status_update)
-        std::cerr << "\rProcessed " << processed_seq_ct << " sequences (" << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << ")...";
+#pragma omp critical(status_update)
+        std::cerr << "\rProcessed " << processed_seq_ct << " sequences ("
+                  << processed_ch_ct << " "
+                  << (opts.input_is_protein ? "aa" : "bp") << ")...";
       }
     }
   }
   if (isatty(fileno(stderr)))
     std::cerr << "\r";
-  std::cerr << "Completed processing of " << processed_seq_ct << " sequences, " << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << std::endl;
+  std::cerr << "Completed processing of " << processed_seq_ct << " sequences, "
+            << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp")
+            << std::endl;
 }
 
 // Slightly slower but deterministic when multithreaded
 void ProcessSequences(const Options &opts,
-    const map<string, taxid_t> &ID_to_taxon_map,
-    CompactHashTable &kraken_index, const Taxonomy &taxonomy)
-{
+                      const map<string, taxid_t> &ID_to_taxon_map,
+                      CompactHashTable &kraken_index,
+                      const Taxonomy &taxonomy) {
   size_t processed_seq_ct = 0;
   size_t processed_ch_ct = 0;
 
-  Sequence sequence;
+  Sequence *sequence;
   BatchSequenceReader reader;
 
-  while (reader.LoadBlock(std::cin, DEFAULT_BLOCK_SIZE)) {
-    while (reader.NextSequence(sequence)) {
-      auto all_sequence_ids = ExtractNCBISequenceIDs(sequence.header);
+  while (reader.LoadBlock(opts.block_size)) {
+    while ((sequence = reader.NextSequence()) != NULL) {
+      auto all_sequence_ids = ExtractNCBISequenceIDs(sequence->header);
       taxid_t taxid = 0;
+      int ext_taxid;
       for (auto &seqid : all_sequence_ids) {
-        if (ID_to_taxon_map.count(seqid) == 0 || ID_to_taxon_map.at(seqid) == 0) continue;
-        auto ext_taxid = ID_to_taxon_map.at(seqid);
-        taxid = taxonomy.LowestCommonAncestor(taxid, taxonomy.GetInternalID(ext_taxid));
+        if (ID_to_taxon_map.count(seqid) == 0 ||
+            ID_to_taxon_map.at(seqid) == 0) {
+          continue;
+        }
+        ext_taxid = ID_to_taxon_map.at(seqid);
+        taxid = taxonomy.LowestCommonAncestor(
+            taxid, taxonomy.GetInternalID(ext_taxid));
       }
       if (taxid) {
         // Add terminator for protein sequences if not already there
-        if (opts.input_is_protein && sequence.seq.back() != '*')
-          sequence.seq.push_back('*');
-        ProcessSequence(opts, sequence.seq, taxid, kraken_index, taxonomy);
+        if (opts.input_is_protein && sequence->seq.back() != '*')
+          sequence->seq.push_back('*');
+        ProcessSequence(opts, sequence->seq, taxid, kraken_index, taxonomy);
         processed_seq_ct++;
-        processed_ch_ct += sequence.seq.size();
+        processed_ch_ct += sequence->seq.size();
       }
     }
     if (isatty(fileno(stderr))) {
-      std::cerr << "\rProcessed " << processed_seq_ct << " sequences (" << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << ")...";
+      std::cerr << "\rProcessed " << processed_seq_ct << " sequences ("
+                << processed_ch_ct << " "
+                << (opts.input_is_protein ? "aa" : "bp") << ")...";
     }
   }
   if (isatty(fileno(stderr)))
     std::cerr << "\r";
-  std::cerr << "Completed processing of " << processed_seq_ct << " sequences, " << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp") << std::endl;
+  std::cerr << "Completed processing of " << processed_seq_ct << " sequences, "
+            << processed_ch_ct << " " << (opts.input_is_protein ? "aa" : "bp")
+            << std::endl;
 }
 
 // This function exists to deal with NCBI's use of \x01 characters to denote
@@ -251,10 +266,9 @@ void ProcessSequences(const Options &opts,
 vector<string> ExtractNCBISequenceIDs(const string &header) {
   vector<string> list;
   string current_str;
-
   bool in_id = true;
-  // start loop at first char after '>'
-  for (size_t i = 1; i < header.size(); ++i) {
+
+  for (size_t i = 0; i < header.size(); ++i) {
     if (header[i] == 0x01) {
       // 0x01 starts new ID at next char
       if (! current_str.empty())

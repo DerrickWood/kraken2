@@ -20,7 +20,7 @@ hyperloglogplus.o: hyperloglogplus.cc hyperloglogplus.h
 mmap_file.o: mmap_file.cc mmap_file.h
 compact_hash.o: compact_hash.cc compact_hash.h kv_store.h mmap_file.h kraken2_data.h
 mmscanner.o: mmscanner.cc mmscanner.h
-seqreader.o: seqreader.cc seqreader.h
+seqreader.o: seqreader.cc seqreader.h kseq.h
 omp_hack.o: omp_hack.cc omp_hack.h
 reports.o: reports.cc reports.h kraken2_data.h
 aa_translate.o: aa_translate.cc aa_translate.h

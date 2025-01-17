@@ -8,6 +8,7 @@
 #define KRAKEN2_MMSCANNER_H_
 
 #include "kraken2_headers.h"
+#include "kv_store.h"
 
 namespace kraken2 {
 
@@ -63,7 +64,7 @@ class MinimizerScanner {
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
   ssize_t loaded_ch_;
-  std::vector<MinimizerData> queue_;
+  std::deque<MinimizerData> queue_;
   ssize_t queue_pos_;
   uint64_t last_ambig_;
   uint8_t lookup_table_[UINT8_MAX + 1];

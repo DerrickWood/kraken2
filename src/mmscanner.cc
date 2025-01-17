@@ -167,7 +167,8 @@ uint64_t *MinimizerScanner::NextMinimizer() {
     queue_.push_back(data);
     // expire an l-mer not in the current window
     if (queue_.front().pos < queue_pos_ - k_ + l_) {
-      queue_.erase(queue_.begin());
+      // queue_.erase(queue_.begin());
+      queue_.pop_front();
       // Change in front means minimizer changed
       changed_minimizer = true;
     }

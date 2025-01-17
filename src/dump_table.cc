@@ -26,6 +26,7 @@ struct Options {
   bool use_mpa_style;
   bool report_zeros;
   bool skip_counts;
+  bool memory_mapping;
   unsigned int num_threads;
 };
 
@@ -46,11 +47,12 @@ int main(int argc, char **argv) {
   opts.use_mpa_style = false;
   opts.skip_counts = false;
   opts.num_threads = 1;
+  opts.memory_mapping = false;
   ParseCommandLine(argc, argv, opts);
 
   omp_set_num_threads(opts.num_threads);
 
-  CompactHashTable kraken_index(opts.hashtable_filename);
+  CompactHashTable kraken_index(opts.hashtable_filename, opts.memory_mapping);
   Taxonomy taxonomy(opts.taxonomy_filename);
   IndexOptions idx_opts = {0};
   std::ifstream idx_opt_fs(opts.options_filename);
@@ -83,10 +85,11 @@ int main(int argc, char **argv) {
       taxid_counters[kv_pair.first] = rc;
     }
     if (opts.use_mpa_style)
-      ReportMpaStyle(opts.output_filename, opts.report_zeros, taxonomy, taxid_counters);
+      ReportMpaStyle(opts.output_filename, opts.report_zeros, taxonomy,
+                     taxid_counters, opts.num_threads);
     else
       ReportKrakenStyle(opts.output_filename, opts.report_zeros, false, taxonomy,
-          taxid_counters, total_seqs, 0);
+                        taxid_counters, total_seqs, 0, opts.num_threads);
   }
 
   return 0;
@@ -95,7 +98,7 @@ int main(int argc, char **argv) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "?hH:t:o:O:p:zms")) != -1) {
+  while ((opt = getopt(argc, argv, "?hH:t:o:O:p:zmsM")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -124,6 +127,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'p' :
         opts.num_threads = atoi(optarg);
         break;
+      case 'M':
+        opts.memory_mapping = true;
+        break;
     }
   }
 
@@ -136,15 +142,18 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
 }
 
 void usage(int exit_code) {
-  cerr << "Usage: dump_table <options>\n"
-       << "\n"
-       << "Options (*mandatory):\n"
-       << "* -H FILENAME   Kraken 2 hash table filename\n"
-       << "* -t FILENAME   Kraken 2 taxonomy filename\n"
-       << "* -o FILENAME   Kraken 2 database options filename\n"
-       << "  -O FILENAME   Output filename (def: /dev/fd/1)\n"
-       << "  -m            Use MPA style output instead of Kraken 2 output\n"
-       << "  -s            Skip reporting minimizer counts, just show DB stats\n"
-       << "  -z            Report taxa with zero counts\n";
+  cerr
+      << "Usage: dump_table <options>\n"
+      << "\n"
+      << "Options (*mandatory):\n"
+      << "* -H FILENAME   Kraken 2 hash table filename\n"
+      << "* -t FILENAME   Kraken 2 taxonomy filename\n"
+      << "* -o FILENAME   Kraken 2 database options filename\n"
+      << "  -O FILENAME   Output filename (def: /dev/fd/1)\n"
+      << "  -m            Use MPA style output instead of Kraken 2 output\n"
+      << "  -M            Use memory mapping to access hash & taxonomy\n"
+      << "  -s            Skip reporting minimizer counts, just show DB stats\n"
+      << "  -p INT        Number of threads\n"
+      << "  -z            Report taxa with zero counts\n";
   exit(exit_code);
 }

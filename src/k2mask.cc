@@ -60,7 +60,7 @@ struct MaskRange {
 };
 
 struct SDust {
-  SDust(): rw(0), rv(0), l(0) {
+  SDust() : rw(0), rv(0), l(0) {
     memset(cv, 0, 64 * sizeof(int));
     memset(cw, 0, 64 * sizeof(int));
   }
@@ -91,9 +91,11 @@ std::function<int(int)> processMaskedNucleotide = tolower;
 
 void usage(const char *prog) {
   std::cerr << "usage: " << prog
-            << " [-T | -level threshold] [-W | -window window size] [-i | -in input file]"
+            << " [-T | -level threshold] [-W | -window window size] [-i | -in "
+               "input file]"
             << std::endl
-            << " [-w | -width sequence width] [-o | -out output file] [-r | -replace-masked-with char]"
+            << " [-w | -width sequence width] [-o | -out output file] [-r | "
+               "-replace-masked-with char]"
             << std::endl
             << " [-f | -outfmt output format] [-t | -threads threads]"
             << std::endl;
@@ -142,22 +144,22 @@ void shiftWindow(SDust &sd, int t) {
 
 void saveMaskedRegions(SDust &sd, int windowStart) {
   bool saved = false;
-  if (sd.perfectIntervals.size() == 0
-      || sd.perfectIntervals.back().start >= windowStart)
+  if (sd.perfectIntervals.size() == 0 ||
+      sd.perfectIntervals.back().start >= windowStart)
     return;
   PerfectInterval &p = sd.perfectIntervals.back();
   if (!sd.ranges.empty()) {
     int start = sd.ranges.back().start;
     int finish = sd.ranges.back().finish;
     if (p.start <= finish) {
-      sd.ranges.back() = MaskRange { start, std::max(p.finish, finish) };
+      sd.ranges.back() = MaskRange{start, std::max(p.finish, finish)};
       saved = true;
     }
   }
   if (!saved)
-    sd.ranges.push_back(MaskRange { p.start, p.finish});
-  while (!sd.perfectIntervals.empty()
-         && sd.perfectIntervals.back().start < windowStart)
+    sd.ranges.push_back(MaskRange{p.start, p.finish});
+  while (!sd.perfectIntervals.empty() &&
+         sd.perfectIntervals.back().start < windowStart)
     sd.perfectIntervals.pop_back();
 }
 
@@ -175,7 +177,9 @@ void findPerfect(SDust &sd, int windowStart) {
     newRight += cv[kmer]++;
     newLeft = sd.kmers.size() - i - 1;
     if (newRight * 10 > threshold * newLeft) {
-      for (j = 0; j < sd.perfectIntervals.size() && sd.perfectIntervals[j].start >= i + windowStart; ++j) {
+      for (j = 0; j < sd.perfectIntervals.size() &&
+                  sd.perfectIntervals[j].start >= i + windowStart;
+           ++j) {
         PerfectInterval &p = sd.perfectIntervals[j];
         if (maxRight == 0 || p.right * maxLeft > maxRight * p.left) {
           maxLeft = p.left;
@@ -219,8 +223,13 @@ void runSymmetricDust(SDust &sd, char *seq, size_t size, int offset) {
     saveMaskedRegions(sd, windowStart++);
 }
 
-void printFasta(Sequence seq, std::ostream& out, int width) {
+void printFasta(Sequence seq, std::ostream &out, int width) {
+  out << ">";
   out.write(&seq.header[0], seq.header.size());
+  if (seq.comment.size() > 0) {
+    out << " ";
+    out.write(&seq.comment[0], seq.comment.size());
+  }
   out << '\n';
   for (size_t i = 0; i < seq.seq.size(); i += width) {
     if (i + width >= seq.seq.size())
@@ -240,8 +249,7 @@ SDust *mask(SDust *sd) {
       int start = i;
       for (;;) {
         seq[i] = toupper(seq[i]);
-        if ((i+1) == seq.size()
-            || asc2dna[(int)seq[i+1]] == 4)
+        if ((i + 1) == seq.size() || asc2dna[(int)seq[i + 1]] == 4)
           break;
         i++;
       }
@@ -267,19 +275,19 @@ int main(int argc, char **argv) {
   const char *prog = "k2mask";
 
   struct option longopts[] = {
-    {"window", required_argument, NULL, 'W'},
-    {"level", required_argument, NULL, 'T'},
-    {"in", required_argument, NULL, 'i'},
-    {"out", required_argument, NULL, 'o'},
-    {"width", required_argument, NULL, 'w'},
-    {"outfmt", required_argument, NULL, 'f'},
-    {"threads", required_argument, NULL, 't'},
-    {"replace-masked-with", required_argument, NULL, 'r'},
-    {"help",                no_argument,       NULL, 'h'},
-    {NULL,                  0,                 NULL, 0}
-  };
+      {"window", required_argument, NULL, 'W'},
+      {"level", required_argument, NULL, 'T'},
+      {"in", required_argument, NULL, 'i'},
+      {"out", required_argument, NULL, 'o'},
+      {"width", required_argument, NULL, 'w'},
+      {"outfmt", required_argument, NULL, 'f'},
+      {"threads", required_argument, NULL, 't'},
+      {"replace-masked-with", required_argument, NULL, 'r'},
+      {"help", no_argument, NULL, 'h'},
+      {NULL, 0, NULL, 0}};
 
-  while ((ch = getopt_long_only(argc, argv, "W:T:hi:w:o:r:t:", longopts, NULL)) != -1) {
+  while ((ch = getopt_long_only(argc, argv, "W:T:hi:w:o:r:t:", longopts,
+                                NULL)) != -1) {
     switch (ch) {
     case 'W':
       windowSize = atoi(optarg);
@@ -320,8 +328,8 @@ int main(int argc, char **argv) {
     case 'r': {
       // Replace masked character with a specified letter. (default tolower)
       if (strlen(optarg) != 1) {
-        std::cerr << prog << ": -r expects a single character, "
-                  << optarg << " given." << std::endl;
+        std::cerr << prog << ": -r expects a single character, " << optarg
+                  << " given." << std::endl;
         usage(prog);
       }
       int r = optarg[0];
@@ -337,8 +345,7 @@ int main(int argc, char **argv) {
   argv += optind;
 
   if (argc > 0) {
-    std::cerr << prog << ": reads from stdin and writes to stdout"
-              << std::endl;
+    std::cerr << prog << ": reads from stdin and writes to stdout" << std::endl;
     usage(prog);
   }
   gzistream is(infile.c_str());
@@ -350,7 +357,8 @@ int main(int argc, char **argv) {
   }
   thread_pool pool(threads - 1);
   std::queue<std::future<SDust *>> tasks;
-  for (SDust *sd = sds.back(); BatchSequenceReader::ReadNextSequence(is, sd->seq, buffer); sd = sds.back()) {
+  BatchSequenceReader reader;
+  for (SDust *sd = sds.back(); reader.NextSequence(sd->seq); sd = sds.back()) {
     sds.pop_back();
     if (threads > 1) {
       tasks.push(pool.submit(mask, sd));
@@ -373,7 +381,7 @@ int main(int argc, char **argv) {
     tasks.pop();
   }
   for (size_t i = 0; i < sds.size(); i++)
-    delete(sds[i]);
+    delete (sds[i]);
   out.flush();
   remove("masked_sequences.txt");
 }
