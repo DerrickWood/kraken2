@@ -2617,9 +2617,9 @@ def build_16S_silva(args):
     for directory in ["data", "taxonomy", "library"]:
         os.makedirs(directory, exist_ok=True)
     os.chdir("data")
-    remote_directory = "/release_138_1/Exports"
-    fasta_filename = "SILVA_138.1_SSURef_NR99_tax_silva.fasta.gz"
-    taxonomy_prefix = "tax_slv_ssu_138.1"
+    remote_directory = "/release_138_2/Exports"
+    fasta_filename = "SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz"
+    taxonomy_prefix = "tax_slv_ssu_138.2"
     ftp = FTP(SILVA_SERVER)
     ftp.download(remote_directory, fasta_filename)
     ftp.download(
