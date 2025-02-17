@@ -703,7 +703,7 @@ def add_file(args, filename, hashes):
     destination = base + "_" + filehash + ext
     if already_added:
         LOG.info(
-            "Already added: " + filename + " to library. "
+            "Already added " + filename + " to library. "
             "Please remove the entry from added.md5 if this"
             " is not the case.\n"
         )
@@ -3381,7 +3381,7 @@ def make_download_library_parser(subparsers):
         "--no-masking",
         action="store_true",
         help="Avoid asking low-complexity sequences prior to\
-              building; masking requires dustmasker or segmasker to be\
+              building; masking requires k2mask or segmasker to be\
               installed",
     )
     masking_parser.add_argument(
@@ -3444,19 +3444,19 @@ def make_add_to_library_parser(subparsers):
         default=None,
         help="Specify a log filename (default: stderr)",
     )
-    parser.add_argument(
-        "--skip-md5",
-        action="store_true",
-        help="K2 will by default perform an MD5 check to determine whether\
-             a file has already been added. This option will allow the user\
-             to skip this and instead simply compare filenames."
-    )
+    # parser.add_argument(
+    #     "--skip-md5",
+    #     action="store_true",
+    #     help="K2 will by default perform an MD5 check to determine whether\
+    #          a file has already been added. This option will allow the user\
+    #          to skip this and instead simply compare filenames."
+    # )
     masking_parser = parser.add_mutually_exclusive_group()
     masking_parser.add_argument(
         "--no-masking",
         action="store_true",
         help="Avoid asking low-complexity sequences prior to\
-              building; masking requires dustmasker or segmasker to be\
+              building; masking requires k2mask or segmasker to be\
               installed",
     )
     masking_parser.add_argument(
