@@ -617,7 +617,11 @@ def lookup_accession_numbers(
                 in_file.readline()  # discard header line
                 for line in in_file:
                     line = line.strip()
-                    accession, with_version, taxid, gi = line.split("\t")
+                    split = line.split("\t")
+                    if len(split) != 4:
+                        LOG.warning("'{}' contains fewer than 4 fields\n".format(line))
+                        continue
+                    accession, with_version, taxid, gi = split
                     if accession in target_lists:
                         lst = target_lists[accession]
                         del target_lists[accession]
