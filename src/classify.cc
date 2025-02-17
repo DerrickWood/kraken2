@@ -247,7 +247,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
     ostringstream kraken_oss, c1_oss, c2_oss, u1_oss, u2_oss;
     ClassificationStats thread_stats = {0, 0, 0};
     vector<string> translated_frames(6);
-    Sequence *seq1, *seq2;
+    Sequence *seq1 = nullptr, *seq2 = nullptr;
     BatchSequenceReader reader1(r1), reader2(r2);
     uint64_t block_id;
     OutputData out_data;

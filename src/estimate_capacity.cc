@@ -63,50 +63,40 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-void ProcessSequences(Options &opts)
+void ProcessSequences(Options& opts)
 {
-        std::vector<vector<unordered_set<uint64_t>>> vector_of_sets(opts.threads);
-        BatchSequenceReader reader;
+  std::vector<vector<unordered_set<uint64_t>>> vector_of_sets(opts.threads);
+  BatchSequenceReader reader;
 
-        #pragma omp parallel for
-        for (auto i = 0; i < opts.threads; i++) {
-                BatchSequenceReader reader_copy(reader);
-                vector_of_sets[i].resize(opts.n);
-                bool have_work = true;
-                Sequence sequence;
+#pragma omp parallel for
+  for (auto i = 0; i < opts.threads; i++) {
+    BatchSequenceReader reader_copy(reader);
+    vector_of_sets[i].resize(opts.n);
+    bool have_work = true;
+    Sequence sequence;
 
-                while (have_work) {
-                        #pragma omp critical(batch_reading)
-                        {
-
-                          // have_work = reader.LoadBatch(std::cin, 1);
-                          // have_work = reader.LoadBlock(std::cin,
-                          // opts.block_size);
-                          have_work = reader_copy.NextSequence(sequence);
-                             // have_work = reader_copy.LoadBlock(opts.block_size);
-
-                       }
-                       if (have_work) {
-                               // Sequence *sequence;
-                               //while ((sequence = reader_copy.NextSequence()) != NULL)
-                                  // ProcessSequence(sequence->seq, opts, vector_of_sets[i]);
-                               ProcessSequence(sequence.seq, opts, vector_of_sets[i]);
-
-                       }
-                }
-        }
-        auto &sets = vector_of_sets[0];
-        for (auto i = 1; i < vector_of_sets.size(); i++) {
-                for (auto j = 0; j < opts.n; j++) {
-                        sets[j].insert(vector_of_sets[i][j].begin(), vector_of_sets[i][j].end());
-                }
-        }
-        size_t sum_set_sizes = 0;
-        for (auto &s : sets) {
-                sum_set_sizes += s.size();
-        }
-        sum_set_sizes++;  // ensure non-zero estimate
-        cout << (size_t) (sum_set_sizes * RANGE_SECTIONS * 1.0 / opts.n) << endl;
+    while (have_work) {
+#pragma omp critical(batch_reading)
+      {
+        have_work = reader_copy.NextSequence(sequence);
+      }
+      if (have_work) {
+        ProcessSequence(sequence.seq, opts, vector_of_sets[i]);
+      }
+    }
+  }
+  auto& sets = vector_of_sets[0];
+  for (auto i = 1; i < vector_of_sets.size(); i++) {
+    for (auto j = 0; j < opts.n; j++) {
+      sets[j].insert(vector_of_sets[i][j].begin(), vector_of_sets[i][j].end());
+    }
+  }
+  size_t sum_set_sizes = 0;
+  for (auto& s : sets) {
+    sum_set_sizes += s.size();
+  }
+  sum_set_sizes++; // ensure non-zero estimate
+  cout << (size_t)(sum_set_sizes * RANGE_SECTIONS * 1.0 / opts.n) << endl;
 }
 
 void ParseCommandLine(int argc, char **argv, Options &opts) {
