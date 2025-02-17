@@ -2227,6 +2227,61 @@ def check_seqidmap():
     shutil.move("seqid2taxid.map.new", "seqid2taxid.map")
 
 
+def suffix_to_multiplier(suffix):
+    name_to_size = {
+        'byte': 1,
+        'kebibyte': 2 ** 10,
+        'mebibyte': 2 ** 20,
+        'gebibyte': 2 ** 30,
+        'tebibyte': 2 ** 40,
+        'kilobyte': 10 ** 3,
+        'megabyte': 10 ** 6,
+        'gigabyte': 10 ** 9,
+        'terabyte': 10 ** 12
+
+    }
+
+    unit_to_size = {
+        'B': 1,
+        'KiB': 2 ** 10,
+        'KB':  10 ** 3,
+        'MiB': 2 ** 20,
+        'MB':  10 ** 6,
+        'GiB': 2 ** 30,
+        'GB':  10 ** 9,
+        'TiB': 2 ** 40,
+        'TB':  10 ** 12,
+    }
+
+    original_suffix = suffix
+
+    if suffix in unit_to_size:
+        return unit_to_size[suffix]
+
+    if suffix.lower().endswith("s"):
+        suffix = suffix.lower()[:-1]
+
+    if suffix in name_to_size:
+        return name_to_size[suffix]
+
+    LOG.error("Unable to convert {} to a storage unit\n".format(original_suffix))
+    sys.exit(1)
+
+
+
+def parse_db_size(input):
+    if input.isdigit():
+        return int(input)
+
+    input = input.replace(" ", "")
+    number = "".join(itertools.takewhile(str.isnumeric, input))
+    suffix = "".join(itertools.takewhile(str.isalpha, input[len(number):]))
+    number = int(number)
+    multiplier = suffix_to_multiplier(suffix)
+
+    return number * multiplier
+
+
 def build_kraken2_db(args):
     if not os.path.isdir(get_abs_path(args.db)):
         LOG.error('Cannot find Kraken 2 database: "{:s}\n'.format(args.db))
@@ -2359,12 +2414,15 @@ def build_kraken2_db(args):
         )
     )
     if args.max_db_size:
+        args.max_db_size = parse_db_size(args.max_db_size)
         if args.max_db_size < required_capacity * 4:
             args.max_db_size = int(args.max_db_size / 4)
-            LOG.warning(
-                "Specifiying lower maximum hash table size of {:f}\n".format(
-                    args.max_db_size
-                )
+            LOG.info(
+                "Maximum hash table size of {}, specified and is"
+                " lower than the calculated estimated capacity of {}\n"
+                .format(
+                    format_bytes(args.max_db_size * 4),
+                    format_bytes(required_capacity * 4))
             )
     if os.path.isfile("hash.k2d"):
         LOG.info("Hash table already present, skipping build\n")
@@ -2442,6 +2500,7 @@ def decompress_with_zlib(filename):
                 break
             inflator.decompress(data)
 
+
 def read_from_stderr(fd, total_sequences):
     pb = ProgressBar(total_sequences)
     buffer = b""
@@ -2475,7 +2534,6 @@ def read_from_stderr(fd, total_sequences):
 
 # Parses RDP sequence data to create Kraken taxonomy
 # and sequence ID -> taxonomy ID mapping
-# Input (as <>): current_{Archaea,Bacteria}_unaligned.fa
 def build_rdp_taxonomy(f):
     seqid_map = {}
     seen_it = {}
@@ -2571,7 +2629,6 @@ def build_standard_database(args):
 
 
 # Parses Silva taxonomy file to create Kraken taxonomy
-# Input (as <>): tax_slv_ssu_nr_119.txt
 def build_silva_taxonomy(in_file):
     id_map = {"root": 1}
     with open("names.dmp", "w") as names_file:
@@ -3145,8 +3202,8 @@ def make_build_parser(subparsers):
     )
     parser.add_argument(
         "--max-db-size",
-        type=int,
-        metavar="INT",
+        # type=int,
+        metavar="SIZE",
         help="Maximum number of bytes for Kraken 2 hash table;\
               if the estimator determines more would normally be\
               needed, the reference library will be downsampled to fit",
@@ -3233,7 +3290,8 @@ def make_download_taxonomy_parser(subparsers):
 
 def make_download_library_parser(subparsers):
     parser = subparsers.add_parser(
-        "download-library", help="Download and build a special database"
+        "download-library", aliases=["download"],
+        help="Download and build a special database"
     )
     parser.add_argument(
         "--db",
@@ -3244,7 +3302,11 @@ def make_download_library_parser(subparsers):
     )
     parser.add_argument(
         "--library",
+        "--taxid",
+        "--project",
+        "--accession",
         type=str,
+        dest="library",
         required=True,
         # choices=[
         #     "archaea",
@@ -3352,6 +3414,7 @@ def make_add_to_library_parser(subparsers):
         "--files",
         type=str,
         nargs="+",
+        required=True,
         dest="files",
         help="""Pathname or patterns of file(s) to be added to library.
                 Supported pattern are as follows:
@@ -3377,13 +3440,13 @@ def make_add_to_library_parser(subparsers):
         default=None,
         help="Specify a log filename (default: stderr)",
     )
-    # parser.add_argument(
-    #     "--skip-md5",
-    #     action="store_true",
-    #     help="K2 will by default perform an MD5 check to determine whether\
-    #          a file has already been added. This option will allow the user\
-    #          to skip this and instead simply compare filenames."
-    # )
+    parser.add_argument(
+        "--skip-md5",
+        action="store_true",
+        help="K2 will by default perform an MD5 check to determine whether\
+             a file has already been added. This option will allow the user\
+             to skip this and instead simply compare filenames."
+    )
     masking_parser = parser.add_mutually_exclusive_group()
     masking_parser.add_argument(
         "--no-masking",
@@ -3636,7 +3699,7 @@ class HelpAction(argparse._HelpAction):
 
 
 def make_cmdline_parser():
-    parser = argparse.ArgumentParser("kraken2", add_help=False)
+    parser = argparse.ArgumentParser("k2", add_help=False)
     parser.add_argument("-h", "--help", action=HelpAction)
     subparsers = parser.add_subparsers()
     make_add_to_library_parser(subparsers)
