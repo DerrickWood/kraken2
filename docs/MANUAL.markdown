@@ -162,6 +162,317 @@ scripts into a directory found in your `PATH` variable (e.g., "`$HOME/bin`"):
 
 After installation, you're ready to either create or download a database.
 
+## Introducing `k2`
+
+`k2` is a new wrapper script that will eventually replace the Perl and Shell scripts that support the Kraken 2 binaries.
+`k2` supports all the command line options of the original scripts and adds some new features that will be documented below.
+We wrote `k2` to be a more portable and extensible replacement to the existing scripts. Portable because `k2` relies soley on the
+Python 3 standard library, and therefore has no need external utilities such as `find` or `rsync` whose command lines can differ
+between operating systems. Extensible because Python has a vast standard library that allows us to easily add new features
+without the need for external dependencies. For users concerned that `k2` will run slower or be less reliable without these
+external tools we have gone to great lengths to address such concerns.
+
+We know that downloading files from NCBI has been a major pain-point for most users. `k2` utlitizes HTTP for most of its downloading
+which is more reliable than FTP, multi-threading and multi-processing capabilities to speed up downloads,
+checksumming for fast resuming of failed downloads and automatically retries failed downloads.
+
+`k2` logs almost everything that it does making it easy for users to know exactly what is happening after issuing a command. We also
+provide progress bars where necessary so users can keep track of the progress of long running jobs. Logs are printed to `stderr`
+by default but can also be sent to a file using the `--log` option.
+
+Below is a synopsis of the sub-commands and options that `k2` supports. We will also highlight the differences of each mode from
+the original scripts.
+
+
+### build
+
+    k2 build --help
+
+    usage: k2 build [-h] --db PATHNAME
+                    [--standard | --special {greengenes,rdp,silva,gtdb}]
+                    [--gtdb-files GTDB_FILES [GTDB_FILES ...]] [--no-masking]
+                    [--masker-threads K2MASK_THREADS] [--kmer-len INT]
+                    [--minimizer-len INT] [--minimizer-spaces INT] [--threads INT]
+                    [--load-factor FLOAT (0,1]] [--fast-build]
+                    [--max-db-size SIZE] [--skip-maps] [--protein]
+                    [--block-size INT] [--sub-block-size INT]
+                    [--minimum-bits-for-taxid INT] [--log FILENAME]
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to database folder where building will take
+                            place.
+      --kmer-len INT        K-mer length in bp/aa
+      --minimizer-len INT   Minimizer length in bp/aa
+      --minimizer-spaces INT
+                            Number of characters in minimizer that are ignored in
+                            comparisons
+      --threads INT         Number of threads
+      --load-factor FLOAT (0,1]
+                            Proportion of the hash table to be populated (default:
+                            0.7)
+      --fast-build          Do not require database to be deterministically built
+                            when using multiple threads. This is faster, but does
+                            introduce variability in minimizer/LCA pairs.
+      --max-db-size SIZE    Maximum number of bytes for Kraken 2 hash table; if
+                            the estimator determines more would normally be
+                            needed, the reference library will be downsampled to
+                            fit
+      --skip-maps           Avoids downloading accession number to taxid maps
+      --protein             Build a protein database for translated search
+      --block-size INT      Read block size (default: 16384)
+      --sub-block-size INT  Read subblock size
+      --minimum-bits-for-taxid INT
+                            Bit storage requested for taxid
+      --log FILENAME        Specify a log file (default: stderr)
+
+    special:
+      --standard            Make standard database which includes: archaea,
+                            bacteria, human, plasmid, UniVec_Core, and viral.
+      --special {greengenes,rdp,silva,gtdb}
+                            Build special database. RDP is currently unavailable
+                            as URLs no longer work.
+      --gtdb-files GTDB_FILES [GTDB_FILES ...]
+                            A list of files or regex matching the files needed to
+                            build the special database.
+      --no-masking          Avoid masking low-complexity sequences prior to
+                            building database.
+      --masker-threads K2MASK_THREADS
+                            Number of threads used by k2mask during masking
+                            process (default: 4)
+
+The following changes have been made to special databases:
+
+-   **GTDB:** Support for building GTDB databases has been added. Files needed for the building the database can be specified using
+    `--gtdb-files` flag.
+-   **RDB:** RDB has been deprecated because the FTP server is no longer functional.
+-   **SILVA:** SILVA has been updated to the version of [138.2](https://ftp.arb-silva.de/release_138.2/)
+
+The `--max-db-size` option supports sizes as either integers or units of measurement such "10GiB", "4TB", "10 gebibytes", "4 terabytes".
+
+
+### inspect
+
+    k2 inspect --help
+
+    usage: k2 inspect [-h] --db PATHNAME [--threads THREADS] [--skip-counts]
+                      [--use-mpa-style] [--report-zero-counts] [--log FILENAME]
+                      [--output FILENAME] [--memory-mapping]
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to Kraken2 database
+      --threads THREADS     Number of threads
+      --skip-counts         Only print database summary statistics
+      --use-mpa-style       Format output like Kraken 1's kraken-mpa-report
+      --report-zero-counts  Report counts for ALL taxa, even if counts are zero
+      --log FILENAME        Specify a log filename (default: stderr)
+      --output FILENAME, --out FILENAME
+                            Write inspect output to FILENAME (default: stdout)
+      --memory-mapping      Avoids loading entire database into RAM
+
+Adds support of the `--memory-mapping` and `--threads` options which allows for faster inspection of large indexes.
+
+
+### classify
+
+    k2 classify --help
+
+    usage: k2 classify [-h] --db PATHNAME [--threads INT] [--quick]
+                       [--unclassified-out FILENAME] [--classified-out FILENAME]
+                       [--output FILENAME] [--confidence CONFIDENCE]
+                       [--minimum-base-quality INT] [--report REPORT]
+                       [--use-mpa-style] [--report-zero-counts]
+                       [--report-minimizer-data] [--memory-mapping]
+                       [--paired | --interleaved] [--use-names]
+                       [--minimum-hit-groups INT] [--log FILENAME]
+                       filenames [filenames ...]
+
+    positional arguments:
+      filenames             Filenames to be classified, supports bz2, gzip, and xz
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to Kraken2 database.
+      --threads INT         Number of threads
+      --quick               Quick operation (use first hit or hits)
+      --unclassified-out FILENAME
+                            Print unclassified sequences to filename
+      --classified-out FILENAME
+                            Print classified sequences to filename
+      --output FILENAME     Print output to file (default: stdout) "-" will
+                            suppress normal output
+      --confidence CONFIDENCE
+                            confidence score threshold (default: 0.0); must be in
+                            [0,1]
+      --minimum-base-quality INT
+                            Minimum base quality used in classification
+      --report REPORT       Print a report with aggregate counts/clade to file
+      --use-mpa-style       With --report, format report output like Kraken 1's
+                            kraken-mpa-report
+      --report-zero-counts  With --report, report counts for ALL taxa, even if
+                            counts are zero
+      --report-minimizer-data
+                            With --report, report minimizer and distinct minimizer
+                            count information in addition to normal Kraken report
+      --memory-mapping      Avoids loading entire database into RAM
+      --paired              The filenames provided have paired-end reads
+      --interleaved         The filenames provided have paired-end reads
+      --use-names           Print scientific names instead of just taxids
+      --minimum-hit-groups INT
+                            Minimum number of hit groups (overlapping k-mers
+                            sharing the same minimizer) needed to make a call
+                            (default 2)
+      --log FILENAME        Specify a log filename (default: stderr)
+
+`classify` can read input files compressed with `gzip`, `bzip`, and `xz`. `zstd` is not yet supported since it not yet included in the Python
+standard library.
+
+
+### download-library
+
+    k2 download-library --help
+
+    usage: k2 download-library [-h] --db PATHNAME --library LIBRARY
+                               [--assembly-source {refseq,genbank,all}]
+                               [--assembly-levels {chromosome,complete_genome,scaffold,contig} [{chromosome,complete_genome,scaffold,contig} ...]]
+                               [--has-annotation] [--protein] [--log FILENAME]
+                               [--threads THREADS]
+                               [--no-masking | --masker-threads K2MASK_THREADS]
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to Kraken2 database
+      --library LIBRARY, --taxid LIBRARY, --project LIBRARY, --accession LIBRARY
+                            Name of library to download
+      --assembly-source {refseq,genbank,all}
+                            Download RefSeq (GCF_) or GenBank (GCA_) genome
+                            assemblies or both (default RefSeq)
+      --assembly-levels {chromosome,complete_genome,scaffold,contig} [{chromosome,complete_genome,scaffold,contig} ...]
+                            Only return genome assemblies that have one of the
+                            specified assembly levels (default chromosome and
+                            complete genome)
+      --has-annotation      Return only annotated genome assemblies (default
+                            false)
+      --protein             Files being added are for a protein database
+      --log FILENAME        Specify a log filename (default stderr)
+      --threads THREADS     The number of threads/processes k2 uses when
+                            downloading and processing library files.
+      --no-masking          Avoid asking low-complexity sequences prior to
+                            building; masking requires k2mask or segmasker to be
+                            installed
+      --masker-threads K2MASK_THREADS
+                            Number of threads used by k2mask during masking
+                            process (default: 4)
+
+`k2` uses this mode to download files from NCBI. The `--library` option can takes the name of a:
+
+-   **genome library:** in addition to the libraries already supported `k2` adds support for
+    vertebrate<sub>other</sub>, vertebrate<sub>mammalian</sub>, mitochondrion, invertebrate, plastid RefSeq collections
+-   **genome taxon:** numerical ID or common or scientific name
+-   **genome accession:** e.g. GCF<sub>000001635.27</sub> (Mouse)
+-   **genome project ID:** bioproject identifier e.g. PRJNA31257 (Human Genome Project)
+
+When a taxid, accession or project ID is specified `k2` will leverage the [NCBI Dataset API](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/rest-api/) to find the related accessions. Additional options
+such as `--assembly-levels`, `--has-annotation`, `--assembly-source`, can be used as filters to further narrow the accessions that
+`k2` will download.
+
+Downloads can be sped up using the `--threads` flag which will cause files to be downloaded in parallel. **Please be advised that large**
+**thread counts place a burden on the NCBI servers and can result in the client being forcefully kicked off**. Please apply discretion when
+using this flag.
+
+After the files have been downloaded `k2` will decompress files, mask the sequences if the `--no-masking` flag is not specified,
+assign taxids and finally concatenate the files into the `library.fna` or `library.faa` file. These steps also utilize
+the `--threads` flag to speed up processing. [kraken 2 v2.1.3](https://github.com/DerrickWood/kraken2/releases/tag/v2.1.3) shipped with a new multi-threaded genomic masker,
+`k2mask` that replaces NCBI's `dustmasker`. The `--masker-threads` option can be used to specify the number of threads that `k2mask` uses.
+
+
+### download-taxonomy
+
+    k2 download-taxonomy --help
+
+    usage: k2 download-taxonomy [-h] --db PATHNAME [--protein] [--skip-maps]
+                                [--log FILENAME]
+
+    optional arguments:
+      -h, --help      show this help message and exit
+      --db PATHNAME   Pathname to Kraken2 database
+      --protein       Files being added are for a protein database
+      --skip-maps     Avoids downloading accession number to taxid maps
+      --log FILENAME  Specify a log filename (default: stderr)
+
+Like `download-library` previously discussed, `download-taxonomy` has also been parallelized to download and decompress the WGS and GB
+accession to tax ID map files in parallel. However a `--threads` flag is not necessary for this mode since the number of files that will
+be downloaded is capped at 2.
+
+
+### add-to-library
+
+    k2 add-to-library --help
+
+    usage: k2 add-to-library [-h] --db PATHNAME [--threads THREADS] --file FILES
+                             [FILES ...] [--protein] [--log FILENAME]
+                             [--no-masking | --masker-threads K2MASK_THREADS]
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to Kraken2 database
+      --threads THREADS     The number of threads/processes k2 uses when adding
+                            library files.
+      --file FILES [FILES ...], --files FILES [FILES ...]
+                            Pathname or patterns of file(s) to be added to
+                            library. Supported pattern are as follows: ? - A
+                            question-mark is a pattern that shall match any
+                            character. * - An asterisk is a pattern that shall
+                            match multiple characters. [ - The open bracket shall
+                            introduce a pattern bracket expression. ** - will
+                            match any files and zero or more directories,
+                            subdirectories and symbolic links to directories.
+      --protein             Files being added are for a protein database
+      --log FILENAME        Specify a log filename (default: stderr)
+      --no-masking          Avoid asking low-complexity sequences prior to
+                            building; masking requires k2mask or segmasker to be
+                            installed
+      --masker-threads K2MASK_THREADS
+                            Number of threads used by k2mask during masking
+                            process (default: 4)
+
+This mode also offers a `--threads` option which comes in handy when adding a large number of files. The `--files` option takes the
+path of one or more files to be added or a file pattern that makes use of the following <a id="org1344408"></a>:
+
+-   **?:** Matches a single character
+-   **\*:** Matches zero or more characters
+-   **[:** Matches any character in the bracket
+-   **\*\*:** Matches any file or any number of directories leading up to a file
+
+When a file is added to a library `k2` will first calculate the MD5 sum of the file. The hash will be appended to the basename
+of the  `prelim_map.txt` and the `library.fna` files and `added.txt` file will be populated with the original file path and its hash.
+`k2` will also utilize the hash to skip duplicate additions. If the user removes a file that was added, `added.txt` has to be updated
+accordingly.
+
+
+### clean
+
+    k2 clean --help
+
+    usage: k2 clean [-h] --db PATHNAME [--log FILENAME] [--pattern SHELL_REGEX]
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --db PATHNAME         Pathname to Kraken2 database
+      --log FILENAME        Specify a log filename (default: stderr)
+      --pattern SHELL_REGEX
+                            Files that match this regular expression will be
+                            deleted. ? - A question-mark is a pattern that shall
+                            match any character. * - An asterisk is a pattern that
+                            shall match multiple characters. [ - The open bracket
+                            shall introduce a pattern bracket expression. ** -
+                            will match any files and zero or more directories,
+                            subdirectories and symbolic links to directories.
+
+The clean command removes unwanted files in a database. If a pattern is not specified `clean` will remove all intermediate
+files used to build the index leaving behind only the `*.k2d` files. If users wants to delete specific files the `--pattern`
+option can be specified which supports [19.1.6](#org1344408) similar to `--files` flag of `add-to-library`
 
 Kraken 2 Databases
 ==================

@@ -1,4 +1,19 @@
 # Changelog
+## [2.1.4] - 2025-02-17
+
+### Added
+- Added support for building GTDB databases
+- Added memory-mapping support to dump<sub>table</sub> (kraken2-inspect)
+- Added support for many threads to dump<sub>table</sub> (kraken2-inspect)
+- Added support for downloading genome accessions by project ID, taxon ID or accession number to `k2`.
+  This feature makes use of the NCBI API <https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/rest-api/>
+
+### Changes
+- Replaced FASTA/Q parser with kseq resulting in significantly faster runtimes when estimating database capacity
+- Sped up decompression in `k2` by using `zlib` instead of `gzip` making `k2` competitive with native gzip binaries
+- Changed the way accessions are downloaded when using NCBI API so that downloads are more reliable
+- Significant improvements to stability and speed of `k2`
+- Updated SILVA from 138.1 to 138.2
 
 ## [2.1.3] - 2023-06-06
 
