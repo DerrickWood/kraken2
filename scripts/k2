@@ -54,8 +54,8 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "memory_mapping": "-M",
     "minimizer_len": "-l",
     "minimum_bits_for_taxid": "-r",
-    "mininum_base_quality": "-Q",
-    "mininum_hit_groups": "-g",
+    "minimum_base_quality": "-Q",
+    "minimum_hit_groups": "-g",
     "output": "-O",
     "paired": "-P",
     "protein": "-X",
@@ -615,11 +615,16 @@ def lookup_accession_numbers(
         for filename in accession_map_files:
             with open(filename, "r") as in_file:
                 in_file.readline()  # discard header line
+                line_count = 0
                 for line in in_file:
+                    line_count += 1
                     line = line.strip()
                     split = line.split("\t")
                     if len(split) != 4:
-                        LOG.warning("'{}' contains fewer than 4 fields\n".format(line))
+                        LOG.warning(
+                            "{}:{}-'{}' contains fewer than 4 fields\n"
+                            .format(filename, line_count, line)
+                        )
                         continue
                     accession, with_version, taxid, gi = split
                     if accession in target_lists:
@@ -3522,11 +3527,11 @@ def make_classify_parser(subparsers):
         help="confidence score threshold (default: 0.0); must be in [0,1]",
     )
     parser.add_argument(
-        "--mininum-base-quality",
+        "--minimum-base-quality",
         type=int,
         metavar="INT",
         default=0,
-        help="Mininum base quality used in classification",
+        help="Minimum base quality used in classification",
     )
     parser.add_argument(
         "--report",
@@ -3581,7 +3586,7 @@ def make_classify_parser(subparsers):
         help="Print scientific names instead of just taxids",
     )
     parser.add_argument(
-        "--mininum-hit-groups",
+        "--minimum-hit-groups",
         type=int,
         metavar="INT",
         default=2,
