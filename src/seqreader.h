@@ -135,16 +135,19 @@ class BatchSequenceReader {
   private:
   void copy_from_kseq(Sequence& seq)
   {
-    if (file_format_ == SequenceFormat::FORMAT_AUTO_DETECT) {
-      if (kseq_->qual.l > 0)
-        file_format_ = SequenceFormat::FORMAT_FASTQ;
-      else
-        file_format_ = SequenceFormat::FORMAT_FASTA;
-    }
-
     seq.header.assign(kseq_->name.s, kseq_->name.l);
     seq.comment.assign(kseq_->comment.s, kseq_->comment.l);
     seq.seq.assign(kseq_->seq.s, kseq_->seq.l);
+
+    if (kseq_->qual.l > 0) {
+      file_format_ = SequenceFormat::FORMAT_FASTQ;
+      seq.format = SequenceFormat::FORMAT_FASTQ;
+      seq.quals.assign(kseq_->qual.s, kseq_->qual.l);
+    } else {
+      file_format_ = SequenceFormat::FORMAT_FASTA;
+      seq.format = SequenceFormat::FORMAT_FASTA;
+    }
+
   }
 
   kseq_t* kseq_;

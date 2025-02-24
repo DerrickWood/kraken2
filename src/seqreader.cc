@@ -18,20 +18,23 @@ void StripString(string &str) {
 }
 
 string &Sequence::to_string() {
-  str_representation.assign(header);
   switch (format) {
-    case FORMAT_FASTQ:
-      str_representation.append("\n");
-      str_representation.append(seq);
-      str_representation.append("\n+\n");
-      str_representation.append(quals);
-      str_representation.append("\n");
-      break;
-    default:
-      str_representation.append("\n");
-      str_representation.append(seq);
-      str_representation.append("\n");
-      break;
+  case FORMAT_FASTQ:
+    str_representation.append("@");
+    str_representation.append(header);
+    str_representation.append("\n");
+    str_representation.append(seq);
+    str_representation.append("\n+\n");
+    str_representation.append(quals);
+    str_representation.append("\n");
+    break;
+  default:
+    str_representation.append(">");
+    str_representation.append(header);
+    str_representation.append("\n");
+    str_representation.append(seq);
+    str_representation.append("\n");
+    break;
   }
   return str_representation;
 }
