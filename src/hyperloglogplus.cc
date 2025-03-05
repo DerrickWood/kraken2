@@ -419,7 +419,7 @@ HyperLogLogPlusMinus<uint64_t>::HyperLogLogPlusMinus(uint8_t precision, bool spa
 
     if (sparse) {
       this->sparseList = SparseListType(); // TODO: if SparseListType is changed, initialize with appropriate size
-      this->sparseList.reserve(m/4);
+      // this->sparseList.reserve(m/4);
     } else {
       this->M = vector<uint8_t>(m);
     }

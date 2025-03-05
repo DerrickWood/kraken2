@@ -3,8 +3,9 @@
  *
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
-
 #include "reports.h"
+#include "kraken2_data.h"
+#include "omp_hack.h"
 
 using std::vector;
 using std::string;
@@ -17,7 +18,7 @@ taxon_counts_t GetCladeCounts(Taxonomy &tax, taxon_counts_t &call_counts) {
 
   for (auto &kv_pair : call_counts) {
     auto taxid = kv_pair.first;
-    auto count = kv_pair.second;
+    auto& count = kv_pair.second;
 
     while (taxid) {
       clade_counts[taxid] += count;
@@ -30,13 +31,12 @@ taxon_counts_t GetCladeCounts(Taxonomy &tax, taxon_counts_t &call_counts) {
 
 taxon_counters_t GetCladeCounters(Taxonomy &tax, taxon_counters_t &call_counters) {
   taxon_counters_t clade_counters;
-
   for (auto &kv_pair : call_counters) {
     auto taxid = kv_pair.first;
-    auto counter = kv_pair.second;
+    auto& count = kv_pair.second;
 
     while (taxid) {
-      clade_counters[taxid] += counter;
+      clade_counters[taxid] += count;
       taxid = tax.nodes()[taxid].parent_id;
     }
   }
@@ -50,10 +50,13 @@ void PrintMpaStyleReportLine(ostream &ofs, uint64_t clade_count, const string &t
 
 void MpaReportDFS(taxid_t taxid, ostream& ofs, bool report_zeros,
     Taxonomy& taxonomy, taxon_counts_t& clade_counts,
-    vector<string>& taxonomy_names, unsigned int num_threads)
+    vector<string>& taxonomy_names)
 {
+  auto clade_count = clade_counts.find(taxid) == clade_counts.end()
+                         ? 0
+                         : clade_counts[taxid];
   // Clade count of 0 means all subtree nodes have clade count of 0
-  if (!report_zeros && clade_counts[taxid] == 0) return;
+  if (!report_zeros && clade_count == 0) return;
   TaxonomyNode node = taxonomy.nodes()[taxid];
   string rank = taxonomy.rank_data() + node.rank_offset;
 
@@ -86,7 +89,7 @@ void MpaReportDFS(taxid_t taxid, ostream& ofs, bool report_zeros,
     for (auto& str : taxonomy_names)
       taxonomy_line += str + "|";
     taxonomy_line.pop_back();
-    PrintMpaStyleReportLine(ofs, clade_counts[taxid], taxonomy_line);
+    PrintMpaStyleReportLine(ofs, clade_count, taxonomy_line);
   }
 
   auto child_count = node.child_count;
@@ -101,22 +104,9 @@ void MpaReportDFS(taxid_t taxid, ostream& ofs, bool report_zeros,
         [&](const uint64_t& a, const uint64_t& b) {
           return clade_counts[a] > clade_counts[b];
         });
-    if (num_threads > 1) {
-      std::vector<std::ostringstream> outputs(children.size());
-#pragma omp parallel for
-      for (size_t i = 0; i < children.size(); i++) {
-        auto taxonomy_names_copy = taxonomy_names;
-        MpaReportDFS(children[i], outputs[i], report_zeros, taxonomy,
-            clade_counts, taxonomy_names_copy, 1);
-      }
-      for (auto& output : outputs) {
-        ofs << output.str();
-      }
-    } else {
-      for (auto child : children) {
-        MpaReportDFS(child, ofs, report_zeros, taxonomy, clade_counts,
-            taxonomy_names, num_threads);
-      }
+    for (auto child : children) {
+      MpaReportDFS(child, ofs, report_zeros, taxonomy, clade_counts,
+                   taxonomy_names);
     }
   }
 
@@ -125,7 +115,7 @@ void MpaReportDFS(taxid_t taxid, ostream& ofs, bool report_zeros,
 }
 
 void ReportMpaStyle(string filename, bool report_zeros, Taxonomy& taxonomy,
-    taxon_counters_t& call_counters, unsigned int num_threads)
+    taxon_counters_t& call_counters)
 {
   taxon_counts_t call_counts;
   for (auto& kv_pair : call_counters) {
@@ -134,8 +124,7 @@ void ReportMpaStyle(string filename, bool report_zeros, Taxonomy& taxonomy,
   taxon_counts_t clade_counts = GetCladeCounts(taxonomy, call_counts);
   ofstream ofs(filename);
   vector<string> taxonomy_names;
-  MpaReportDFS(1, ofs, report_zeros, taxonomy, clade_counts, taxonomy_names,
-      num_threads);
+  MpaReportDFS(1, ofs, report_zeros, taxonomy, clade_counts, taxonomy_names);
 }
 
 void PrintKrakenStyleReportLine(ostream& ofs, bool report_kmer_data,
@@ -164,11 +153,18 @@ void KrakenReportDFS(uint32_t taxid, ostream& ofs, bool report_zeros,
     bool report_kmer_data, Taxonomy& taxonomy,
     taxon_counters_t& clade_counters,
     taxon_counters_t& call_counters, uint64_t total_seqs,
-    char rank_code, int rank_depth, int depth,
-    int thread_count)
+    char rank_code, int rank_depth, int depth)
 {
+  // avoid a potentional allocation if the taxid does not exist
+  auto &&clade_counter = clade_counters.find(taxid) == clade_counters.end()
+                         ? READCOUNTER()
+                         : clade_counters[taxid];
+  auto &&call_counter = call_counters.find(taxid) == call_counters.end()
+                        ? READCOUNTER()
+                        : call_counters[taxid];
+
   // Clade count of 0 means all subtree nodes have clade count of 0
-  if (!report_zeros && clade_counters[taxid].readCount() == 0)
+  if (!report_zeros && clade_counter.readCount() == 0)
     return;
   TaxonomyNode node = taxonomy.nodes()[taxid];
   string rank = taxonomy.rank_data() + node.rank_offset;
@@ -201,15 +197,16 @@ void KrakenReportDFS(uint32_t taxid, ostream& ofs, bool report_zeros,
     rank_depth++;
   }
 
-  string rank_str(&rank_code, 0, 1);
+  string rank_str;
+  rank_str.push_back(rank_code);
   if (rank_depth != 0)
     rank_str += std::to_string(rank_depth);
 
   string name = taxonomy.name_data() + node.name_offset;
 
   PrintKrakenStyleReportLine(ofs, report_kmer_data, total_seqs,
-      clade_counters[taxid], call_counters[taxid],
-      rank_str, node.external_id, name, depth);
+                             clade_counter, call_counter,
+                             rank_str, node.external_id, name, depth);
 
   auto child_count = node.child_count;
   if (child_count != 0) {
@@ -220,34 +217,31 @@ void KrakenReportDFS(uint32_t taxid, ostream& ofs, bool report_zeros,
     }
     // Sorting child IDs by descending order of clade read counts
     std::sort(children.begin(), children.end(),
-        [&](const uint64_t& a, const uint64_t& b) {
-          return clade_counters[a].readCount() > clade_counters[b].readCount();
-        });
-    if (thread_count > 1) {
-      std::vector<std::ostringstream> outputs(children.size());
-#pragma omp parallel for
-      for (size_t i = 0; i < children.size(); i++) {
-        KrakenReportDFS(children[i], outputs[i], report_zeros, report_kmer_data,
-            taxonomy, clade_counters, call_counters, total_seqs,
-            rank_code, rank_depth, depth + 1, 1);
-      }
-      for (auto& output : outputs) {
-        ofs << output.str();
-      }
-    } else {
-      for (auto child : children) {
-        KrakenReportDFS(child, ofs, report_zeros, report_kmer_data, taxonomy,
-            clade_counters, call_counters, total_seqs, rank_code,
-            rank_depth, depth + 1, thread_count);
-      }
+              [&](const uint64_t &a, const uint64_t &b) {
+                if (clade_counters.find(a) == clade_counters.end()) {
+                  return false;
+                }
+                if (clade_counters.find(b) == clade_counters.end()) {
+                  return true;
+                }
+
+                return clade_counters[a].readCount() >
+                       clade_counters[b].readCount();
+              });
+
+    for (auto child : children) {
+      KrakenReportDFS(child, ofs, report_zeros, report_kmer_data, taxonomy,
+                      clade_counters, call_counters, total_seqs, rank_code,
+                      rank_depth, depth + 1);
     }
   }
 }
 
+
 void ReportKrakenStyle(string filename, bool report_zeros,
     bool report_kmer_data, Taxonomy& taxonomy,
     taxon_counters_t& call_counters, uint64_t total_seqs,
-    uint64_t total_unclassified, int num_threads)
+    uint64_t total_unclassified)
 {
   taxon_counters_t clade_counters = GetCladeCounters(taxonomy, call_counters);
 
@@ -261,8 +255,7 @@ void ReportKrakenStyle(string filename, bool report_zeros,
   }
   // DFS through the taxonomy, printing nodes as encountered
   KrakenReportDFS(1, ofs, report_zeros, report_kmer_data, taxonomy,
-      clade_counters, call_counters, total_seqs, rank_code, -1, 0,
-      num_threads);
+      clade_counters, call_counters, total_seqs, rank_code, -1, 0);
 }
 
 }  // end namespace

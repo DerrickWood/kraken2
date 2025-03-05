@@ -86,10 +86,10 @@ int main(int argc, char **argv) {
     }
     if (opts.use_mpa_style)
       ReportMpaStyle(opts.output_filename, opts.report_zeros, taxonomy,
-                     taxid_counters, opts.num_threads);
+                     taxid_counters);
     else
       ReportKrakenStyle(opts.output_filename, opts.report_zeros, false, taxonomy,
-                        taxid_counters, total_seqs, 0, opts.num_threads);
+                        taxid_counters, total_seqs, 0);
   }
 
   return 0;

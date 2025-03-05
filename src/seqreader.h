@@ -28,8 +28,26 @@ struct Sequence {
 
   std::string& to_string();
 
+  Sequence() : format(SequenceFormat::FORMAT_AUTO_DETECT) {}
+
+  Sequence(Sequence &&other) {
+    format = other.format;
+    header = std::move(other.header);
+    comment = std::move(other.comment);
+    seq = std::move(other.seq);
+    quals = std::move(other.quals);
+  }
+
+  Sequence &operator=(Sequence &other) {
+    format = other.format;
+    header = std::move(other.header);
+    comment = std::move(other.comment);
+    seq = std::move(other.seq);
+    quals = std::move(other.quals);
+    return *this;
+  }
   private:
-  std::string str_representation;
+    std::string str_representation;
 };
 
 class BatchSequenceReader {
@@ -44,6 +62,8 @@ class BatchSequenceReader {
 
     kseq_ = kseq_init(fd_);
     curr_ = 0;
+    size_ = 0;
+    max_size_ = 0;
     file_format_ = SequenceFormat::FORMAT_AUTO_DETECT;
     primary_ = true;
   }
@@ -58,39 +78,40 @@ class BatchSequenceReader {
     }
   }
 
-  BatchSequenceReader(const BatchSequenceReader& rhs)
-  {
+  BatchSequenceReader(const BatchSequenceReader &rhs) {
     kseq_ = rhs.kseq_;
     curr_ = rhs.curr_;
-    seqs_ = rhs.seqs_;
+    size_ = rhs.size_;
+    max_size_ = rhs.max_size_;
+    // seqs_ = rhs.seqs_;
     primary_ = false;
   }
 
-  BatchSequenceReader& operator=(const BatchSequenceReader& rhs) = delete;
-
-  bool LoadBlock(size_t block_size)
-  {
-    seqs_.resize(0);
+  bool LoadBlock(size_t block_size) {
     size_t total = 0;
-    while (total <= block_size) {
+    size_ = 0;
+    while (total < block_size) {
       if (kseq_read(kseq_) >= 0) {
-        seqs_.resize(seqs_.size() + 1);
-        copy_from_kseq(seqs_.back());
-
-        total += seqs_.back().seq.size();
+        if (size_ == max_size_) {
+          seqs_.resize(max_size_ + 1);
+          max_size_ = seqs_.size();
+        }
+        copy_from_kseq(seqs_[size_]);
+        total += kseq_->seq.l;
+        size_++;
       } else {
         break;
       }
     }
 
     curr_ = 0;
-    return seqs_.size() > 0;
+    return size_ > 0;
   }
 
   bool NextSequence(Sequence& seq)
   {
     bool seq_read = false;
-    if (seqs_.size() > 0 && curr_ < seqs_.size()) {
+    if (size_ > 0 && curr_ < size_) {
       seq = seqs_[curr_++];
       seq_read = true;
     } else {
@@ -105,7 +126,7 @@ class BatchSequenceReader {
 
   Sequence* NextSequence()
   {
-    if (seqs_.size() > 0 && curr_ < seqs_.size()) {
+    if (size_ > 0 && curr_ < size_) {
       return &seqs_[curr_++];
     }
 
@@ -138,6 +159,7 @@ class BatchSequenceReader {
     seq.header.assign(kseq_->name.s, kseq_->name.l);
     seq.comment.assign(kseq_->comment.s, kseq_->comment.l);
     seq.seq.assign(kseq_->seq.s, kseq_->seq.l);
+    seq.seq.shrink_to_fit();
 
     if (kseq_->qual.l > 0) {
       file_format_ = SequenceFormat::FORMAT_FASTQ;
@@ -155,6 +177,8 @@ class BatchSequenceReader {
   SequenceFormat file_format_;
   int fd_;
   size_t curr_;
+  size_t size_;
+  size_t max_size_;
   bool primary_;
 };
 

@@ -223,7 +223,7 @@ void runSymmetricDust(SDust &sd, char *seq, size_t size, int offset) {
     saveMaskedRegions(sd, windowStart++);
 }
 
-void printFasta(Sequence seq, std::ostream &out, int width) {
+void printFasta(Sequence& seq, std::ostream &out, int width) {
   out << ">";
   out.write(&seq.header[0], seq.header.size());
   if (seq.comment.size() > 0) {

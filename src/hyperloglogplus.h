@@ -31,7 +31,7 @@ uint64_t murmurhash3_finalizer (uint64_t key);
 
 // Heule et al. encode the sparse list with variable length encoding
 //   see section 5.3.2. This implementation just uses a sorted vector or unordered_set.
-typedef unordered_set<uint32_t> SparseListType;
+typedef set<uint32_t> SparseListType;
 // Other possible SparseList types:
 // // typedef vector<uint32_t> SparseListType;
 // The sorted vector implementation is pretty inefficient currently, as the vector

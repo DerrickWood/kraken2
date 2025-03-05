@@ -18,6 +18,7 @@ void StripString(string &str) {
 }
 
 string &Sequence::to_string() {
+  str_representation.clear();
   switch (format) {
   case FORMAT_FASTQ:
     str_representation.append("@");

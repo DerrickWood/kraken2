@@ -34,9 +34,7 @@ typedef std::unordered_map<taxid_t, uint64_t> taxon_counts_t;
 #else
   typedef ReadCounts<HyperLogLogPlusMinus<uint64_t>> READCOUNTER;
 #endif
-
-typedef std::unordered_map<taxid_t, READCOUNTER> taxon_counters_t;
-
+  typedef std::map<taxid_t, READCOUNTER> taxon_counters_t;
 }
 
 #endif
