@@ -2013,7 +2013,7 @@ def download_genomic_library(args):
                     futures.append(future)
             result = concurrent.futures.wait(
                 futures,
-                return_when=concurrent.futures.FIRST_EXCEPTION
+                return_when=concurrent.futures.ALL_COMPLETED
             )
             if len(result.not_done) > 0:
                 LOG.error(
