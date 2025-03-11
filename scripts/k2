@@ -797,14 +797,15 @@ def make_manifest_from_assembly_summary(
 
 def assign_taxids(args, filepath, manifest_to_taxid,
                   accession_to_taxid={}, filepath_to_url={}):
+    absolute_filepath = os.path.abspath(filepath)
     sequences_added = 0
     ch_added = 0
     # taxid = manifest_to_taxid[filepath]
     out_filepath = ""
-    if filepath.endswith(".gz"):
-        out_filepath = os.path.splitext(filepath)[0]
+    if absolute_filepath.endswith(".gz"):
+        out_filepath = os.path.splitext(absolute_filepath)[0]
     else:
-        out_filepath = filepath + ".tmp"
+        out_filepath = absolute_filepath + ".tmp"
     masker = None
     sequence_to_url = {}
     with open(out_filepath, "w") as out_file:
@@ -813,9 +814,9 @@ def assign_taxids(args, filepath, manifest_to_taxid,
                 out_file, args.masker_threads, False
             )
         opener = open
-        if filepath.endswith(".gz"):
+        if absolute_filepath.endswith(".gz"):
             opener = gzip.open
-        with opener(filepath, "rt") as in_file:
+        with opener(absolute_filepath, "rt") as in_file:
             while True:
                 line = in_file.readline()
                 if line == "":
@@ -842,7 +843,7 @@ def assign_taxids(args, filepath, manifest_to_taxid,
                     masker.stdin.write(line.encode())
                 taxid = ""
         if out_filepath.endswith(".tmp"):
-            shutil.move(out_filepath, filepath)
+            shutil.move(out_filepath, absolute_filepath)
         if masker:
             masker.stdin.close()
             masker.wait()
@@ -1984,7 +1985,6 @@ def download_genomic_library(args):
         )
         download_files_from_manifest(NCBI_SERVER, args.threads, md5sums=md5)
         sequence_to_url = {}
-        LOG.info("Generating {}\n".format(library_filename))
         filenames = []
         with open("manifest.txt", "r") as manifest:
             filenames = manifest.readlines()
@@ -1993,6 +1993,7 @@ def download_genomic_library(args):
             futures = []
             for filename in filenames:
                 filename = filename.strip()
+                filename = os.path.abspath(filename)
                 if not args.no_masking:
                     future = pool.submit(
                         decompress_and_mask, filename, args.masker_threads
@@ -2025,7 +2026,7 @@ def download_genomic_library(args):
         with open(library_filename, "w") as out_file:
             for filename in filenames:
                 in_filename = os.path.splitext(filename)[0]
-                with open(in_filename, "r") as in_file:
+                with open(os.path.abspath(in_filename), "r") as in_file:
                     for line in in_file:
                         if line.startswith(">"):
                             sequence_to_url[line.strip()] = filename
@@ -2041,6 +2042,16 @@ def download_genomic_library(args):
                     sequence_to_url=sequence_to_url,
                 )
     elif args.library in ["nr", "nt"]:
+        LOG.warning(
+            "NCBI no longer updates the FASTAs for nt and nr. "
+            "Users are asked to generate those themselves using "
+            "ncbi-blast+. "
+            "We have yet to find a way to generate these FASTAs in "
+            "k2 without external dependencies as such direct building "
+            "nr and nt databases may get deprecated sometime "
+            "in the future."
+        )
+        sys.exit(1)
         protein_lib = args.library == "nr"
         if protein_lib and not args.protein:
             LOG.error(
