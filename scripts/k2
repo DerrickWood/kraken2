@@ -1323,7 +1323,8 @@ def decompress_file(in_file, out_file, buf_size=8129):
         data = in_file.read(buf_size)
         if not data:
             break
-        out_file.write(inflator.decompress(data))
+        inflated_data = inflator.decompress(data)
+        out_file.write(inflated_data)
     # shutil.copyfileobj(in_file, out_file, buf_size)
     LOG.info(
         "Finished decompressing {:s}\n".format(
@@ -1338,7 +1339,7 @@ def decompress_and_mask(filepath, masker_threads):
     out_filepath = os.path.splitext(filepath)[0]
     with open(out_filepath, "w") as out_file:
         masker = spawn_masking_subprocess(out_file, masker_threads)
-        with gzip.open(filepath, "rb") as in_file:
+        with open(filepath, "rb") as in_file:
             decompress_file(in_file, masker.stdin)
         masker.stdin.close()
         masker.wait()
