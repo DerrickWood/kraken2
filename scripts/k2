@@ -36,6 +36,9 @@ import zlib
 
 LOG = None
 SCRIPT_PATHNAME = None
+# this is a placeholder value. The real version will
+# be substituted once after calling `install_kraken.sh`.
+SCRIPT_VERSION = "#####=VERSION=#####"
 
 NCBI_REST_API = "api.ncbi.nlm.nih.gov"
 NCBI_SERVER = "ftp.ncbi.nlm.nih.gov"
@@ -3722,6 +3725,9 @@ class HelpAction(argparse._HelpAction):
 def make_cmdline_parser():
     parser = argparse.ArgumentParser("k2", add_help=False)
     parser.add_argument("-h", "--help", action=HelpAction)
+    parser.add_argument(
+        "-v", "--version", action="version", version=SCRIPT_VERSION
+    )
     subparsers = parser.add_subparsers()
     make_add_to_library_parser(subparsers)
     make_download_library_parser(subparsers)
