@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Copyright 2013-2023, Derrick Wood <dwood@cs.jhu.edu>
 #
@@ -6,11 +6,15 @@
 
 set -e
 
-VERSION="2.1.3"
+SCRIPT="$(realpath "$0")"
+ROOT=$(dirname "$SCRIPT")
+VERSION="$(cat "$ROOT/VERSION")"
+
+cd "$ROOT"
 
 if [ -z "$1" ] || [ -n "$2" ]
 then
-  echo "Usage: $(basename $0) KRAKEN2_DIR"
+  echo "Usage: $(basename "$SCRIPT") KRAKEN2_DIR"
   exit 64
 fi
 
@@ -23,19 +27,21 @@ fi
 
 # Perl cmd used to canonicalize dirname - "readlink -f" doesn't work
 # on OS X.
-export KRAKEN2_DIR=$(perl -MCwd=abs_path -le 'print abs_path(shift)' "$1")
+export KRAKEN2_DIR
+KRAKEN2_DIR=$(perl -MCwd=abs_path -le 'print abs_path(shift)' "$1")
 
 mkdir -p "$KRAKEN2_DIR"
 make -C src install
 for file in scripts/*
 do
+  destination_file="$KRAKEN2_DIR/$(basename "$file")"
   perl -pl -e 'BEGIN { while (@ARGV) { $_ = shift; ($k,$v) = split /=/, $_, 2; $H{$k} = $v } }'\
            -e 's/#####=(\w+)=#####/$H{$1}/g' \
            "KRAKEN2_DIR=$KRAKEN2_DIR" "VERSION=$VERSION" \
-           < "$file" > "$KRAKEN2_DIR/$(basename $file)"
+           < "$file" > "$destination_file"
   if [ -x "$file" ]
   then
-    chmod +x "$KRAKEN2_DIR/$(basename $file)"
+    chmod +x "$destination_file"
   fi
 done
 
@@ -44,7 +50,7 @@ echo "Kraken 2 installation complete."
 echo
 echo "To make things easier for you, you may want to copy/symlink the following"
 echo "files into a directory in your PATH:"
-for file in $KRAKEN2_DIR/kraken2*
+for file in "$KRAKEN2_DIR"/kraken2*
 do
   if [ -x "$file" ]
   then
