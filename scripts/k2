@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import time
 import tempfile
 import threading
 import urllib
@@ -246,7 +247,7 @@ class NCBI_URI_Builder:
                 component = ",".join(component)
             path_components[i] = urllib.parse.quote(component)
         self.filters = {}
-        self.path = "/datasets/v2alpha/genome/{}".format("/".join(path_components))
+        self.path = "/datasets/v2/genome/{}".format("/".join(path_components))
 
     def assembly_source(self, source=None):
         if source:
@@ -874,13 +875,27 @@ def download_and_process_accessions(args, endpoint, identifier):
     accession_to_taxid = {}
     builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
     builder.set_filters_from_args(args)
-    builder = builder.page_size(100)
+    builder = builder.page_size(500)
     old_page_token = ""
-
+    rate_limit = None
     while True:
         api.request("GET", builder.build())
         response = api.getresponse()
+        if response.status == 429:
+            LOG.warning(
+                "Connection is being rate limited by NCBI, backing off\n"
+            )
+            time.sleep(1)
+            response.close()
+            continue
+        if response.status != 200:
+            LOG.error(
+                "Encountered an error while trying to gather "
+                "accessions."
+            )
+            sys.exit(1)
         results = response.readlines()[0]
+        rate_limit = response.headers["x-ratelimit-limit"]
         results = json.loads(results)
         response.close()
 
@@ -908,7 +923,8 @@ def download_and_process_accessions(args, endpoint, identifier):
     )
 
     accessions = list(accession_to_taxid.keys())
-    accession_to_url = map_accessions_to_url_parallel(args, accessions)
+    accession_to_url =\
+        map_accessions_to_url_parallel(args, accessions, int(rate_limit))
 
     filepath_to_taxid = {}
     with open("manifest.txt", "w") as fout:
@@ -920,7 +936,7 @@ def download_and_process_accessions(args, endpoint, identifier):
             filepath_to_taxid[filepath] = str(taxid)
 
     download_files_from_manifest(NCBI_SERVER, args.threads)
-    # filepath_to_taxid = download_accessions(args, accession_to_taxid)
+
     filepath_to_url = {}
     for filepath in filepath_to_taxid.keys():
         accession = re.search(r"GC[AF]_\d{9}\.\d+", filepath).group()
@@ -1111,18 +1127,29 @@ def map_accessions_to_url(accessions, protein=False):
 
     size = len(accessions)
     start = 0
-    step = 20
+    step = 200
     stop = min(size, step)
-    base_uri = "/datasets/v2alpha/genome/accession/{}/links"
+    base_uri = "/datasets/v2/genome/accession/{}/links"
     accession_to_url = {}
 
     while True:
         query = ",".join(accessions[start:stop])
         query = urllib.parse.quote(query)
         api.request("GET", base_uri.format(query))
-        req = api.getresponse()
-        results = req.readlines()[0]
-        req.close()
+        res = api.getresponse()
+        if res.status == 429:
+            LOG.warning("Connection is being rate limited by NCBI, backing off\n")
+            time.sleep(1)
+            res.close()
+            continue
+        if res.status != 200:
+            LOG.error(
+                "Encountered an error while gathering download"
+                " links for accessions\n"
+            )
+            sys.exit(1)
+        results = res.readlines()[0]
+        res.close()
         results = json.loads(results)
 
         for entry in results["assembly_links"]:
@@ -1130,21 +1157,24 @@ def map_accessions_to_url(accessions, protein=False):
                 filepath = get_download_path(
                     conn, entry["resource_link"], protein
                 )
-                accession_to_url[entry["accession"]] = url_join(NCBI_SERVER, path=filepath)
+                accession_to_url[entry["accession"]] =\
+                    url_join(NCBI_SERVER, path=filepath)
         start, stop = stop, min(size, stop + step)
-
         if start == stop:
             break
+        # keep the rate limiter happy
+        # time.sleep(0.5)
     api.close()
 
     return accession_to_url
 
 
-def map_accessions_to_url_parallel(args, accessions):
+def map_accessions_to_url_parallel(args, accessions, max_workers):
     futures = []
     accession_to_url = {}
     LOG.info("Fetching download links for accessions\n")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
+    max_workers = min(args.threads, max_workers)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         for partition in partition_list(accessions, args.threads):
             future = pool.submit(
                 map_accessions_to_url, partition, args.protein
