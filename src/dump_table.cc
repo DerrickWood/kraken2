@@ -153,7 +153,7 @@ void usage(int exit_code) {
       << "  -m            Use MPA style output instead of Kraken 2 output\n"
       << "  -M            Use memory mapping to access hash & taxonomy\n"
       << "  -s            Skip reporting minimizer counts, just show DB stats\n"
-      << "  -p INT        Number of threads\n"
+//       << "  -p INT        Number of threads\n"
       << "  -z            Report taxa with zero counts\n";
   exit(exit_code);
 }

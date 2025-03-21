@@ -3663,12 +3663,12 @@ def make_inspect_parser(subparsers):
         required=True,
         help="Pathname to Kraken2 database",
     )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=os.environ.get("KRAKEN2_NUM_THREADS") or 1,
-        help="Number of threads",
-    )
+    # parser.add_argument(
+    #     "--threads",
+    #     type=int,
+    #     default=os.environ.get("KRAKEN2_NUM_THREADS") or 1,
+    #     help="Number of threads",
+    # )
     parser.add_argument(
         "--skip-counts",
         action="store_true",
