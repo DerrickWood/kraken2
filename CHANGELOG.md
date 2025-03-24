@@ -1,4 +1,15 @@
 # Changelog
+## [2.1.5] - 2025-03-21
+
+### Changed
+- Fixed memory regressions in Kraken 2
+- Fixed an issue causing Kraken 2 to incorrectly format unclassified sequences
+- Fixed an issue causing zero-counts to sometimes have missing entries
+- Fixed an issue causing Kraken 2 to sometimes seg-fault when inspecting files
+- Made general improvements to `k2` wrapper
+- Removed many threads option when dumping table
+- Updated NCBI API endpoints in `k2` and added support for connection backoff if/when connections are rate limited
+
 ## [2.1.4] - 2025-02-17
 
 ### Added

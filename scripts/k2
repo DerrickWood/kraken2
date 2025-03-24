@@ -812,6 +812,7 @@ def assign_taxids(args, filepath, manifest_to_taxid,
         out_filepath = absolute_filepath + ".tmp"
     masker = None
     sequence_to_url = {}
+    os.makedirs(os.path.dirname(absolute_filepath), exist_ok=True)
     with open(out_filepath, "w") as out_file:
         if not args.no_masking:
             masker = spawn_masking_subprocess(
