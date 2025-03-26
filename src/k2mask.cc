@@ -348,7 +348,6 @@ int main(int argc, char **argv) {
     std::cerr << prog << ": reads from stdin and writes to stdout" << std::endl;
     usage(prog);
   }
-  gzistream is(infile.c_str());
   auto outputFileMode = std::ios::out | std::ios::trunc;
   std::ofstream out(outfile, outputFileMode);
   std::vector<SDust *> sds(threads);
@@ -357,7 +356,7 @@ int main(int argc, char **argv) {
   }
   thread_pool pool(threads - 1);
   std::queue<std::future<SDust *>> tasks;
-  BatchSequenceReader reader;
+  BatchSequenceReader reader(infile.c_str());
   for (SDust *sd = sds.back(); reader.NextSequence(sd->seq); sd = sds.back()) {
     sds.pop_back();
     if (threads > 1) {
