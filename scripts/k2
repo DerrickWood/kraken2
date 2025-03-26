@@ -1115,9 +1115,21 @@ def download_zip_from_ncbi(args, accessions):
 
 def partition_list(list, num_partitions):
     partitions = []
-    step = math.ceil(len(list) / num_partitions)
-    for i in range(0, len(list), step):
-        partitions.append(list[i:i+step])
+    length = len(list)
+    if length == 0:
+        return []
+    step = math.ceil(length / num_partitions)
+    if step == 0:
+        return []
+    for i in range(0, length, step):
+        end = i + step
+        if end > len(list) or num_partitions == 1:
+            end = len(list)
+        partitions.append(list[i:end])
+        if num_partitions == 1:
+            break
+        num_partitions -= 1
+
 
     return partitions
 
@@ -1507,10 +1519,13 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     sys.exit(1)
                 response.close()
 
-        except http.client.RemoteDisconnected:
-            conn.connect()
-            LOG.warning("Unable to download " + url + ", will try again\n")
+        except (http.client.RemoteDisconnected, http.client.IncompleteRead) as e:
+            LOG.warning(
+                "Unable to download " + url + ". Reason: {}, will try again\n"
+                .format(e)
+            )
             urls.append(url)
+            conn.connect()
             continue
 
         LOG.info("Saved {:s} to {:s}\n".format(filename, local_directory))
@@ -1583,22 +1598,22 @@ def download_files_from_manifest(
             random.shuffle(filepaths)
             partitions = []
             futures = []
-            step = len(filepaths) // threads
-            if step == 0:
-                step = 1
-            for i in range(0, len(filepaths), step):
-                partitions.append(filepaths[i:i+step])
+            partitions = partition_list(filepaths, threads)
+            # len_partitions = 0
+            # for partition in partitions:
+            #     len_partitions += len(partition)
+            # assert(len_partitions == len(filepaths))
             for partition in partitions:
                 future = pool.submit(
                     http_download_file2, server, partition, None, md5sums
                 )
-                if future_raised_exception(future):
-                    LOG.error(
-                        "Error encounted while trying to download files\n"
-                    )
-                    raise future.exception()
                 futures.append(future)
-            concurrent.futures.wait(futures)
+            (done, not_done) = concurrent.futures.wait(futures)
+            if len(not_done) != 0:
+                LOG.error("Error encountered while trying to download files\n")
+                for future in not_done:
+                    LOG.error(future.exception())
+                sys.exit(1)
 
 
 def download_taxonomy(args):
@@ -2321,7 +2336,6 @@ def suffix_to_multiplier(suffix):
 
     LOG.error("Unable to convert {} to a storage unit\n".format(original_suffix))
     sys.exit(1)
-
 
 
 def parse_db_size(input):
