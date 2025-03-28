@@ -1437,7 +1437,6 @@ def http_download_file(url, local_name=None, call_back=None):
 
 
 def http_download_file2(server, urls, save_to=None, md5sums=None):
-    files_downloaded = 0
     conn = None
     if isinstance(server, str):
         conn = http.client.HTTPSConnection(server, timeout=60)
@@ -1445,14 +1444,17 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
         conn = server
         server = conn.host
     md5 = md5sums if md5sums else {}
-    for url in urls:
-        url = url.strip()
+    i = 0
+    num_urls = len(urls)
+    skip_md5_check = False
+    while i < num_urls:
+        url = urls[i].strip()
         filename = os.path.basename(url)
         local_name = os.path.abspath(url)
         if save_to:
             local_name = os.path.join(save_to, filename)
         local_directory = os.path.dirname(local_name)
-        os.makedirs(os.path.dirname(local_name), exist_ok=True)
+        os.makedirs(local_directory, exist_ok=True)
 
         try:
             if os.path.exists(local_name):
@@ -1486,8 +1488,9 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                             remote_filename = os.path.basename(
                                 remote_filename.decode()
                             )
-                            md5[remote_filename] = os.path.basename(md5sum.decode())
-                if filename in md5 and md5[filename] == hash_file(local_name):
+                            md5[remote_filename] = md5sum.decode()
+                if not skip_md5_check and filename in md5\
+                   and md5[filename] == hash_file(local_name):
                     LOG.info(
                         "Already downloaded {:s}\n".format(
                             urllib.parse.urljoin(server, url)
@@ -1498,6 +1501,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     # to reconnect to avoid failures when trying to
                     # retrieve the file.
                     conn.connect()
+                    i += 1
                     continue
             LOG.info("Beginning download of {:s}\n".format(server + "/" + url))
             with open(local_name, "wb") as out_file:
@@ -1519,19 +1523,37 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     sys.exit(1)
                 response.close()
 
-        except (http.client.RemoteDisconnected, http.client.IncompleteRead) as e:
+        except http.client.HTTPException as e:
             LOG.warning(
                 "Unable to download " + url + ". Reason: {}, will try again\n"
                 .format(e)
             )
-            urls.append(url)
+            conn.close()
+            time.sleep(0.1)
             conn.connect()
             continue
 
-        LOG.info("Saved {:s} to {:s}\n".format(filename, local_directory))
-        files_downloaded += 1
+        # Check the MD5 sum of the downloaded file to make sure that it
+        # was downloaded successfully. This prevents issues when
+        # assigning tax IDs to files.
+        local_md5sum = hash_file(local_name)
+        if filename in md5 and md5[filename] != local_md5sum:
+            LOG.warning(
+                "The MD5 sum of {} does not match the MD5 provided"
+                " by the server. The file will be downloaded again."
+                .format(local_name)
+            )
+            # We have already confirmed that MD5 sum does not match
+            # do not bother checking it again at the top of the loop.
+            skip_md5_check = True
+            continue
 
-    return files_downloaded
+        LOG.info(
+            "Saved {:s} to {:s}\n".format(filename, local_directory)
+        )
+        # Reset the MD5 check for the next file.
+        skip_md5_check = False
+        i += 1
 
 
 def make_file_filter(file_handle, regex):
@@ -1590,6 +1612,7 @@ def download_files_from_manifest(
     filepath_to_taxid_table=None,
     md5sums=None,
 ):
+    threads = min(threads, 12)
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
         with open(manifest_filename, "r") as f:
             filepaths = f.readlines()
@@ -1599,10 +1622,6 @@ def download_files_from_manifest(
             partitions = []
             futures = []
             partitions = partition_list(filepaths, threads)
-            # len_partitions = 0
-            # for partition in partitions:
-            #     len_partitions += len(partition)
-            # assert(len_partitions == len(filepaths))
             for partition in partitions:
                 future = pool.submit(
                     http_download_file2, server, partition, None, md5sums
@@ -1614,6 +1633,11 @@ def download_files_from_manifest(
                 for future in not_done:
                     LOG.error(future.exception())
                 sys.exit(1)
+            # Make sure that all files are downloaded. This has been an issue
+            # with large collections like bacteria.
+            for filepath in filepaths:
+                if not os.path.exists(filepath.strip()):
+                    http_download_file2(server, [filepath], None, md5sums)
 
 
 def download_taxonomy(args):
