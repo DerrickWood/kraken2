@@ -1183,18 +1183,19 @@ def map_accessions_to_url(accessions, protein=False):
 
 
 def map_accessions_to_url_parallel(args, accessions, max_workers):
-    futures = []
-    accession_to_url = {}
+    # futures = []
+    # accession_to_url = {}
     LOG.info("Fetching download links for accessions\n")
-    max_workers = min(args.threads, max_workers)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        for partition in partition_list(accessions, args.threads):
-            future = pool.submit(
-                map_accessions_to_url, partition, args.protein
-            )
-            futures.append(future)
-    for future in concurrent.futures.as_completed(futures):
-        accession_to_url.update(future.result())
+    # max_workers = min(args.threads, max_workers)
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+    #     for partition in partition_list(accessions, args.threads):
+    #         future = pool.submit(
+    #             map_accessions_to_url, partition, args.protein
+    #         )
+    #         futures.append(future)
+    # for future in concurrent.futures.as_completed(futures):
+    #     accession_to_url.update(future.result())
+    accession_to_url = map_accessions_to_url(accessions, args.protein)
     LOG.info("Finished fetching download links for accessions\n")
 
     return accession_to_url
