@@ -878,7 +878,7 @@ def download_and_process_accessions(args, endpoint, identifier):
     builder.set_filters_from_args(args)
     builder = builder.page_size(500)
     old_page_token = ""
-    rate_limit = None
+
     while True:
         api.request("GET", builder.build())
         response = api.getresponse()
@@ -896,7 +896,6 @@ def download_and_process_accessions(args, endpoint, identifier):
             )
             sys.exit(1)
         results = response.readlines()[0]
-        rate_limit = response.headers["x-ratelimit-limit"]
         results = json.loads(results)
         response.close()
 
@@ -925,7 +924,7 @@ def download_and_process_accessions(args, endpoint, identifier):
 
     accessions = list(accession_to_taxid.keys())
     accession_to_url =\
-        map_accessions_to_url_parallel(args, accessions, int(rate_limit))
+        map_accessions_to_url_parallel(args, accessions)
 
     filepath_to_taxid = {}
     with open("manifest.txt", "w") as fout:
@@ -1130,17 +1129,15 @@ def partition_list(list, num_partitions):
             break
         num_partitions -= 1
 
-
     return partitions
 
 
 def map_accessions_to_url(accessions, protein=False):
     api = http.client.HTTPSConnection(NCBI_REST_API)
-    conn = http.client.HTTPSConnection(NCBI_SERVER)
 
     size = len(accessions)
     start = 0
-    step = 200
+    step = 400
     stop = min(size, step)
     base_uri = "/datasets/v2/genome/accession/{}/links"
     accession_to_url = {}
@@ -1148,19 +1145,15 @@ def map_accessions_to_url(accessions, protein=False):
     while True:
         query = ",".join(accessions[start:stop])
         query = urllib.parse.quote(query)
-        api.request("GET", base_uri.format(query))
+        headers = {'accept': 'application/json'}
+        api.request("GET", base_uri.format(query), headers=headers)
         res = api.getresponse()
-        if res.status == 429:
-            LOG.warning("Connection is being rate limited by NCBI, backing off\n")
-            time.sleep(1)
-            res.close()
-            continue
         if res.status != 200:
-            LOG.error(
-                "Encountered an error while gathering download"
-                " links for accessions\n"
-            )
-            sys.exit(1)
+            res.close()
+            time.sleep(1)
+            api.connect()
+            continue
+
         results = res.readlines()[0]
         res.close()
         results = json.loads(results)
@@ -1168,40 +1161,40 @@ def map_accessions_to_url(accessions, protein=False):
         for entry in results["assembly_links"]:
             if entry["assembly_link_type"] == "FTP_LINK":
                 filepath = get_download_path(
-                    conn, entry["resource_link"], protein
+                    entry["resource_link"], protein
                 )
                 accession_to_url[entry["accession"]] =\
                     url_join(NCBI_SERVER, path=filepath)
         start, stop = stop, min(size, stop + step)
         if start == stop:
             break
-        # keep the rate limiter happy
-        # time.sleep(0.5)
     api.close()
 
     return accession_to_url
 
 
-def map_accessions_to_url_parallel(args, accessions, max_workers):
-    # futures = []
-    # accession_to_url = {}
+def map_accessions_to_url_parallel(args, accessions):
+    futures = []
+    accession_to_url = {}
     LOG.info("Fetching download links for accessions\n")
-    # max_workers = min(args.threads, max_workers)
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-    #     for partition in partition_list(accessions, args.threads):
-    #         future = pool.submit(
-    #             map_accessions_to_url, partition, args.protein
-    #         )
-    #         futures.append(future)
-    # for future in concurrent.futures.as_completed(futures):
-    #     accession_to_url.update(future.result())
-    accession_to_url = map_accessions_to_url(accessions, args.protein)
+    # We are limited to 5 requests per second, so we limit the number of
+    # workers accordingly.
+    workers = min(args.threads, 5)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for partition in partition_list(accessions, args.threads):
+            future = pool.submit(
+                map_accessions_to_url, partition, args.protein
+            )
+            futures.append(future)
+    for future in concurrent.futures.as_completed(futures):
+        accession_to_url.update(future.result())
+    # accession_to_url = map_accessions_to_url(accessions, args.protein)
     LOG.info("Finished fetching download links for accessions\n")
 
     return accession_to_url
 
 
-def get_download_path(conn, resource_link, protein):
+def get_download_path(resource_link, protein):
     dir = os.path.basename(resource_link)
     filename = dir + "_genomic.fna.gz"
     resource_link += "/"
@@ -1458,52 +1451,51 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
         os.makedirs(local_directory, exist_ok=True)
 
         try:
-            if os.path.exists(local_name):
-                if filename not in md5:
-                    checksums = []
-                    remote_dirname = os.path.dirname(url)
-                    for md5_filename in ["md5checksums.txt", filename + ".md5", "MD5SUM.txt"]:
-                        # Check if file exists before trying to download.
-                        # This avoids NCBI sending BadStatusLine when
-                        # making the request.
+            if filename not in md5:
+                checksums = []
+                remote_dirname = os.path.dirname(url)
+                for md5_filename in ["md5checksums.txt", filename + ".md5", "MD5SUM.txt"]:
+                    # Check if file exists before trying to download.
+                    # This avoids NCBI sending BadStatusLine when
+                    # making the request.
+                    conn.request(
+                        "HEAD", "/" + remote_dirname + "/" + md5_filename
+                    )
+                    response = conn.getresponse()
+                    if response.status == 200:
+                        response.close()
+                        # If we have found the file, then go ahead
+                        # and download.
                         conn.request(
-                            "HEAD", "/" + remote_dirname + "/" + md5_filename
+                            "GET", "/" + remote_dirname + "/" + md5_filename
                         )
                         response = conn.getresponse()
-                        if response.status == 200:
-                            response.close()
-                            # If we have found the file, then go ahead
-                            # and download.
-                            conn.request(
-                                "GET", "/" + remote_dirname + "/" + md5_filename
-                            )
-                            response = conn.getresponse()
-                            checksums = response.readlines()
-                            response.close()
-                            break
-                        else:
-                            response.close()
-                    if len(checksums) > 0:
-                        for checksum in checksums:
-                            (md5sum, remote_filename) = checksum.split()
-                            remote_filename = os.path.basename(
-                                remote_filename.decode()
-                            )
-                            md5[remote_filename] = md5sum.decode()
-                if not skip_md5_check and filename in md5\
-                   and md5[filename] == hash_file(local_name):
-                    LOG.info(
-                        "Already downloaded {:s}\n".format(
-                            urllib.parse.urljoin(server, url)
+                        checksums = response.readlines()
+                        response.close()
+                        break
+                    else:
+                        response.close()
+                if len(checksums) > 0:
+                    for checksum in checksums:
+                        (md5sum, remote_filename) = checksum.split()
+                        remote_filename = os.path.basename(
+                            remote_filename.decode()
                         )
+                        md5[remote_filename] = md5sum.decode()
+            if not skip_md5_check and os.path.exists(local_name)\
+               and filename in md5 and md5[filename] == hash_file(local_name):
+                LOG.info(
+                    "Already downloaded {:s}\n".format(
+                        urllib.parse.urljoin(server, url)
                     )
-                    # Server can potentially end the connection while we
-                    # waiting for the md5 hash to be computed. We have
-                    # to reconnect to avoid failures when trying to
-                    # retrieve the file.
-                    conn.connect()
-                    i += 1
-                    continue
+                )
+                # Server can potentially end the connection while we
+                # waiting for the md5 hash to be computed. We have
+                # to reconnect to avoid failures when trying to
+                # retrieve the file.
+                conn.connect()
+                i += 1
+                continue
             LOG.info("Beginning download of {:s}\n".format(server + "/" + url))
             with open(local_name, "wb") as out_file:
                 conn.request("GET", "/" + url)
@@ -1538,16 +1530,22 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
         # was downloaded successfully. This prevents issues when
         # assigning tax IDs to files.
         local_md5sum = hash_file(local_name)
-        if filename in md5 and md5[filename] != local_md5sum:
-            LOG.warning(
-                "The MD5 sum of {} does not match the MD5 provided"
-                " by the server. The file will be downloaded again."
-                .format(local_name)
-            )
-            # We have already confirmed that MD5 sum does not match
-            # do not bother checking it again at the top of the loop.
-            skip_md5_check = True
-            continue
+        if filename in md5:
+            if md5[filename] != local_md5sum:
+                LOG.warning(
+                    "The MD5 sum of {} does not match the MD5 provided"
+                    " by the server. The file will be downloaded again."
+                    .format(local_name)
+                )
+                # We have already confirmed that MD5 sum does not match
+                # do not bother checking it again at the top of the loop.
+                skip_md5_check = True
+                continue
+            else:
+                LOG.info(
+                    "The remote and local MD5 sum of {} match\n"
+                    .format(local_name)
+                )
 
         LOG.info(
             "Saved {:s} to {:s}\n".format(filename, local_directory)
