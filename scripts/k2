@@ -1516,7 +1516,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     sys.exit(1)
                 response.close()
 
-        except http.client.HTTPException as e:
+        except (http.client.HTTPException, http.client.RemoteDisconnected) as e:
             LOG.warning(
                 "Unable to download " + url + ". Reason: {}, will try again\n"
                 .format(e)
@@ -1534,12 +1534,13 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
             if md5[filename] != local_md5sum:
                 LOG.warning(
                     "The MD5 sum of {} does not match the MD5 provided"
-                    " by the server. The file will be downloaded again."
+                    " by the server. The file will be downloaded again.\n"
                     .format(local_name)
                 )
                 # We have already confirmed that MD5 sum does not match
                 # do not bother checking it again at the top of the loop.
                 skip_md5_check = True
+                conn.connect()
                 continue
             else:
                 LOG.info(
@@ -1639,6 +1640,13 @@ def download_files_from_manifest(
                     http_download_file2(server, [filepath], None, md5sums)
 
 
+def download_and_decompress(filename):
+    http_download_file2(
+        NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
+    )
+    decompress_files(os.path.abspath(os.path.basename(filename)))
+
+
 def download_taxonomy(args):
     taxonomy_path = os.path.join(args.db, "taxonomy")
     os.makedirs(taxonomy_path, exist_ok=True)
@@ -1646,18 +1654,13 @@ def download_taxonomy(args):
     futures = []
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
-        maps = set()
         if not args.skip_maps:
             if not args.protein:
                 for subsection in ["gb", "wgs"]:
                     filename = "pub/taxonomy/accession2taxid/"
                     filename += "nucl_" + subsection + ".accession2taxid.gz"
-                    maps.add(os.path.basename(filename))
                     future = pool.submit(
-                        http_download_file2,
-                        NCBI_SERVER,
-                        [filename],
-                        save_to=os.path.abspath(os.curdir),
+                        download_and_decompress, filename
                     )
                     if future_raised_exception(future):
                         LOG.error(
@@ -1669,10 +1672,7 @@ def download_taxonomy(args):
                 filename = "/pub/taxonomy/accession2taxid/"
                 filename += "prot.accession2taxid.gz"
                 future = pool.submit(
-                    http_download_file2,
-                    NCBI_SERVER,
-                    [filename],
-                    save_to=os.path.abspath(os.curdir),
+                    download_and_decompress, filename
                 )
                 if future_raised_exception(future):
                     LOG.error(
@@ -1680,33 +1680,17 @@ def download_taxonomy(args):
                     )
                     raise future.exception()
                 futures.append(future)
-                maps.add(os.path.basename(filename))
 
-            for future in concurrent.futures.as_completed(futures):
-                download_count = future.result()
-                maps_downloaded = set(glob.glob("*.accession2taxid.gz"))
-                map_to_decompress = maps_downloaded.intersection(maps)
-                for gz_filename in map_to_decompress:
-                    if not os.path.exists(gz_filename[:-3])\
-                       or download_count != 0:
-                        future = pool.submit(decompress_files, [gz_filename])
-                        if future_raised_exception(future):
-                            LOG.error(
-                                "Error encountered while decompressing file\n"
-                            )
-                            raise future.exception()
-                        futures.append(future)
-                    maps.remove(gz_filename)
-
-    LOG.info("Downloading taxonomy tree data\n")
-    filename = "pub/taxonomy/taxdump.tar.gz"
-    http_download_file2(
-        NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
-    )
-    LOG.info("Untarring taxonomy tree data\n")
-    with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
-        tar.extractall()
-    LOG.info("Finished Untarring taxonomy tree data")
+        LOG.info("Downloading taxonomy tree data\n")
+        filename = "pub/taxonomy/taxdump.tar.gz"
+        http_download_file2(
+            NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
+        )
+        LOG.info("Untarring taxonomy tree data\n")
+        with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
+            tar.extractall()
+        LOG.info("Finished Untarring taxonomy tree data\n")
+        concurrent.futures.wait(futures)
 
 
 def download_gtdb_taxonomy(args, files, md5s):
