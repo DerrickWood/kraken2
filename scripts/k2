@@ -468,20 +468,19 @@ def remove_files(filepaths, forked=False):
                     if entry.is_dir():
                         directories.append(entry.path)
                     else:
-                        filepaths.append(entry.path)
+                        total_size += os.path.getsize(entry.path)
+                        LOG.info("Removing {}\n".format(entry.path))
+                        os.remove(entry.path)
                 if not forked and len(directories) >= 4:
                     total_size += remove_files_parallel(directories)
                 else:
-                    filepaths.extend(directories)
+                    total_size += remove_files(directories)
+                    for directory in directories:
+                        shutil.rmtree(directory)
         else:
             LOG.info("Removing {}\n".format(fname))
             total_size += os.path.getsize(fname)
             os.remove(fname)
-
-    if not forked:
-        for fname in filepaths:
-            if os.path.isdir(fname):
-                shutil.rmtree(fname)
 
     return total_size
 
