@@ -385,7 +385,9 @@ def future_raised_exception(future):
 
 
 def url_join(netloc, scheme="https", path="", query="", fragment=""):
-    split_result = urllib.parse.SplitResult(scheme, netloc, path, query, fragment)
+    split_result = urllib.parse.SplitResult(
+        scheme, netloc, path, query, fragment
+    )
     return urllib.parse.urlunsplit(split_result)
 
 
@@ -2400,7 +2402,6 @@ def build_kraken2_db(args):
             )
             sys.exit(1)
         LOG.info("Finished concatenating prelim_map.txt files\n")
-        total_sequences = 0
         LOG.info("Creating sequence ID to taxonomy ID map\n")
         with open("prelim_map.txt", "r") as in_file:
             with open("seqid2taxid.map.tmp", "w") as seqid2taxid_file:
@@ -2414,7 +2415,6 @@ def build_kraken2_db(args):
                             seqid2taxid_file.write(new_line)
                         elif line.startswith("ACCNUM"):
                             accmap_file.write(new_line)
-                        total_sequences += 1
         if os.path.getsize("accmap.tmp") > 0:
             accession2taxid_filenames = glob.glob("taxonomy/*.accession2taxid")
             if accession2taxid_filenames:
@@ -2449,6 +2449,7 @@ def build_kraken2_db(args):
         recursive=False
     )
     estimate = ""
+    total_sequences = 0
     if os.path.exists("estimated_capacity"):
         estimated_capacity_mtime = \
             os.path.getmtime("estimated_capacity")
@@ -2460,7 +2461,12 @@ def build_kraken2_db(args):
                 "capacity from estimated_capacity file.\n"
             )
             with open("estimated_capacity", "r") as in_file:
-                estimate = in_file.read()
+                lines = in_file.readlines()
+                if len(lines) == 1:
+                    estimate = in_file.readline().strip()
+                elif len(lines) == 2:
+                    estimate = in_file.readline().strip()
+                    total_sequences = int(in_file.readline().strip())
 
     if estimate == "":
         if not dwk2():
@@ -2472,15 +2478,14 @@ def build_kraken2_db(args):
         if dwk2():
             for filename in fasta_filenames:
                 with open(filename, "rb") as in_file:
-                    while True:
-                        data = in_file.read(8192)
-                        if not data:
-                            break
-                        proc.stdin.write(data)
+                    for line in in_file:
+                        if line.startswith(b'>'):
+                            total_sequences += 1
+                        proc.stdin.write(line)
         estimate = proc.communicate()[0].decode()
         proc.stdin.close()
         with open("estimated_capacity", "w") as out_file:
-            out_file.write(estimate)
+            out_file.write(estimate + str(total_sequences) + "\n")
 
     required_capacity = (int(estimate.strip()) + 8192) / args.load_factor
     LOG.info(
@@ -2528,22 +2533,23 @@ def build_kraken2_db(args):
         )
 
         LOG.info("Running: " + " ".join(argv) + "\n")
-        total_sequences = 0
-        with open("seqid2taxid.map") as fin:
-            for line in fin:
-                total_sequences += 1
+        if total_sequences > 0:
+            m_err, s_err = pty.openpty()
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.PIPE,
+                stdout=s_err,
+                stderr=s_err,
+            )
+            thread = threading.Thread(
+                target=read_from_stderr,
+                args=(m_err, total_sequences)
+            )
+            thread.start()
+        else:
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.PIPE,
+            )
 
-        m_err, s_err = pty.openpty()
-        proc = subprocess.Popen(
-            argv, stdin=subprocess.PIPE,
-            stdout=s_err,
-            stderr=s_err,
-        )
-        thread = threading.Thread(
-            target=read_from_stderr,
-            args=(m_err, total_sequences)
-        )
-        thread.start()
         for filename in fasta_filenames:
             with open(filename, "rb") as in_file:
                 while True:
@@ -2556,9 +2562,11 @@ def build_kraken2_db(args):
         if proc.wait() != 0:
             LOG.error("Encountered error while building database\n")
             sys.exit(1)
-        thread.join()
-        os.close(m_err)
-        os.close(s_err)
+
+        if total_sequences > 0:
+            thread.join()
+            os.close(m_err)
+            os.close(s_err)
 
         move("hash.k2d.tmp", "hash.k2d")
         move("taxo.k2d.tmp", "taxo.k2d")
