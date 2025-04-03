@@ -236,7 +236,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
   omp_init_lock(&output_lock);
   BatchSequenceReader r1(filename1);
   BatchSequenceReader r2(filename2);
-  std::vector<OutputData> buffers(omp_get_max_threads());
+  std::vector<OutputData> buffers(omp_get_max_threads() * 2);
 
   #pragma omp parallel
   {
@@ -409,8 +409,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
               next_output_block_id++;
             } else {
               output_loop = false;
-              out_data = std::move(buffers.back());
-              buffers.pop_back();
+              if (buffers.size() > 0) {
+                out_data = std::move(buffers.back());
+                buffers.pop_back();
+              } else {
+                out_data = OutputData();
+              }
             }
           }
         }
