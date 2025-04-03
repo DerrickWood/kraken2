@@ -2300,7 +2300,7 @@ def check_seqidmap():
                     LOG.warning(
                         "There is no entry for taxid, '{}', contained in, {},"
                         "in nodes.dmp. Please contact NCBI about this\n"
-                        .format(seqid, taxid)
+                        .format(taxid, seqid)
                     )
     shutil.move("seqid2taxid.map.new", "seqid2taxid.map")
 
@@ -2468,6 +2468,12 @@ def build_kraken2_db(args):
                     estimate = lines[0].strip()
                     total_sequences = int(lines[1].strip())
 
+    mapped_sequences = {}
+    with open("seqid2taxid.map", "rb") as in_file:
+        for line in in_file:
+            sequence_name = line.split()[0]
+            mapped_sequences[sequence_name] = True
+
     if estimate == "":
         if not dwk2():
             argv.extend(fasta_filenames)
@@ -2480,7 +2486,9 @@ def build_kraken2_db(args):
                 with open(filename, "rb") as in_file:
                     for line in in_file:
                         if line.startswith(b'>'):
-                            total_sequences += 1
+                            sequence_name = line.split()[0]
+                            if sequence_name[1:] in mapped_sequences:
+                                total_sequences += 1
                         proc.stdin.write(line)
         estimate = proc.communicate()[0].decode()
         proc.stdin.close()
