@@ -2463,10 +2463,10 @@ def build_kraken2_db(args):
             with open("estimated_capacity", "r") as in_file:
                 lines = in_file.readlines()
                 if len(lines) == 1:
-                    estimate = in_file.readline().strip()
+                    estimate = lines[0].strip()
                 elif len(lines) == 2:
-                    estimate = in_file.readline().strip()
-                    total_sequences = int(in_file.readline().strip())
+                    estimate = lines[0].strip()
+                    total_sequences = int(lines[1].strip())
 
     if estimate == "":
         if not dwk2():
