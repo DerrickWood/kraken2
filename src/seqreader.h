@@ -63,7 +63,7 @@ class BatchSequenceReader {
     kseq_ = kseq_init(fd_);
     curr_ = 0;
     size_ = 0;
-    max_size_ = 0;
+    // max_size_ = 0;
     file_format_ = SequenceFormat::FORMAT_AUTO_DETECT;
     primary_ = true;
   }
@@ -82,7 +82,7 @@ class BatchSequenceReader {
     kseq_ = rhs.kseq_;
     curr_ = rhs.curr_;
     size_ = rhs.size_;
-    max_size_ = rhs.max_size_;
+    // max_size_ = rhs.max_size_;
     // seqs_ = rhs.seqs_;
     primary_ = false;
   }
@@ -92,9 +92,8 @@ class BatchSequenceReader {
     size_ = 0;
     while (total < block_size) {
       if (kseq_read(kseq_) >= 0) {
-        if (size_ == max_size_) {
-          seqs_.resize(max_size_ + 1);
-          max_size_ = seqs_.size();
+        if (size_ == seqs_.size()) {
+          seqs_.resize(seqs_.size() + 1);
         }
         copy_from_kseq(seqs_[size_]);
         total += kseq_->seq.l;
@@ -146,9 +145,10 @@ class BatchSequenceReader {
       }
     }
 
-    seqs_.resize(i);
+    // seqs_.resize(i);
     curr_ = 0;
-    return seqs_.size() > 0;
+    size_ = i;
+    return size_ > 0;
   }
 
   SequenceFormat file_format() { return file_format_; }
@@ -178,7 +178,7 @@ class BatchSequenceReader {
   int fd_;
   size_t curr_;
   size_t size_;
-  size_t max_size_;
+  // size_t max_size_;
   bool primary_;
 };
 
