@@ -3159,7 +3159,7 @@ def inspect_db(args):
     )
 
     if output_filename == "-":
-        shutil.copyfileobj(process.stdout, sys.stdout)
+        shutil.copyfileobj(process.stdout, sys.stdout.buffer)
     else:
         with open(output_filename, "wb") as fout:
             shutil.copyfileobj(process.stdout, fout)
