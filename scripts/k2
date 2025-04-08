@@ -777,16 +777,17 @@ def add_to_library(args):
 
 
 def make_manifest_from_assembly_summary(
-    assembly_summary_file, is_protein=False
+        args, assembly_summary_file
 ):
-    suffix = "_protein.faa.gz" if is_protein else "_genomic.fna.gz"
+    asm_level_regex = "|".join(args.assembly_levels).replace("_", " ")
+    suffix = "_protein.faa.gz" if args.protein else "_genomic.fna.gz"
     manifest_to_taxid = {}
     for line in assembly_summary_file:
         if line.startswith("#"):
             continue
         fields = line.strip().split("\t")
         taxid, asm_level, ftp_path = fields[5], fields[11], fields[19]
-        if not re.match("Complete Genome|Chromosome", asm_level):
+        if not re.match(asm_level_regex, asm_level, re.IGNORECASE):
             continue
         if ftp_path == "na":
             continue
@@ -2008,7 +2009,7 @@ def download_genomic_library(args):
         with open("assembly_summary.txt", "r") as f:
             filepath_to_url = {}
             filepath_to_taxid_table = make_manifest_from_assembly_summary(
-                f, args.protein
+                args, f
             )
             for filepath in filepath_to_taxid_table:
                 filepath_to_url[filepath] = url_join(NCBI_SERVER, path=filepath)
