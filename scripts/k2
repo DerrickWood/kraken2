@@ -937,7 +937,7 @@ def download_and_process_accessions(args, endpoint, identifier):
             taxid = accession_to_taxid[accession]
             filepath_to_taxid[filepath] = str(taxid)
 
-    download_files_from_manifest(NCBI_SERVER, args.threads)
+    download_files_from_manifest(NCBI_SERVER, args.threads, resume=args.resume)
 
     filepath_to_url = {}
     for filepath in filepath_to_taxid.keys():
@@ -1449,6 +1449,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
         local_name = os.path.abspath(url)
         if save_to:
             local_name = os.path.join(save_to, filename)
+        tmp_local_name = local_name + ".tmp"
         local_directory = os.path.dirname(local_name)
         os.makedirs(local_directory, exist_ok=True)
 
@@ -1499,7 +1500,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                 i += 1
                 continue
             LOG.info("Beginning download of {:s}\n".format(server + "/" + url))
-            with open(local_name, "wb") as out_file:
+            with open(tmp_local_name, "wb") as out_file:
                 conn.request("GET", "/" + url)
                 response = conn.getresponse()
                 if response.status == 200:
@@ -1517,6 +1518,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                     response.read()
                     sys.exit(1)
                 response.close()
+                shutil.move(tmp_local_name, local_name)
 
         except (http.client.HTTPException, http.client.RemoteDisconnected) as e:
             LOG.warning(
@@ -1613,11 +1615,19 @@ def download_files_from_manifest(
     manifest_filename="manifest.txt",
     filepath_to_taxid_table=None,
     md5sums=None,
+    resume=False
 ):
     threads = min(threads, 12)
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
         with open(manifest_filename, "r") as f:
             filepaths = f.readlines()
+            if resume:
+                nonexistent_filepaths = []
+                for filepath in filepaths:
+                    abs_filepath = os.path.abspath(filepath.strip())
+                    if not os.path.exists(abs_filepath):
+                        nonexistent_filepaths.append(filepath)
+                filepaths = nonexistent_filepaths
             # We try to reduce the risk of a single thread downloading
             # many large files.
             random.shuffle(filepaths)
@@ -1882,7 +1892,7 @@ def build_gtdb_database(args):
     if len(files_needed["fasta"]) != len(args.gtdb_files):
         LOG.error("At least one of the files did not match: {}\n"
                   .format(", ".join(args.gtdb_files)))
-        LOG.error("Here are a list of candidates:\n{}\n"
+        LOG.error("Here is a list of candidates:\n{}\n"
                   .format("\n".join(candidate_files)))
         sys.exit(1)
     download_gtdb_taxonomy(args, files_needed["taxonomy"], md5s)
@@ -2017,6 +2027,7 @@ def download_genomic_library(args):
                 NCBI_SERVER,
                 args.threads,
                 filepath_to_taxid_table=filepath_to_taxid_table,
+                resume=args.resume
             )
             sequence_to_url = assign_taxid_to_sequences(
                 args, filepath_to_taxid_table,
@@ -2041,7 +2052,9 @@ def download_genomic_library(args):
         md5 = get_manifest_and_md5sums(
             NCBI_SERVER, "genomes/refseq/{}/".format(args.library), pat
         )
-        download_files_from_manifest(NCBI_SERVER, args.threads, md5sums=md5)
+        download_files_from_manifest(
+            NCBI_SERVER, args.threads, md5sums=md5, resume=args.resume
+        )
         sequence_to_url = {}
         filenames = []
         with open("manifest.txt", "r") as manifest:
@@ -3429,6 +3442,12 @@ def make_download_library_parser(subparsers):
         default="refseq",
         help="Download RefSeq (GCF_) or GenBank (GCA_) genome assemblies\
               or both (default RefSeq)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume fetching the files needed for a library, skipping files\
+        that have already been downloaded",
     )
     parser.add_argument(
         "--assembly-levels",
