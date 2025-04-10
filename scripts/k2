@@ -3705,7 +3705,7 @@ def make_classify_parser(subparsers):
     )
     parser.add_argument(
         "filenames",
-        nargs="+",
+        nargs="*",
         type=str,
         help="Filenames to be classified, supports bz2, gzip, and xz",
     )
