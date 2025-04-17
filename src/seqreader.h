@@ -30,12 +30,16 @@ struct Sequence {
 
   Sequence() : format(SequenceFormat::FORMAT_AUTO_DETECT) {}
 
-  Sequence(Sequence &&other) {
-    format = other.format;
-    header = std::move(other.header);
-    comment = std::move(other.comment);
-    seq = std::move(other.seq);
-    quals = std::move(other.quals);
+  Sequence(Sequence &&other)
+      : format(other.format), header(std::move(other.header)),
+        comment(std::move(other.comment)), seq(std::move(other.seq)),
+        quals(std::move(other.quals))
+  {
+    // format = other.format;
+    // header = std::move(other.header);
+    // comment = std::move(other.comment);
+    // seq = std::move(other.seq);
+    // quals = std::move(other.quals);
   }
 
   Sequence &operator=(Sequence &other) {
@@ -68,8 +72,7 @@ class BatchSequenceReader {
     primary_ = true;
   }
 
-  ~BatchSequenceReader()
-  {
+  ~BatchSequenceReader() {
     if (primary_) {
       kseq_destroy(kseq_);
       if (fd_ > 2) {
@@ -153,7 +156,7 @@ class BatchSequenceReader {
 
   SequenceFormat file_format() { return file_format_; }
 
-  private:
+private:
   void copy_from_kseq(Sequence& seq)
   {
     seq.header.assign(kseq_->name.s, kseq_->name.l);

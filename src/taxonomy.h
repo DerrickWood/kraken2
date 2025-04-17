@@ -7,6 +7,8 @@
 #ifndef KRAKEN2_TAXONOMY_H_
 #define KRAKEN2_TAXONOMY_H_
 
+#include <tuple>
+
 #include "mmap_file.h"
 #include "kraken2_headers.h"
 
@@ -43,9 +45,25 @@ class Taxonomy {
   public:
   Taxonomy(const std::string &filename, bool memory_mapping=false);
   Taxonomy(const char *filename, bool memory_mapping=false);
-  Taxonomy() : file_backed_(false), nodes_(nullptr), node_count_(0),
-      name_data_(nullptr), name_data_len_(0),
-      rank_data_(nullptr), rank_data_len_(0) { }
+  Taxonomy()
+      : file_backed_(false), nodes_(nullptr), node_count_(0),
+        name_data_(nullptr), name_data_len_(0), rank_data_(nullptr),
+        rank_data_len_(0) {}
+
+  Taxonomy(Taxonomy &&o)
+      : FILE_MAGIC(o.FILE_MAGIC),
+        external_to_internal_id_map_(std::move(o.external_to_internal_id_map_)) {
+    file_backed_ = o.file_backed_;
+    nodes_ = o.nodes_;
+    o.nodes_ = NULL;
+    node_count_ = o.node_count_;
+    name_data_ = o.name_data_;
+    o.name_data_ = NULL;
+    name_data_len_ = o.name_data_len_;
+    rank_data_ = o.rank_data_;
+    o.rank_data_ = NULL;
+    rank_data_len_ = o.rank_data_len_;
+  }
   ~Taxonomy();
 
   inline const TaxonomyNode *nodes() const { return nodes_; }

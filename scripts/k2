@@ -73,6 +73,7 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "unclassified_out": "-U",
     "use_mpa_style": "-m",
     "use_names": "-n",
+    "use_daemon": "-D",
 }
 
 
@@ -3086,6 +3087,53 @@ def make_seqid_to_taxid_map(
                         print("{:s}\t{:s}\n".format(seqid, taxid))
 
 
+def wait_for_fifos(*fifos):
+    for fifo in fifos:
+        while not os.path.exists(fifo):
+            continue
+
+
+def cleanup_fifos():
+    for filename in os.listdir("/tmp"):
+        if re.match(r"^classify_(?:\d+_)?(?:stdin|stdout)$", filename):
+            os.remove(os.path.join("/tmp", filename))
+
+
+def copy_file_obj(dst):
+    while True:
+        data = sys.stdin.read(8194)
+        if not data:
+            break
+        dst.write(data)
+    dst.close()
+
+
+def ping_daemon(message=b"PING\n"):
+    if not os.path.exists("/tmp/classify_stdin"):
+        return False
+    if not os.path.exists("/tmp/classify_stdout"):
+        return False
+
+    fd_rd_1 = os.open("/tmp/classify_stdin", os.O_RDONLY | os.O_NONBLOCK)
+    fd_wr_1 = os.open("/tmp/classify_stdin", os.O_WRONLY)
+    fd_rd_2 = os.open("/tmp/classify_stdout", os.O_RDONLY | os.O_NONBLOCK)
+    os.set_blocking(fd_rd_1, True)
+
+    try:
+        os.write(fd_wr_1, message)
+        time.sleep(0.1)
+        if os.read(fd_rd_2, 3) == b"OK\n":
+            alive = True
+    except BlockingIOError:
+        alive = False
+
+    os.close(fd_rd_1)
+    os.close(fd_rd_2)
+    os.close(fd_wr_1)
+
+    return alive
+
+
 def classify(args):
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
@@ -3140,8 +3188,54 @@ def classify(args):
             write_to_fifo(args.filenames, fifo1_pathname, fifo2_pathname)
             thread.join()
     else:
+        for i, filename in enumerate(args.filenames):
+            args.filenames[i] = os.path.abspath(filename)
         argv.extend(args.filenames)
-        sys.exit(subprocess.call(argv))
+        if args.use_daemon:
+            alive = ping_daemon()
+            if not alive:
+                cleanup_fifos()
+                subprocess.call(argv)
+                wait_for_fifos("/tmp/classify_stdin", "/tmp/classify_stdout")
+            else:
+                fd = os.open("/tmp/classify_stdin", os.O_RDWR)
+                with os.fdopen(fd, 'w') as out_file:
+                    out_file.write(" ".join(argv) + "\n")
+            # the daemon will return the pid of the subprocess
+            # doing the work
+            with open("/tmp/classify_stdout", "r") as in_file:
+                for line in in_file:
+                    line = line.strip()
+                    if line.startswith("PID"):
+                        pid = line.split(":")[1].strip()
+                        break
+                    else:
+                        print(line)
+            proc_in = "/tmp/classify_{}_stdin".format(pid)
+            proc_out = "/tmp/classify_{}_stdout".format(pid)
+            wait_for_fifos(proc_in, proc_out)
+            thread = None
+            proc_fd = open(proc_in, "w")
+            if len(args.filenames) == 0:
+                thread = threading.Thread(
+                    target=copy_file_obj, args=(proc_fd,)
+                )
+                thread.start()
+            if "output" not in args:
+                with open(proc_out, "r") as in_file:
+                    for line in in_file:
+                        line = line.strip()
+                        print(line)
+            # wait for the classification job to complete
+            if thread:
+                thread.join()
+            with open("/tmp/classify_stdout", "r") as in_file:
+                for line in in_file:
+                    line = line.strip()
+                    if line == "DONE":
+                        break
+        else:
+            sys.exit(subprocess.call(argv))
 
 
 def inspect_db(args):
@@ -3201,19 +3295,22 @@ def clean_up(filenames):
 
 
 def clean_db(args):
-    os.chdir(args.db)
-    if args.pattern:
-        clean_up(glob.glob(args.pattern, recursive=False))
+    if args.stop_daemon:
+        ping_daemon(b"STOP\n")
     else:
-        clean_up(
-            [
-                "data",
-                "library",
-                "taxonomy",
-                "seqid2taxid.map",
-                "prelim_map.txt",
-            ]
-        )
+        os.chdir(args.db)
+        if args.pattern:
+            clean_up(glob.glob(args.pattern, recursive=False))
+        else:
+            clean_up(
+                [
+                    "data",
+                    "library",
+                    "taxonomy",
+                    "seqid2taxid.map",
+                    "prelim_map.txt",
+                ]
+            )
 
 
 def make_build_parser(subparsers):
@@ -3595,6 +3692,15 @@ def make_classify_parser(subparsers):
         help="Number of threads",
     )
     parser.add_argument(
+        "--use-daemon",
+        action="store_true",
+        help="Spawn a background process that keeps any loaded indexes\
+        in memory. Subsequent invokations of classify with this option will\
+        skip the index loading process and immediately start classifying\
+        reads. If a new index is specified that index will also be persisted.\
+        Use k2 clean --stop-daemon to stop the background process."
+    )
+    parser.add_argument(
         "--quick",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -3767,21 +3873,35 @@ def make_clean_parser(subparsers):
     parser = subparsers.add_parser(
         "clean", help="Removes unwanted files from database"
     )
-    parser.add_argument(
+
+    actions = parser.add_argument_group(
+        "required", "Arguments required by the cleaner"
+    )
+    mg = actions.add_mutually_exclusive_group(required=True)
+    mg.add_argument(
+        "--stop-daemon",
+        action="store_true",
+        help="Stop a running background process",
+    )
+    mg.add_argument(
         "--db",
         type=str,
         metavar="PATHNAME",
-        required=True,
+        # required=True,
         help="Pathname to Kraken2 database",
     )
-    parser.add_argument(
+
+    options = parser.add_argument_group(
+        "options", "options for cleaning temporary files"
+    )
+    options.add_argument(
         "--log",
         type=str,
         metavar="FILENAME",
         default=None,
         help="Specify a log filename (default: stderr)",
     )
-    parser.add_argument(
+    options.add_argument(
         "--pattern",
         type=str,
         metavar="SHELL_REGEX",
@@ -3857,7 +3977,9 @@ def k2_main():
     args = parser.parse_args(sys.argv[1:])
     LOG = setup_logger(args.log)
     task = sys.argv[1]
-    if task not in ["classify", "inspect"]:
+    # if task not in ["classify", "inspect"]:
+    #     args.db = os.path.abspath(args.db)
+    if args.db:
         args.db = os.path.abspath(args.db)
     if task == "download-taxonomy":
         download_taxonomy(args)

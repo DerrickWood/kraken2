@@ -4,6 +4,8 @@
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
 
+#include <sys/wait.h>
+
 #include "kraken2_headers.h"
 #include "kv_store.h"
 #include "taxonomy.h"
@@ -56,6 +58,34 @@ struct Options {
   int minimum_hit_groups;
   bool use_memory_mapping;
   bool match_input_order;
+  std::vector<char *> filenames;
+  bool daemon_mode;
+
+  void reset() {
+    quick_mode = false;
+    confidence_threshold = 0;
+    paired_end_processing = false;
+    single_file_pairs = false;
+    num_threads = 1;
+    mpa_style_report = false;
+    report_kmer_data = false;
+    report_zero_counts = false;
+    use_translated_search = false;
+    print_scientific_name = false;
+    minimum_quality_score = 0;
+    minimum_hit_groups = 0;
+    use_memory_mapping = false;
+    daemon_mode = false;
+
+    index_filename.clear();
+    taxonomy_filename.clear();
+    options_filename.clear();
+    report_filename.clear();
+    classified_output_filename.clear();
+    unclassified_output_filename.clear();
+    kraken_output_filename.clear();
+    filenames.clear();
+  }
 };
 
 struct ClassificationStats {
@@ -104,27 +134,111 @@ void ReportStats(struct timeval time1, struct timeval time2,
 void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat format);
 void MaskLowQualityBases(Sequence &dna, int minimum_quality_score);
 
-int main(int argc, char **argv) {
-  Options opts;
-  opts.quick_mode = false;
-  opts.confidence_threshold = 0;
-  opts.paired_end_processing = false;
-  opts.single_file_pairs = false;
-  opts.num_threads = 1;
-  opts.mpa_style_report = false;
-  opts.report_kmer_data = false;
-  opts.report_zero_counts = false;
-  opts.use_translated_search = false;
-  opts.print_scientific_name = false;
-  opts.minimum_quality_score = 0;
-  opts.minimum_hit_groups = 0;
-  opts.use_memory_mapping = false;
 
-  taxon_counters_t taxon_counters; // stats per taxon
-  ParseCommandLine(argc, argv, opts);
+int daemonize() {
+  pid_t pid;
 
-  omp_set_num_threads(opts.num_threads);
+  if ((pid = fork()) < 0) {
+    errx(1, "fork");
+  }
 
+  if (pid == 0) {
+    if (setsid() == -1) {
+      perror("setdsid");
+      exit(1);
+    }
+  } else {
+    exit(0);
+  }
+
+  if ((pid = fork()) < 0) {
+    perror("fork");
+    exit(1);
+  }
+
+  if (pid != 0) {
+    exit(0);
+  }
+
+  unlink("/tmp/classify_stdin");
+  unlink("/tmp/classify_stdout");
+  mkfifo("/tmp/classify_stdin", S_IRWXU);
+  mkfifo("/tmp/classify_stdout", S_IRWXU);
+
+  int read_fd = open("/tmp/classify_stdin", O_RDONLY | O_NONBLOCK);
+  // keep these open so that to daemon does not
+  // receive EOF when the external process closes
+  // its end of the fifo
+  int dummy_fd_1 = open("/tmp/classify_stdin", O_WRONLY);
+  (void)dummy_fd_1;
+  int dummy_fd_2 = open("/tmp/classify_stdout", O_RDONLY | O_NONBLOCK);
+
+  int write_fd = open("/tmp/classify_stdout", O_WRONLY);
+
+  fcntl(read_fd, F_SETFL, ~O_NONBLOCK);
+  fcntl(dummy_fd_2, F_SETFL, ~O_NONBLOCK);
+
+  for (int fd = 0; fd < 2; fd++) {
+    close(fd);
+  }
+
+  dup2(read_fd, 0);
+  dup2(write_fd, 1);
+  dup2(write_fd, 2);
+
+  return (0);
+}
+
+void OpenFifos(Options &opts, pid_t pid) {
+  char stdin_filename[256];
+  char stdout_filename[256];
+
+  snprintf(stdin_filename, 256, "/tmp/classify_%d_stdin", pid);
+  snprintf(stdout_filename, 256, "/tmp/classify_%d_stdout", pid);
+
+  mkfifo(stdin_filename, S_IRWXU);
+  mkfifo(stdout_filename, S_IRWXU);
+
+  int read_fd = -1;
+  // if we are expecting input from stdin, open the
+  // FIFO in blocking mode and wait for the input.
+  if (opts.filenames.empty()) {
+    read_fd = open(stdin_filename, O_RDONLY);
+  } else {
+    read_fd = open(stdin_filename, O_RDONLY | O_NONBLOCK);
+    // keep these open so that to daemon does not
+    // receive EOF when the external process closes
+    // its end of the fifo
+    int dummy_fd_1 = open(stdin_filename, O_WRONLY);
+    (void)dummy_fd_1;
+  }
+
+  // If we are outputting to a file open the write
+  // FIFO in non-blocking mode and keep a read end open
+  // so that we do not block the process.
+  int dummy_fd_2 = -1;
+  if (!opts.kraken_output_filename.empty()) {
+    dummy_fd_2 = open(stdout_filename, O_RDONLY | O_NONBLOCK);
+  }
+  int write_fd = open(stdout_filename, O_WRONLY);
+
+  if (opts.kraken_output_filename.empty()) {
+    fcntl(read_fd, F_SETFL, ~O_NONBLOCK);
+  } else {
+    fcntl(dummy_fd_2, F_SETFL, ~O_NONBLOCK);
+  }
+
+  for (int fd = 0; fd < 3; fd++) {
+    close(fd);
+  }
+
+  dup2(read_fd, 0);
+  dup2(write_fd, 1);
+  dup2(write_fd, 2);
+}
+
+std::tuple<IndexOptions, Taxonomy, KeyValueStore *>
+load_index(Options &opts) {
   cerr << "Loading database information...";
 
   IndexOptions idx_opts = {0};
@@ -141,33 +255,44 @@ int main(int argc, char **argv) {
 
   cerr << " done." << endl;
 
+  return { idx_opts, std::move(taxonomy), hash_ptr };
+}
+
+void classify(Options &opts, std::tuple<IndexOptions, Taxonomy, KeyValueStore *>& index_data) {
+  taxon_counters_t taxon_counters; // stats per taxon
+  IndexOptions idx_opts = std::get<0>(index_data);
+  Taxonomy &taxonomy = std::get<1>(index_data);
+  KeyValueStore *hash_ptr = std::get<2>(index_data);
+
+  omp_set_num_threads(opts.num_threads);
+
   ClassificationStats stats = {0, 0, 0};
 
   OutputStreamData outputs = { false, false, nullptr, nullptr, nullptr, nullptr, &std::cout };
   // taxon_counters.reserve(taxonomy.node_count());
   struct timeval tv1, tv2;
   gettimeofday(&tv1, nullptr);
-  if (optind == argc) {
+  if (opts.filenames.empty()) {
     if (opts.paired_end_processing && ! opts.single_file_pairs)
       errx(EX_USAGE, "paired end processing used with no files specified");
     ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
   }
   else {
-    for (int i = optind; i < argc; i++) {
+    for (size_t i = 0; i < opts.filenames.size(); i++) {
       if (opts.paired_end_processing && ! opts.single_file_pairs) {
-        if (i + 1 == argc) {
+        if (i + 1 == opts.filenames.size()) {
           errx(EX_USAGE, "paired end processing used with unpaired file");
         }
-        ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        ProcessFiles(opts.filenames[i], opts.filenames[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
         i += 1;
       } else {
-        ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        ProcessFiles(opts.filenames[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
       }
     }
   }
   gettimeofday(&tv2, nullptr);
 
-  delete hash_ptr;
+  // delete hash_ptr;
 
   ReportStats(tv1, tv2, stats);
   if (! opts.report_filename.empty()) {
@@ -180,6 +305,118 @@ int main(int argc, char **argv) {
           opts.report_kmer_data, taxonomy,
           taxon_counters, stats.total_sequences, total_unclassified);
     }
+  }
+}
+
+void TokenizeString(std::vector<char *>& argv, const char *str) {
+  argv.resize(0);
+  const char *sep = " ";
+  char *str_cpy = new char[strlen(str) + 1];
+  char *token;
+
+  strcpy(str_cpy, str);
+  for (token = strtok(str_cpy, sep); token;
+       token = strtok(NULL, sep)) {
+    int token_len = strlen(token);
+    char *word = NULL;
+    word = new char[token_len + 1];
+    strcpy(word, token);
+    argv.push_back(word);
+  }
+
+  delete[] str_cpy;
+}
+
+void ClassifyDaemon(Options opts) {
+  daemonize();
+
+  std::vector<char *> args;
+  std::map<std::string, std::tuple<IndexOptions, Taxonomy, KeyValueStore *>> indexes;
+  std::stringstream ss;
+  char *cmdline = NULL;
+  size_t linecap = 0;
+  ssize_t line_len;
+  bool stop = false;
+
+  auto index_data = load_index(opts);
+  indexes.emplace(opts.index_filename, std::move(index_data));
+
+  while (!stop) {
+    pid_t pid;
+    if ((pid = fork()) < 0) {
+      perror("fork");
+      exit(EXIT_FAILURE);
+    }
+    if (pid == 0) {
+      OpenFifos(opts, getpid());
+      classify(opts, indexes[opts.index_filename]);
+      for (auto i = 0; i < args.size(); i++) {
+        delete[] args[i];
+      }
+      exit(EXIT_SUCCESS);
+    } else {
+      std::cout << "PID: " << pid << std::endl;
+      if (wait(NULL) != pid) {
+        perror("wait");
+        exit(EXIT_FAILURE);
+      }
+      std::cout << "DONE" << std::endl;
+      ss << "/tmp/classify_" << pid << "_stdin";
+      unlink(ss.str().c_str());
+      ss.str("");
+      ss << "/tmp/classify_" << pid << "_stdout";
+      unlink(ss.str().c_str());
+      ss.str("");
+    }
+
+    while (true) {
+      line_len = getline(&cmdline, &linecap, stdin);
+      if (line_len < 2)
+        continue;
+      if (cmdline == std::string("PING\n")) {
+        std::cerr << "OK" << std::endl;
+        continue;
+      } else if (cmdline == std::string("STOP\n")) {
+        std::cerr << "OK" << std::endl;
+        stop = true;
+      }
+      cmdline[line_len - 1] = ' ';
+      break;
+    }
+
+    TokenizeString(args, cmdline);
+    opts.reset();
+    ParseCommandLine(args.size(), &args[0], opts);
+    if (indexes.find(opts.index_filename) == indexes.end()) {
+      auto index_data = load_index(opts);
+      indexes.emplace(opts.index_filename, std::move(index_data));
+    }
+  }
+
+  for (auto &entry : indexes) {
+    auto &index_data = entry.second;
+    delete std::get<2>(index_data);
+  }
+  for (auto i = 0; i < 3; i++) {
+    close(i);
+  }
+
+  unlink("/tmp/classify_stdin");
+  unlink("/tmp/classify_stdout");
+
+  free(cmdline);
+}
+
+int main(int argc, char **argv) {
+  Options opts;
+  opts.reset();
+  ParseCommandLine(argc, argv, opts);
+  if (opts.daemon_mode) {
+    ClassifyDaemon(opts);
+  } else {
+    auto index_data = load_index(opts);
+    classify(opts, index_data);
+    delete std::get<2>(index_data);
   }
 
   return 0;
@@ -362,7 +599,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
                << " sequences (" << stats.total_bases << " bp) ...";
       }
 
-      if (! outputs.initialized) {
+      if (!outputs.initialized) {
         InitializeOutputs(opts, outputs, reader1.file_format());
       }
 
@@ -733,11 +970,12 @@ void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat 
           outputs.unclassified_output1 = new ofstream(opts.unclassified_output_filename);
         outputs.printing_sequences = true;
       }
-      if (! opts.kraken_output_filename.empty()) {
+      if (!opts.kraken_output_filename.empty()) {
         if (opts.kraken_output_filename == "-")  // Special filename to silence Kraken output
           outputs.kraken_output = nullptr;
-        else
+        else {
           outputs.kraken_output = new ofstream(opts.kraken_output_filename);
+        }
       }
       outputs.initialized = true;
     }
@@ -759,7 +997,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSMK")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSMKD")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -827,6 +1065,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'M' :
         opts.use_memory_mapping = true;
         break;
+      case 'D':
+        opts.daemon_mode = true;
+        break;
     }
   }
 
@@ -842,6 +1083,12 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
     warnx("-m requires -R be used");
     usage();
   }
+
+  for (int i = optind; i < argc; i++) {
+    opts.filenames.push_back(argv[i]);
+  }
+
+  optind = 1;
 }
 
 void usage(int exit_code) {
@@ -866,6 +1113,7 @@ void usage(int exit_code) {
        << "  -C filename      Filename/format to have classified sequences" << endl
        << "  -U filename      Filename/format to have unclassified sequences" << endl
        << "  -O filename      Output file for normal Kraken output" << endl
-       << "  -K               In comb. w/ -R, provide minimizer information in report" << endl;
+       << "  -K               In comb. w/ -R, provide minimizer information in report" << endl
+       << "  -D               Start a daemon, this options is intended to be used with wrappers" << std::endl;
   exit(exit_code);
 }
