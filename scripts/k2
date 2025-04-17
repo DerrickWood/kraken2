@@ -3108,21 +3108,38 @@ def copy_file_obj(dst):
     dst.close()
 
 
-def ping_daemon(message=b"PING\n"):
-    if not os.path.exists("/tmp/classify_stdin"):
-        return False
-    if not os.path.exists("/tmp/classify_stdout"):
-        return False
+def check_daemon():
+    if not os.path.exists("/tmp/classify.pid"):
+        return (-1, False)
+    with open("/tmp/classify.pid", "r") as in_file:
+        pid = in_file.readline().strip()
+        null = os.open(os.devnull, os.O_WRONLY)
+        alive = subprocess.call(
+            ["ps", pid], stdout=null, stderr=null
+        )
+        os.close(null)
+
+    return (pid, alive == 0)
+
+
+def message_daemon(message):
+    (_, alive) = check_daemon()
+
+    if not alive:
+        return
 
     fd_rd_1 = os.open("/tmp/classify_stdin", os.O_RDONLY | os.O_NONBLOCK)
     fd_wr_1 = os.open("/tmp/classify_stdin", os.O_WRONLY)
     fd_rd_2 = os.open("/tmp/classify_stdout", os.O_RDONLY | os.O_NONBLOCK)
+
     os.set_blocking(fd_rd_1, True)
 
+    alive = False
     try:
         os.write(fd_wr_1, message)
         time.sleep(0.1)
         if os.read(fd_rd_2, 3) == b"OK\n":
+            # put some log here that the daemon is stopped
             alive = True
     except BlockingIOError:
         alive = False
@@ -3130,8 +3147,6 @@ def ping_daemon(message=b"PING\n"):
     os.close(fd_rd_1)
     os.close(fd_rd_2)
     os.close(fd_wr_1)
-
-    return alive
 
 
 def classify(args):
@@ -3192,7 +3207,7 @@ def classify(args):
             args.filenames[i] = os.path.abspath(filename)
         argv.extend(args.filenames)
         if args.use_daemon:
-            alive = ping_daemon()
+            (pid, alive) = check_daemon()
             if not alive:
                 cleanup_fifos()
                 subprocess.call(argv)
@@ -3296,7 +3311,7 @@ def clean_up(filenames):
 
 def clean_db(args):
     if args.stop_daemon:
-        ping_daemon(b"STOP\n")
+        message_daemon(b"STOP\n")
     else:
         os.chdir(args.db)
         if args.pattern:

@@ -135,6 +135,11 @@ void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat 
 void MaskLowQualityBases(Sequence &dna, int minimum_quality_score);
 
 
+void RemoveBlocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+}
+
 int daemonize() {
   pid_t pid;
 
@@ -160,8 +165,6 @@ int daemonize() {
     exit(0);
   }
 
-  unlink("/tmp/classify_stdin");
-  unlink("/tmp/classify_stdout");
   mkfifo("/tmp/classify_stdin", S_IRWXU);
   mkfifo("/tmp/classify_stdout", S_IRWXU);
 
@@ -175,8 +178,8 @@ int daemonize() {
 
   int write_fd = open("/tmp/classify_stdout", O_WRONLY);
 
-  fcntl(read_fd, F_SETFL, ~O_NONBLOCK);
-  fcntl(dummy_fd_2, F_SETFL, ~O_NONBLOCK);
+  RemoveBlocking(read_fd);
+  RemoveBlocking(dummy_fd_2);
 
   for (int fd = 0; fd < 2; fd++) {
     close(fd);
@@ -223,9 +226,9 @@ void OpenFifos(Options &opts, pid_t pid) {
   int write_fd = open(stdout_filename, O_WRONLY);
 
   if (opts.kraken_output_filename.empty()) {
-    fcntl(read_fd, F_SETFL, ~O_NONBLOCK);
+    RemoveBlocking(read_fd);
   } else {
-    fcntl(dummy_fd_2, F_SETFL, ~O_NONBLOCK);
+    RemoveBlocking(dummy_fd_2);
   }
 
   for (int fd = 0; fd < 3; fd++) {
@@ -255,7 +258,7 @@ load_index(Options &opts) {
 
   cerr << " done." << endl;
 
-  return { idx_opts, std::move(taxonomy), hash_ptr };
+  return std::tuple<IndexOptions, Taxonomy, KeyValueStore*>( idx_opts, std::move(taxonomy), hash_ptr );
 }
 
 void classify(Options &opts, std::tuple<IndexOptions, Taxonomy, KeyValueStore *>& index_data) {
@@ -338,6 +341,12 @@ void ClassifyDaemon(Options opts) {
   ssize_t line_len;
   bool stop = false;
 
+  int pid_file = open("/tmp/classify.pid", O_CREAT | O_WRONLY | O_TRUNC, 0600);
+  ss << getpid() << "\n";
+  write(pid_file, ss.str().c_str(), ss.str().size());
+  ss.str("");
+  close(pid_file);
+
   auto index_data = load_index(opts);
   indexes.emplace(opts.index_filename, std::move(index_data));
 
@@ -400,9 +409,6 @@ void ClassifyDaemon(Options opts) {
   for (auto i = 0; i < 3; i++) {
     close(i);
   }
-
-  unlink("/tmp/classify_stdin");
-  unlink("/tmp/classify_stdout");
 
   free(cmdline);
 }
