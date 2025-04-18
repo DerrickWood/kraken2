@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 
 import argparse
 import bz2
@@ -3958,7 +3958,12 @@ def make_clean_parser(subparsers):
 class HelpAction(argparse._HelpAction):
     def __call__(self, parser, namespace, values, option_string=None):
         parser.print_help()
-        subparsers = parser._actions[1].choices
+        subparsers = None
+        for action in parser._actions:
+            if "choices" in dir(action) and action.choices:
+                subparsers = action.choices
+        if not subparsers:
+            sys.exit(0)
         for action, arg_parser in subparsers.items():
             sys.stderr.write("\n\n" + action + "\n" + "-" * len(action) + "\n")
             arg_parser.print_help()
