@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 
 import argparse
 import bz2
@@ -1971,6 +1971,7 @@ def build_gtdb_database(args):
     build_kraken2_db(args)
 
 
+
 def download_genomic_library(args):
     library_filename = "library.faa" if args.protein else "library.fna"
     library_pathname = os.path.join(args.db, "library")
@@ -3087,16 +3088,19 @@ def make_seqid_to_taxid_map(
                         print("{:s}\t{:s}\n".format(seqid, taxid))
 
 
-def wait_for_fifos(*fifos):
+def wait_for_files(*fifos):
     for fifo in fifos:
         while not os.path.exists(fifo):
             continue
 
 
 def cleanup_fifos():
+    LOG.info("Cleaning up fifos and pid files\n")
     for filename in os.listdir("/tmp"):
         if re.match(r"^classify_(?:\d+_)?(?:stdin|stdout)$", filename):
             os.remove(os.path.join("/tmp", filename))
+        elif filename == "classify.pid":
+            os.remove(os.path.join("/tmp", "classify.pid"))
 
 
 def copy_file_obj(dst):
@@ -3110,7 +3114,7 @@ def copy_file_obj(dst):
 
 def check_daemon():
     if not os.path.exists("/tmp/classify.pid"):
-        return (-1, False)
+        return False
     with open("/tmp/classify.pid", "r") as in_file:
         pid = in_file.readline().strip()
         null = os.open(os.devnull, os.O_WRONLY)
@@ -3119,11 +3123,11 @@ def check_daemon():
         )
         os.close(null)
 
-    return (pid, alive == 0)
+    return alive == 0
 
 
 def message_daemon(message):
-    (_, alive) = check_daemon()
+    alive = check_daemon()
 
     if not alive:
         return
@@ -3147,6 +3151,62 @@ def message_daemon(message):
     os.close(fd_rd_1)
     os.close(fd_rd_2)
     os.close(fd_wr_1)
+
+
+def classify_using_daemon(args, argv):
+    alive = check_daemon()
+    if not alive:
+        cleanup_fifos()
+        LOG.info("Starting backgroud classifier process\n")
+        subprocess.call(argv)
+        wait_for_files(
+            "/tmp/classify.pid",
+            "/tmp/classify_stdin",
+            "/tmp/classify_stdout"
+        )
+        with open("/tmp/classify.pid", "r") as in_file:
+            pid = in_file.readline().strip()
+            LOG.info(
+                "Started background classifier process with PID: {}\n"
+                .format(pid)
+            )
+    else:
+        fd = os.open("/tmp/classify_stdin", os.O_RDWR)
+        with os.fdopen(fd, 'w') as out_file:
+            out_file.write(" ".join(argv) + "\n")
+            # the daemon will return the pid of the subprocess
+            # doing the work
+    with open("/tmp/classify_stdout", "r") as in_file:
+        for line in in_file:
+            line = line.strip()
+            if line.startswith("PID"):
+                pid = line.split(":")[1].strip()
+                break
+            else:
+                print(line)
+    proc_in = "/tmp/classify_{}_stdin".format(pid)
+    proc_out = "/tmp/classify_{}_stdout".format(pid)
+    wait_for_files(proc_in, proc_out)
+    thread = None
+    proc_fd = open(proc_in, "w")
+    if len(args.filenames) == 0:
+        thread = threading.Thread(
+            target=copy_file_obj, args=(proc_fd,)
+        )
+        thread.start()
+    if "output" not in args:
+        with open(proc_out, "r") as in_file:
+            for line in in_file:
+                line = line.strip()
+                print(line)
+    # wait for the classification job to complete
+    if thread:
+        thread.join()
+    with open("/tmp/classify_stdout", "r") as in_file:
+        for line in in_file:
+            line = line.strip()
+            if line == "DONE":
+                break
 
 
 def classify(args):
@@ -3207,48 +3267,7 @@ def classify(args):
             args.filenames[i] = os.path.abspath(filename)
         argv.extend(args.filenames)
         if args.use_daemon:
-            (pid, alive) = check_daemon()
-            if not alive:
-                cleanup_fifos()
-                subprocess.call(argv)
-                wait_for_fifos("/tmp/classify_stdin", "/tmp/classify_stdout")
-            else:
-                fd = os.open("/tmp/classify_stdin", os.O_RDWR)
-                with os.fdopen(fd, 'w') as out_file:
-                    out_file.write(" ".join(argv) + "\n")
-            # the daemon will return the pid of the subprocess
-            # doing the work
-            with open("/tmp/classify_stdout", "r") as in_file:
-                for line in in_file:
-                    line = line.strip()
-                    if line.startswith("PID"):
-                        pid = line.split(":")[1].strip()
-                        break
-                    else:
-                        print(line)
-            proc_in = "/tmp/classify_{}_stdin".format(pid)
-            proc_out = "/tmp/classify_{}_stdout".format(pid)
-            wait_for_fifos(proc_in, proc_out)
-            thread = None
-            proc_fd = open(proc_in, "w")
-            if len(args.filenames) == 0:
-                thread = threading.Thread(
-                    target=copy_file_obj, args=(proc_fd,)
-                )
-                thread.start()
-            if "output" not in args:
-                with open(proc_out, "r") as in_file:
-                    for line in in_file:
-                        line = line.strip()
-                        print(line)
-            # wait for the classification job to complete
-            if thread:
-                thread.join()
-            with open("/tmp/classify_stdout", "r") as in_file:
-                for line in in_file:
-                    line = line.strip()
-                    if line == "DONE":
-                        break
+            classify_using_daemon(args, argv)
         else:
             sys.exit(subprocess.call(argv))
 
@@ -3312,6 +3331,8 @@ def clean_up(filenames):
 def clean_db(args):
     if args.stop_daemon:
         message_daemon(b"STOP\n")
+        LOG.info("Stopped background classifier process\n")
+        cleanup_fifos()
     else:
         os.chdir(args.db)
         if args.pattern:
