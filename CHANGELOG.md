@@ -1,14 +1,44 @@
 # Changelog
-## [2.1.5] - 2025-03-21
+## [2.1.5] - 2025-04-18
+
+### Added
+- Added experimental support for running the classifier as a daemon. The classifier
+  daemon will persist any database that it has loaded allowing users to save time
+  when running multiple samples on the same large database. This feature is currently
+  only available with the `k2` wrapper by specifying the `--use-daemon` option when
+  running `k2 classify`.
+
+  Example:
+  `k2 classify --db pluspfp --use-daemon --threads 12 sample.fa --output sample.out`
+  On first invocation the pluspfp database will be loaded into memory. On subsequent runs of
+  this command the database load step will be skipped. If a new database is provided that
+  database will persisted in memory as well.
+
+- Added `--stop-daemon` option to `k2 clean`. This option will stop a running classifier
+  daemon.
+- `--resume` option has been added to `k2 download-library`. `k2 download-library` has
+  been updated so that files downloaded from NCBI will be saved with a `.tmp` extension. This
+  extension will only be removed after `k2` has verified that the MD5 sum of the downloaded
+  file matches that of the server. The `--resume` option builds off of that foundation by
+  skipping files that do not have the `.tmp` extension. If a user has a library that was
+  downloaded with a version of kraken 2 prior to version 2.1.5, the resume option will fail if
+  partially downloaded files exist. Run `k2 download-library` without the `--resume` option
+  first to ensure that all files are fully downloaded after which resume can be used successfully.
+  When using 2.1.5 to download a new library, `--resume` should work without issue on a failed
+  download.
 
 ### Changed
+- Made general improvements to `k2` wrapper
+- Removed many threads option from `dump_table`
+- `--assembly-level` option now works with library collections
+
+### Fixed
 - Fixed memory regressions in Kraken 2
-- Fixed an issue causing Kraken 2 to incorrectly format unclassified sequences
+- Fixed an issue causing `classify` to incorrectly format unclassified sequences
 - Fixed an issue causing zero-counts to sometimes have missing entries
 - Fixed an issue causing Kraken 2 to sometimes seg-fault when inspecting files
-- Made general improvements to `k2` wrapper
-- Removed many threads option when dumping table
-- Updated NCBI API endpoints in `k2` and added support for connection backoff if/when connections are rate limited
+- Fixed an issue causing `k2mask` to read only from stdin
+- Fixed an issue causing `classify` to not process paired reads
 
 ## [2.1.4] - 2025-02-17
 

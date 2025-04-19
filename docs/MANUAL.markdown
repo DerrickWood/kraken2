@@ -295,6 +295,9 @@ Adds support of the `--memory-mapping` and `--threads` options which allows for 
       -h, --help            show this help message and exit
       --db PATHNAME         Pathname to Kraken2 database.
       --threads INT         Number of threads
+      --use-daemon          Spawn a background process that keeps any loaded indexes in memory. Subsequent invokations of classify with
+                            this option will skip the index loading process and immediately start classifying reads. If a new index is
+                            specified that index will also be persisted. Use k2 clean --stop-daemon to stop the background process.
       --quick               Quick operation (use first hit or hits)
       --unclassified-out FILENAME
                             Print unclassified sequences to filename
@@ -348,6 +351,7 @@ standard library.
       --assembly-source {refseq,genbank,all}
                             Download RefSeq (GCF_) or GenBank (GCA_) genome
                             assemblies or both (default RefSeq)
+      --resume              Resume fetching the files needed for a library, skipping files that have already been downloaded
       --assembly-levels {chromosome,complete_genome,scaffold,contig} [{chromosome,complete_genome,scaffold,contig} ...]
                             Only return genome assemblies that have one of the
                             specified assembly levels (default chromosome and
@@ -455,20 +459,27 @@ accordingly.
 
     k2 clean --help
 
-    usage: k2 clean [-h] --db PATHNAME [--log FILENAME] [--pattern SHELL_REGEX]
+    usage: k2 clean [-h] (--stop-daemon | --db PATHNAME) [--log FILENAME] [--pattern SHELL_REGEX]
 
-    optional arguments:
+    options:
       -h, --help            show this help message and exit
+
+    required:
+      Arguments required by the cleaner
+
+      --stop-daemon         Stop a running background process
       --db PATHNAME         Pathname to Kraken2 database
+
+    options:
+      options for cleaning temporary files
+
       --log FILENAME        Specify a log filename (default: stderr)
       --pattern SHELL_REGEX
-                            Files that match this regular expression will be
-                            deleted. ? - A question-mark is a pattern that shall
-                            match any character. * - An asterisk is a pattern that
-                            shall match multiple characters. [ - The open bracket
-                            shall introduce a pattern bracket expression. ** -
-                            will match any files and zero or more directories,
-                            subdirectories and symbolic links to directories.
+                            Files that match this regular expression will be deleted. ? - A question-mark is a pattern that shall match
+                            any character. * - An asterisk is a pattern that shall match multiple characters. [ - The open bracket shall
+                            introduce a pattern bracket expression. ** - will match any files and zero or more directories, subdirectories
+                            and symbolic links to directories.
+
 
 The clean command removes unwanted files in a database. If a pattern is not specified `clean` will remove all intermediate
 files used to build the index leaving behind only the `*.k2d` files. If users wants to delete specific files the `--pattern`

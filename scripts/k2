@@ -3170,6 +3170,7 @@ def classify_using_daemon(args, argv):
                 "Started background classifier process with PID: {}\n"
                 .format(pid)
             )
+            LOG.info("Run k2 clean --stop-daemon to stop it.\n")
     else:
         fd = os.open("/tmp/classify_stdin", os.O_RDWR)
         with os.fdopen(fd, 'w') as out_file:

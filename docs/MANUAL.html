@@ -120,8 +120,9 @@ class="math inline"><em>k</em></span>-mers in the query sequences are
 used as database queries. Similarly, only minimizers of the <span
 class="math inline"><em>k</em></span>-mers in the reference sequences in
 the database’s genomic library are stored in the database. We will also
-refer to the minimizers as <span class="math inline">ℓ</span>-mers,
-where <span class="math inline">ℓ ≤ <em>k</em></span>. All <span
+refer to the minimizers as <span
+class="math inline"><em>ℓ</em></span>-mers, where <span
+class="math inline"><em>ℓ</em> ≤ <em>k</em></span>. All <span
 class="math inline"><em>k</em></span>-mers are considered to have the
 same LCA as their minimizer’s database LCA value.</li>
 <li>Kraken 2 uses a compact hash table that is a probabilistic data
@@ -144,13 +145,14 @@ databases.</li>
 </ol>
 <p>Because Kraken 2 only stores minimizers in its hash table, and <span
 class="math inline"><em>k</em></span> can be much larger than <span
-class="math inline">ℓ</span>, only a small percentage of the possible
-<span class="math inline">ℓ</span>-mers in a genomic library are
-actually deposited in the database. This creates a situation similar to
-the Kraken 1 “MiniKraken” databases; however, preliminary testing has
-shown the accuracy of a reduced Kraken 2 database to be quite similar to
-the full-sized Kraken 2 database, while Kraken 1’s MiniKraken databases
-often resulted in a substantial loss of per-read sensitivity.</p>
+class="math inline"><em>ℓ</em></span>, only a small percentage of the
+possible <span class="math inline"><em>ℓ</em></span>-mers in a genomic
+library are actually deposited in the database. This creates a situation
+similar to the Kraken 1 “MiniKraken” databases; however, preliminary
+testing has shown the accuracy of a reduced Kraken 2 database to be
+quite similar to the full-sized Kraken 2 database, while Kraken 1’s
+MiniKraken databases often resulted in a substantial loss of per-read
+sensitivity.</p>
 <p>If you use Kraken 2 in your own work, please cite either the <a
 href="https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1891-0">Kraken
 2 paper</a> and/or the original <a
@@ -217,14 +219,15 @@ FTP.</p></li>
 computing environments can replicate the “MiniKraken” functionality of
 Kraken 1 in two ways: first, by increasing the value of <span
 class="math inline"><em>k</em></span> with respect to <span
-class="math inline">ℓ</span> (using the <code>--kmer-len</code> and
-<code>--minimizer-len</code> options to <code>kraken2-build</code>); and
-secondly, through downsampling of minimizers (from both the database and
-query sequences) using a hash function. This second option is performed
-if the <code>--max-db-size</code> option to <code>kraken2-build</code>
-is used; however, the two options are not mutually exclusive. In a
-difference from Kraken 1, Kraken 2 does not require building a full
-database and then shrinking it to obtain a reduced database.</p></li>
+class="math inline"><em>ℓ</em></span> (using the <code>--kmer-len</code>
+and <code>--minimizer-len</code> options to <code>kraken2-build</code>);
+and secondly, through downsampling of minimizers (from both the database
+and query sequences) using a hash function. This second option is
+performed if the <code>--max-db-size</code> option to
+<code>kraken2-build</code> is used; however, the two options are not
+mutually exclusive. In a difference from Kraken 1, Kraken 2 does not
+require building a full database and then shrinking it to obtain a
+reduced database.</p></li>
 </ul>
 <h1 id="installation">Installation</h1>
 <p>To begin using Kraken 2, you will first need to install it, and then
@@ -390,6 +393,9 @@ optional arguments:
   -h, --help            show this help message and exit
   --db PATHNAME         Pathname to Kraken2 database.
   --threads INT         Number of threads
+  --use-daemon          Spawn a background process that keeps any loaded indexes in memory. Subsequent invokations of classify with
+                        this option will skip the index loading process and immediately start classifying reads. If a new index is
+                        specified that index will also be persisted. Use k2 clean --stop-daemon to stop the background process.
   --quick               Quick operation (use first hit or hits)
   --unclassified-out FILENAME
                         Print unclassified sequences to filename
@@ -441,6 +447,7 @@ optional arguments:
   --assembly-source {refseq,genbank,all}
                         Download RefSeq (GCF_) or GenBank (GCA_) genome
                         assemblies or both (default RefSeq)
+  --resume              Resume fetching the files needed for a library, skipping files that have already been downloaded
   --assembly-levels {chromosome,complete_genome,scaffold,contig} [{chromosome,complete_genome,scaffold,contig} ...]
                         Only return genome assemblies that have one of the
                         specified assembly levels (default chromosome and
@@ -561,20 +568,26 @@ accordingly.</p>
 <h3 id="clean">clean</h3>
 <pre><code>k2 clean --help
 
-usage: k2 clean [-h] --db PATHNAME [--log FILENAME] [--pattern SHELL_REGEX]
+usage: k2 clean [-h] (--stop-daemon | --db PATHNAME) [--log FILENAME] [--pattern SHELL_REGEX]
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
+
+required:
+  Arguments required by the cleaner
+
+  --stop-daemon         Stop a running background process
   --db PATHNAME         Pathname to Kraken2 database
+
+options:
+  options for cleaning temporary files
+
   --log FILENAME        Specify a log filename (default: stderr)
   --pattern SHELL_REGEX
-                        Files that match this regular expression will be
-                        deleted. ? - A question-mark is a pattern that shall
-                        match any character. * - An asterisk is a pattern that
-                        shall match multiple characters. [ - The open bracket
-                        shall introduce a pattern bracket expression. ** -
-                        will match any files and zero or more directories,
-                        subdirectories and symbolic links to directories.</code></pre>
+                        Files that match this regular expression will be deleted. ? - A question-mark is a pattern that shall match
+                        any character. * - An asterisk is a pattern that shall match multiple characters. [ - The open bracket shall
+                        introduce a pattern bracket expression. ** - will match any files and zero or more directories, subdirectories
+                        and symbolic links to directories.</code></pre>
 <p>The clean command removes unwanted files in a database. If a pattern
 is not specified <code>clean</code> will remove all intermediate files
 used to build the index leaving behind only the <code>*.k2d</code>
@@ -628,7 +641,7 @@ passing over the contents of the reference library:</p>
 compact hash table. This uses a low-memory method to reliably estimate
 the number of minimizers present in the reference library given the
 selected parameters <span class="math inline"><em>k</em></span> and
-<span class="math inline">ℓ</span>.</li>
+<span class="math inline"><em>ℓ</em></span>.</li>
 <li><strong>Population</strong> of the hash table (and conversion of the
 taxonomy to an internal format). This step is a second pass over the
 reference library to find minimizers and then place them in the
@@ -641,9 +654,9 @@ handled during library downloading.)</p>
 checkpointing after the estimation step. This is because the estimation
 step is dependent on the selected <span
 class="math inline"><em>k</em></span> and <span
-class="math inline">ℓ</span> values, and if the population step fails,
-it is likely because <span class="math inline"><em>k</em></span> needs
-to be increased (reducing the overall memory requirements).</p>
+class="math inline"><em>ℓ</em></span> values, and if the population step
+fails, it is likely because <span class="math inline"><em>k</em></span>
+needs to be increased (reducing the overall memory requirements).</p>
 <h1 id="classification">Classification</h1>
 <p>To classify a set of sequences, use the <code>kraken2</code>
 command:</p>
@@ -658,9 +671,9 @@ options:</p>
 <li><p><strong>Multithreading</strong>: Use the
 <code>--threads NUM</code> switch to use multiple threads.</p></li>
 <li><p><strong>Quick operation</strong>: Rather than searching all <span
-class="math inline">ℓ</span>-mers in a sequence, stop classification
-after the first database hit; use <code>--quick</code> to enable this
-mode.</p></li>
+class="math inline"><em>ℓ</em></span>-mers in a sequence, stop
+classification after the first database hit; use <code>--quick</code> to
+enable this mode.</p></li>
 <li><p><strong>Hit group threshold</strong>: The option
 <code>--minimum-hit-groups</code> will allow you to require multiple hit
 groups (a group of overlapping k-mers that share a common minimizer that
@@ -917,26 +930,26 @@ This can be done with the command:</p>
 <p>The <code>--threads</code> option is also helpful here to reduce
 build time.</p>
 <p>By default, the values of <span class="math inline"><em>k</em></span>
-and <span class="math inline">ℓ</span> are 35 and 31, respectively (or
-15 and 12 for protein databases). These values can be explicitly set
-with the <code>--kmer-len</code> and <code>--minimizer-len</code>
-options, however. Note that the minimizer length must be no more than 31
-for nucleotide databases, and 15 for protein databases. Additionally,
-the minimizer length <span class="math inline">ℓ</span> must be no more
-than the <span class="math inline"><em>k</em></span>-mer length. There
-is no upper bound on the value of <span
-class="math inline"><em>k</em></span>, but sequences less than <span
-class="math inline"><em>k</em></span> bp in length cannot be
-classified.</p>
+and <span class="math inline"><em>ℓ</em></span> are 35 and 31,
+respectively (or 15 and 12 for protein databases). These values can be
+explicitly set with the <code>--kmer-len</code> and
+<code>--minimizer-len</code> options, however. Note that the minimizer
+length must be no more than 31 for nucleotide databases, and 15 for
+protein databases. Additionally, the minimizer length <span
+class="math inline"><em>ℓ</em></span> must be no more than the <span
+class="math inline"><em>k</em></span>-mer length. There is no upper
+bound on the value of <span class="math inline"><em>k</em></span>, but
+sequences less than <span class="math inline"><em>k</em></span> bp in
+length cannot be classified.</p>
 <p>Kraken 2 also utilizes a simple spaced seed approach to increase
 accuracy. A number <span class="math inline"><em>s</em></span> &lt;
-<span class="math inline">ℓ</span>/4 can be chosen, and <span
+<span class="math inline"><em>ℓ</em></span>/4 can be chosen, and <span
 class="math inline"><em>s</em></span> positions in the minimizer will be
 masked out during all comparisons. Masked positions are chosen to
 alternate from the second-to-last position in the minimizer; e.g., <span
 class="math inline"><em>s</em></span> = 5 and <span
-class="math inline">ℓ</span> = 31 will result in masking out the 0
-positions shown here:</p>
+class="math inline"><em>ℓ</em></span> = 31 will result in masking out
+the 0 positions shown here:</p>
 <pre><code>111 1111 1111 1111 1111 1101 0101 0101</code></pre>
 <p>By default, <span class="math inline"><em>s</em></span> = 7 for
 nucleotide databases, and <span class="math inline"><em>s</em></span> =
