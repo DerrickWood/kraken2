@@ -382,9 +382,11 @@ def construct_seed_template(args):
     )
 
 
-def copy_global(queue, level):
+def copy_globals(queue, level, script_pathname):
     global LOG
+    global SCRIPT_PATHNAME
     LOG = Logger.setup_queue_logger(queue, level)
+    SCRIPT_PATHNAME = script_pathname
 
 
 def future_raised_exception(future):
@@ -497,10 +499,10 @@ def remove_files(filepaths, forked=False):
 def remove_files_parallel(filepaths):
     total_size = 0
 
-    initargs = (LOG.get_queue(), LOG.get_level())
+    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=4,
-            initializer=copy_global,
+            initializer=copy_globals,
             initargs=initargs
     ) as pool:
         futures = []
@@ -766,10 +768,10 @@ def add_to_library(args):
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
             hashes = dict([line.split()[:2] for line in in_file.readlines()])
-    initargs = (LOG.get_queue(), LOG.get_level())
+    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.threads,
-            initializer=copy_global,
+            initializer=copy_globals,
             initargs=initargs
     ) as pool:
         futures = []
@@ -1253,10 +1255,10 @@ def assign_taxid_to_sequences(args,
 
     LOG.debug("{:s}\r".format(out_line))
     filepaths = sorted(manifest_to_taxid)
-    initargs = (LOG.get_queue(), LOG.get_level())
+    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.threads,
-            initializer=copy_global,
+            initializer=copy_globals,
             initargs=initargs
     ) as pool:
         futures = []
@@ -1685,10 +1687,10 @@ def download_taxonomy(args):
     os.chdir(taxonomy_path)
     futures = []
 
-    initargs = (LOG.get_queue(), LOG.get_level())
+    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=2,
-            initializer=copy_global,
+            initializer=copy_globals,
             initargs=initargs
     ) as pool:
         if not args.skip_maps:
@@ -1946,10 +1948,10 @@ def build_gtdb_database(args):
             base_accession, accession, taxid, gi = line.split("\t")
             accession_to_taxid[accession] = taxid
 
-    initargs = (LOG.get_queue(), LOG.get_level())
+    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=workers,
-            initializer=copy_global,
+            initializer=copy_globals,
             initargs=initargs
     ) as pool:
         for remote_filepath in files_needed["fasta"]:
@@ -2091,10 +2093,10 @@ def download_genomic_library(args):
         with open("manifest.txt", "r") as manifest:
             filenames = manifest.readlines()
         filenames = sorted(filenames)
-        initargs = (LOG.get_queue(), LOG.get_level())
+        initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
         with concurrent.futures.ProcessPoolExecutor(
                 max_workers=args.threads,
-                initializer=copy_global,
+                initializer=copy_globals,
                 initargs=initargs
         ) as pool:
             futures = []
