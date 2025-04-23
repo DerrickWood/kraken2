@@ -3306,7 +3306,7 @@ def classify(args):
         if args.use_daemon:
             classify_using_daemon(args, argv)
         else:
-            sys.exit(subprocess.call(argv))
+            subprocess.call(argv)
 
 
 def inspect_db(args):
