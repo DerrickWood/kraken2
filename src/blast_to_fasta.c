@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <inttypes.h>
+#include <libgen.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -380,7 +381,7 @@ void deflines_to_header(string_t *s, blast_deflines deflines, int include_taxid,
   }
 }
 
-int next_defline(hdr_t *hdr_data) {
+int get_deflines(hdr_t *hdr_data) {
   int num_deflines = get_blast_deflines(hdr_data->asn1, &hdr_data->deflines);
   if (num_deflines == 0) {
     return 0;
@@ -581,22 +582,22 @@ void free_seq_data(seq_t *seq_data) {
 }
 
 void usage(const char *prog) {
-  fprintf(stderr, "%s [-hs] [-o out_file] [-w width] blast_volume\n", prog);
+  fprintf(stderr, "%s [-hst] [-o out_file] [-w width] blast_volume\n", prog);
   exit(EXIT_SUCCESS);
 }
 
 void help(const char *prog) {
-  fprintf(stderr, "%s [-hs] [-o out_file] [-w width] blast_volume\n", prog);
-  fprintf(stderr, "\t\tblast_volume: the base name of the blast volume e.g. core_nt.00\n");
-  fprintf(stderr, "\t\t-h: print this help message and exit\n");
-  fprintf(stderr, "\t\t-o: The filename that the output get saved to (default: "
+  fprintf(stderr, "%s [-hst] [-o out_file] [-w width] blast_volume\n", prog);
+  fprintf(stderr, "  blast_volume: the base name of the blast volume e.g. core_nt.00\n");
+  fprintf(stderr, "  -h: print this help message and exit\n");
+  fprintf(stderr, "  -o: The filename that the output gets saved to (default: "
                   "<blast_volume>.fna)\n");
-  fprintf(stderr, "\t\t-s: BLAST merges the headers of FASTA entries with "
-                  "identical sequences, this option outputs an entry for every "
-                  "such header\n");
-  fprintf(stderr, "\t\t-t: Prepend the tax ID to the FASTA header with format "
+  fprintf(stderr, "  -s: BLAST merges the headers of FASTA entries with "
+                  "identical sequences, this option outputs a complete FASTA record"
+                  "for every such header\n");
+  fprintf(stderr, "  -t: Prepend the tax ID to the FASTA header with format "
                   "kraken:taxid|12345|\n");
-  fprintf(stderr, "\t\t-w: The width of the FASTA sequences (default: 80)\n");
+  fprintf(stderr, "  -w: The width of the FASTA sequences (default: 80)\n");
 
   exit(EXIT_SUCCESS);
 }
@@ -609,7 +610,7 @@ int main(int argc, char **argv) {
   int include_taxid = 0;
   int out_filename_seen = 0;
   char *out_filename = NULL;
-  const char *prog = argv[0];
+  const char *prog = basename(argv[0]);
 
   while ((option = getopt_long(argc, argv, "ho:stw:", NULL, NULL)) != -1) {
     switch (option) {
@@ -680,7 +681,7 @@ int main(int argc, char **argv) {
   FILE *out_file = open_file(out_filename, "w");
 
   for (uint32_t i = 0; i < idx_data->num_oids + 1; i++) {
-    int num_headers = next_defline(hdr_data);
+    int num_headers = get_deflines(hdr_data);
     if (num_headers == 0) {
       break;
     }
