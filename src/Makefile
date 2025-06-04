@@ -2,10 +2,11 @@ CXX ?= g++
 KRAKEN2_SKIP_FOPENMP ?= -fopenmp
 CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3
 CXXFLAGS += -DLINEAR_PROBING
+CFLAGS = -Wall -std=c99 -O2 -g3
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask
+PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta
 
 all: $(PROGS)
 
@@ -33,6 +34,10 @@ build_db.o: build_db.cc taxonomy.h mmscanner.h seqreader.h compact_hash.h kv_sto
 lookup_accession_numbers.o: lookup_accession_numbers.cc mmap_file.h utilities.h
 k2mask.o: k2mask.cc gzstream.h threadpool.h
 
+blast_defline.o: blast_defline.c
+blast_to_fasta.o: blast_to_fasta.c
+blast_utils.o: blast_utils.c
+
 build_db: build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
 	$(CXX) $(CXXFLAGS) -o $@ build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
 
@@ -50,3 +55,6 @@ lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o util
 
 k2mask: k2mask.o seqreader.o
 	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o -lz -pthread
+
+blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
+	$(CC) $(CFLAGS) -o $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc #-fsanitize=address,undefined

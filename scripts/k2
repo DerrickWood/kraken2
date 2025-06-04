@@ -4,7 +4,9 @@ import argparse
 import bz2
 import concurrent.futures
 import collections
+import csv
 import ftplib
+import functools
 import glob
 import gzip
 import hashlib
@@ -46,7 +48,8 @@ NCBI_REST_API = "api.ncbi.nlm.nih.gov"
 NCBI_SERVER = "ftp.ncbi.nlm.nih.gov"
 GREENGENES_SERVER = "greengenes.microbio.me"
 SILVA_SERVER = "ftp.arb-silva.de"
-GTDB_SERVER = "data.gtdb.ecogenomic.org"
+# GTDB_SERVER = "data.gtdb.ecogenomic.org"
+GTDB_SERVER = "data.ace.uq.edu.au"
 
 WRAPPER_ARGS_TO_BIN_ARGS = {
     "block_size": "-B",
@@ -242,14 +245,14 @@ class ProgressBar:
 
 
 class NCBI_URI_Builder:
-    def __init__(self, *path_components):
+    def __init__(self, endpoint="genome", *path_components):
         path_components = list(path_components)
         for i, component in enumerate(path_components):
             if isinstance(component, list):
                 component = ",".join(component)
             path_components[i] = urllib.parse.quote(component)
         self.filters = {}
-        self.path = "/datasets/v2/genome/{}".format("/".join(path_components))
+        self.path = "/datasets/v2/{}/{}".format(endpoint, "/".join(path_components))
 
     def assembly_source(self, source=None):
         if source:
@@ -329,6 +332,14 @@ class NCBI_URI_Builder:
         self.filters.clear()
 
 
+def wrap_with_globals(f, log_queue, log_level, script_pathname, *args):
+    global LOG
+    global SCRIPT_PATHNAME
+    LOG = Logger.setup_queue_logger(log_queue, log_level)
+    SCRIPT_PATHNAME = script_pathname
+    return f(*args)
+
+
 def clear_console_line():
     LOG.debug("\33[2K\r")
 
@@ -398,6 +409,127 @@ def url_join(netloc, scheme="https", path="", query="", fragment=""):
         scheme, netloc, path, query, fragment
     )
     return urllib.parse.urlunsplit(split_result)
+
+
+def execute_in_process_pool(func, num_processes, *args):
+    pass
+
+
+def download_and_process_blast_volumes(args):
+    download_files_from_manifest(
+        NCBI_SERVER, args.threads, resume=args.resume
+    )
+    extraction_futures = []
+    converted_volumes = []
+    with concurrent.futures.ProcessPoolExecutor(
+            max_workers=1
+    ) as pool:
+        with open("manifest.txt", "r") as in_file:
+            tarballs = in_file.readlines()
+        f = functools.partial(
+            wrap_with_globals, extract_blast_db_files,
+            LOG.get_queue(), LOG.get_level(),
+            SCRIPT_PATHNAME
+        )
+        LOG.info(
+            "Extracting index (.nin), header (.nhr), and"
+            " sequence files (.nsq) from tarballs\n"
+        )
+        for tarball in tarballs:
+            tarball = os.path.abspath(tarball)
+            f = pool.submit(extract_blast_db_files, tarball.strip())
+            extraction_futures.append(f)
+        for future in concurrent.futures.as_completed(extraction_futures):
+            (tarball, volume) = future.result()
+            converted_volumes.append(volume)
+            LOG.info("Finished extracting files from {}\n".format(tarball))
+        for volume in converted_volumes:
+            LOG.info("Converting BLAST volume {} to FASTA\n".format(volume))
+            convert_blast_to_fasta(args, volume)
+            LOG.info(
+                "Finished converting BLAST volume {} to FASTA\n"
+                .format(volume)
+            )
+    library_extension = ".faa" if args.protein else ".fna"
+    library_filename = "library" + library_extension
+    LOG.info("Generating {} from converted volumes\n".format(library_filename))
+    with open(library_filename, "w") as lib,\
+         open("prelim_map.txt", "w") as plm:
+        for volume in sorted(converted_volumes):
+            if not os.path.exists(volume + library_extension):
+                LOG.error(
+                    "Missing volume: {}, "
+                    .format(volume + library_extension)
+                )
+                sys.exit(1)
+            with open(volume + library_extension, "r") as in_file:
+                shutil.copyfileobj(in_file, lib)
+            with open(volume + "_prelim_map.txt", "r") as in_file:
+                shutil.copyfileobj(in_file, plm)
+
+
+def create_manifest_for_blast_db(db_name, protein=False):
+    suffix = "-prot-metadata.json" if protein else "-nucl-metadata.json"
+    json_filename = "blast/db/" + db_name + suffix
+    http_download_file2(NCBI_SERVER, [json_filename])
+    json_filename = os.path.abspath(json_filename)
+    with open(json_filename, "r") as in_file:
+        data = json.load(in_file)
+        with open("manifest.txt", "w") as out_file:
+            for volume in data["files"]:
+                path = urllib.parse.urlsplit(volume).path
+                out_file.write(path[1:] + "\n")
+
+
+def extract_blast_db_files(tarball_pathname):
+    extract_dirname = os.path.dirname(tarball_pathname)
+    volume = None
+    with tarfile.open(tarball_pathname, "r:gz") as tar:
+        for member in tar.getnames():
+            if member.endswith(("nsq", "nin", "nhr")):
+                if not volume:
+                    volume = os.path.splitext(member)[0]
+                tar.extract(member, extract_dirname)
+    return (
+        tarball_pathname,
+        os.path.join(extract_dirname, volume)
+    )
+
+
+def convert_blast_to_fasta(args, volume):
+    extension = ".faa" if args.protein else ".fna"
+    volume_dirname = os.path.dirname(volume)
+    volume_basename = os.path.basename(volume)
+    tmp_fasta_filename = volume + extension + ".tmp"
+    fasta_filename = volume + extension
+    remote_filepath = url_join(
+        NCBI_SERVER, path="blast/db/" + volume_basename + ".tar.gz"
+    )
+    blast_to_fasta_bin = find_kraken2_binary("blast_to_fasta")
+    # blast_to_fasta_argv = ""
+    LOG.info("Converting BLAST volume {} to FASTA\n".format(volume))
+    proc = subprocess.Popen([blast_to_fasta_bin, "-s", "-t", volume])
+    if proc.wait() != 0:
+        LOG.error(
+            "Encountered an error while converting BLAST format to FASTA\n"
+        )
+        sys.exit(1)
+    with open(fasta_filename, "r") as in_file:
+        prelim_map_name = os.path.join(
+            volume_dirname,
+            volume_basename + "_prelim_map.txt"
+        )
+        with open(prelim_map_name, "w") as out_file:
+            scan_fasta_file(
+                in_file, out_file, lenient=True,
+                sequence_to_url=remote_filepath
+            )
+    if not args.no_masking:
+        shutil.move(fasta_filename, tmp_fasta_filename)
+        mask_files(
+            [tmp_fasta_filename], fasta_filename,
+            args.masker_threads, args.protein
+        )
 
 
 def wrapper_args_to_binary_args(opts, argv, binary_args):
@@ -499,17 +631,19 @@ def remove_files(filepaths, forked=False):
 def remove_files_parallel(filepaths):
     total_size = 0
 
-    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=4,
-            initializer=copy_globals,
-            initargs=initargs
     ) as pool:
         futures = []
         for fname in filepaths:
             if not os.path.exists(fname):
                 continue
-            future = pool.submit(remove_files, [fname], True)
+            f = functools.partial(
+                wrap_with_globals, remove_files,
+                LOG.get_queue(), LOG.get_level(),
+                SCRIPT_PATHNAME
+            )
+            future = pool.submit(f, [fname], True)
             futures.append(future)
 
         for future in concurrent.futures.as_completed(futures):
@@ -518,7 +652,7 @@ def remove_files_parallel(filepaths):
     return total_size
 
 
-def check_seqid(seqid):
+def get_taxid_from_seqid(seqid):
     taxid = None
     match = re.match(r"(?:^|\|)kraken:taxid\|(\d+)", seqid)
     if match:
@@ -583,7 +717,7 @@ def scan_fasta_file(
             remote_filepath = sequence_to_url[line]
         for match in re.finditer(r"(?:^>|\x01)(\S+)(?: (.*))?", line):
             seqid = match.group(1)
-            taxid = check_seqid(seqid)
+            taxid = get_taxid_from_seqid(seqid)
             comment = match.group(2) or ""
             if not taxid:
                 if lenient:
@@ -768,16 +902,18 @@ def add_to_library(args):
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
             hashes = dict([line.split()[:2] for line in in_file.readlines()])
-    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.threads,
-            initializer=copy_globals,
-            initargs=initargs
+            max_workers=args.threads
     ) as pool:
         futures = []
         files = map(lambda f: glob.glob(f, recursive=True), args.files)
         for filename in itertools.chain(*files):
-            future = pool.submit(add_file, args, filename, hashes)
+            f = functools.partial(
+                wrap_with_globals, add_file,
+                LOG.get_queue(), LOG.get_level(),
+                SCRIPT_PATHNAME
+            )
+            future = pool.submit(f, args, filename, hashes)
             if future_raised_exception(future):
                 LOG.error(
                     "Error while adding file to library\n"
@@ -1255,17 +1391,19 @@ def assign_taxid_to_sequences(args,
 
     LOG.debug("{:s}\r".format(out_line))
     filepaths = sorted(manifest_to_taxid)
-    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.threads,
-            initializer=copy_globals,
-            initargs=initargs
+            max_workers=args.threads
     ) as pool:
         futures = []
         max_out_line_len = 0
         for filepath in filepaths:
+            f = functools.partial(
+                wrap_with_globals, assign_taxids,
+                LOG.get_queue(), LOG.get_level(),
+                SCRIPT_PATHNAME
+            )
             future = pool.submit(
-                assign_taxids, args, filepath,
+                f, args, filepath,
                 manifest_to_taxid, accession_to_taxid,
                 filepath_to_url
             )
@@ -1687,19 +1825,21 @@ def download_taxonomy(args):
     os.chdir(taxonomy_path)
     futures = []
 
-    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=2,
-            initializer=copy_globals,
-            initargs=initargs
+            max_workers=2
     ) as pool:
         if not args.skip_maps:
             if not args.protein:
                 for subsection in ["gb", "wgs"]:
                     filename = "pub/taxonomy/accession2taxid/"
                     filename += "nucl_" + subsection + ".accession2taxid.gz"
+                    f = functools.partial(
+                        wrap_with_globals, download_and_decompress,
+                        LOG.get_queue(), LOG.get_level(),
+                        SCRIPT_PATHNAME
+                    )
                     future = pool.submit(
-                        download_and_decompress, filename
+                        f, filename
                     )
                     if future_raised_exception(future):
                         LOG.error(
@@ -1710,9 +1850,12 @@ def download_taxonomy(args):
             else:
                 filename = "/pub/taxonomy/accession2taxid/"
                 filename += "prot.accession2taxid.gz"
-                future = pool.submit(
-                    download_and_decompress, filename
+                f = functools.partial(
+                    wrap_with_globals, download_and_decompress,
+                    LOG.get_queue(), LOG.get_level(),
+                    SCRIPT_PATHNAME
                 )
+                future = pool.submit(f, filename)
                 if future_raised_exception(future):
                     LOG.error(
                         "Error encountered while downloading file\n"
@@ -1885,12 +2028,95 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
     return (library, accession_to_filepath, filepaths_without_accession)
 
 
-def build_gtdb_database(args):
-    db_pathname = os.path.abspath(args.db)
-    os.makedirs(db_pathname, exist_ok=True)
-    os.chdir(db_pathname)
-    md5_url = url_join(GTDB_SERVER, path="/releases/latest/MD5SUM.txt")
-    http_download_file(md5_url)
+def identity(object):
+    return object
+
+
+def remap_secondary_taxids(taxids):
+    new_taxids = {}
+    partitions = math.ceil(len(taxids) / 500)
+    conn = http.client.HTTPSConnection(NCBI_REST_API)
+
+    for taxid_list in partition_list(taxids, partitions):
+        endpoint = NCBI_URI_Builder(
+            "taxonomy", "taxon", taxid_list
+        ).build()
+        conn.request("GET", endpoint)
+        response = conn.getresponse()
+        if response.status == 200:
+            result = response.readlines()[0]
+            response.close()
+            for entry in json.loads(
+                    result, parse_float=identity, parse_int=identity
+            )["taxonomy_nodes"]:
+                query = entry["query"][0]
+                taxid = entry["taxonomy"]["tax_id"]
+                new_taxids[query] = taxid
+        else:
+            response.close()
+
+    return new_taxids
+
+
+def read_gtdb_metadata(filenames):
+    metadata = {}
+    for filename in filenames:
+        LOG.info("Reading NCBI tax IDs from {}\n".format(filename))
+        with gzip.open(filename, "rt") as in_file:
+            reader = csv.DictReader(in_file, delimiter="\t")
+            for row in reader:
+                metadata[row["accession"]] = row["ncbi_taxid"]
+        LOG.info("Finished reading NCBI tax IDs from {}\n".format(filename))
+
+    return metadata
+
+
+def find_and_remap_secondary_taxids(metadata):
+    gtdb_assigned_taxids = set()
+    for value in metadata.values():
+        gtdb_assigned_taxids.add(value)
+    ncbi_taxids = set()
+    with open("nodes.dmp", "r") as in_file:
+        for line in in_file:
+            taxid = line.split()[0]
+            ncbi_taxids.add(taxid)
+
+    taxids = list(gtdb_assigned_taxids.difference(ncbi_taxids))
+    LOG.info(
+        "The following tax IDs were not found in nodes.dmp"
+        " and need to be remapped\n"
+    )
+    remapped_taxids = remap_secondary_taxids(taxids)
+    for accession, taxid in metadata.items():
+        if taxid in remapped_taxids:
+            LOG.info(
+                "Remapping {} to {}\n".format(taxid, remapped_taxids[taxid])
+            )
+            metadata[accession] = remapped_taxids[taxid]
+
+    return metadata
+
+
+def get_gtdb_latest_md5sums(path_prefix):
+    try:
+        md5_url = url_join(
+            GTDB_SERVER, path=path_prefix + "/releases/latest/MD5SUM.txt"
+        )
+        http_download_file(md5_url)
+    except Exception:
+        url = url_join(
+            GTDB_SERVER, path=path_prefix + "/releases/latest/VERSION.txt"
+        )
+        # remove the leading 'v' from the version number
+        version = urllib.request.urlopen(url).readline().decode().strip()[1:]
+        md5_url = url_join(
+            GTDB_SERVER,
+            path=path_prefix + "/releases/release" + version + "/MD5SUM.txt"
+        )
+        http_download_file(md5_url)
+
+
+def get_needed_files(args, path_prefix):
     files_needed = collections.defaultdict(list)
     md5s = {}
 
@@ -1903,7 +2129,9 @@ def build_gtdb_database(args):
             filename_regex = r"protein|faa"
         for line in in_file:
             md5sum, filepath = line.split()
-            filepath = urllib.parse.urljoin("releases/latest/", filepath)
+            filepath = urllib.parse.urljoin(
+                path_prefix + "/releases/latest/", filepath
+            )
             # remove the release tag since they do not appear in the "latest"
             # file listings
             filepath = re.sub(r"_r\d+", "", filepath)
@@ -1911,6 +2139,8 @@ def build_gtdb_database(args):
                 candidate_files.append(os.path.basename(filepath))
             if re.search(r"taxonomy.*\.tsv$", filepath):
                 files_needed["taxonomy"].append(filepath)
+            if re.search(r".*metadata.*\.tsv.gz$", filepath):
+                files_needed["metadata"].append(filepath)
             elif re.search(pattern, filepath):
                 files_needed["fasta"].append(filepath)
             filepath = os.path.basename(filepath)
@@ -1922,6 +2152,23 @@ def build_gtdb_database(args):
         LOG.error("Here is a list of candidates:\n{}\n"
                   .format("\n".join(candidate_files)))
         sys.exit(1)
+
+    return (md5s, files_needed)
+
+
+def build_gtdb_database(args):
+    global GTDB_SERVER
+    db_pathname = os.path.abspath(args.db)
+    os.makedirs(db_pathname, exist_ok=True)
+    os.chdir(db_pathname)
+
+    path_prefix = "/public/gtdb/data"
+    if args.gtdb_server != GTDB_SERVER:
+        GTDB_SERVER = args.gtdb_server
+        path_prefix = ""
+
+    get_gtdb_latest_md5sums(path_prefix)
+    md5s, files_needed = get_needed_files(args, path_prefix)
     download_gtdb_taxonomy(args, files_needed["taxonomy"], md5s)
     os.chdir(os.path.join(db_pathname, "taxonomy"))
     LOG.info("Merging Archaea and Bacteria taxonomies\n")
@@ -1931,9 +2178,21 @@ def build_gtdb_database(args):
             with open(tax_filename, "r") as file_in:
                 shutil.copyfileobj(file_in, file_out)
     LOG.info("Finished merging Archaea and Bacteria taxonomies\n")
-
-    with open("merged_taxonomy.tsv", "r") as in_file:
-        build_gtdb_taxonomy(in_file)
+    accession_to_taxid = {}
+    if not args.gtdb_use_ncbi_taxonomy:
+        with open("merged_taxonomy.tsv", "r") as in_file:
+            build_gtdb_taxonomy(in_file)
+    else:
+        for metadata in files_needed["metadata"]:
+            url = url_join(GTDB_SERVER, path=metadata)
+            http_download_file(url)
+        metadata_filenames = map(os.path.basename, files_needed["metadata"])
+        metadata = read_gtdb_metadata(metadata_filenames)
+        args.skip_maps = True
+        download_taxonomy(args)
+        metadata = find_and_remap_secondary_taxids(metadata)
+        for accession, taxid in metadata.items():
+            accession_to_taxid[accession[3:]] = taxid
 
     workers = len(files_needed["fasta"])
     futures = []
@@ -1941,23 +2200,25 @@ def build_gtdb_database(args):
     # These files are not tied to a single accession, but
     # instead each sequence in the FASTA has its own accession.
 
-    os.chdir(os.path.join(db_pathname, "taxonomy"))
-    accession_to_taxid = {}
-    with open("gtdb.accession2taxid", "r") as in_file:
-        for line in in_file:
-            base_accession, accession, taxid, gi = line.split("\t")
-            accession_to_taxid[accession] = taxid
+    # os.chdir(os.path.join(db_pathname, "taxonomy"))
+    if not args.gtdb_use_ncbi_taxonomy:
+        with open("gtdb.accession2taxid", "r") as in_file:
+            for line in in_file:
+                base_accession, accession, taxid,  gi = line.split("\t")
+                accession_to_taxid[accession] = taxid
 
-    initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=workers,
-            initializer=copy_globals,
-            initargs=initargs
+            max_workers=workers
     ) as pool:
         for remote_filepath in files_needed["fasta"]:
             os.chdir(db_pathname)
+            f = functools.partial(
+                wrap_with_globals, download_gtdb_genomes,
+                LOG.get_queue(), LOG.get_level(),
+                SCRIPT_PATHNAME
+            )
             futures.append(pool.submit(
-                download_gtdb_genomes, args, remote_filepath, md5s
+                f, args, remote_filepath, md5s
             ))
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
@@ -2030,8 +2291,8 @@ def download_genomic_library(args):
         if args.library == "human":
             remote_dir_name = "vertebrate_mammalian/Homo_sapiens"
         try:
-            url = "genomes/refseq/{:s}/assembly_summary.txt".format(
-                remote_dir_name
+            url = "genomes/{}/{:s}/assembly_summary.txt".format(
+                args.assembly_source, remote_dir_name
             )
             http_download_file2(
                 NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
@@ -2093,19 +2354,21 @@ def download_genomic_library(args):
         with open("manifest.txt", "r") as manifest:
             filenames = manifest.readlines()
         filenames = sorted(filenames)
-        initargs = (LOG.get_queue(), LOG.get_level(), SCRIPT_PATHNAME)
         with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.threads,
-                initializer=copy_globals,
-                initargs=initargs
+                max_workers=args.threads
         ) as pool:
             futures = []
             for filename in filenames:
                 filename = filename.strip()
                 filename = os.path.abspath(filename)
                 if not args.no_masking:
+                    f = functools.partial(
+                        wrap_with_globals, decompress_and_mask,
+                        LOG.get_queue(), LOG.get_level(),
+                        SCRIPT_PATHNAME
+                    )
                     future = pool.submit(
-                        decompress_and_mask, filename, args.masker_threads
+                        f, filename, args.masker_threads
                     )
                     if future_raised_exception(future):
                         LOG.error(
@@ -2115,7 +2378,12 @@ def download_genomic_library(args):
                         raise future.exception()
                     futures.append(future)
                 else:
-                    future = pool.submit(decompress_files, [filename])
+                    f = functools.partial(
+                        wrap_with_globals, decompress_files,
+                        LOG.get_queue(), LOG.get_level(),
+                        SCRIPT_PATHNAME
+                    )
+                    future = pool.submit(f, [filename])
                     if future_raised_exception(future):
                         LOG.error(
                             "Error encountered while decompressing files\n"
@@ -2150,43 +2418,12 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library in ["nr", "nt"]:
-        LOG.warning(
-            "NCBI no longer updates the FASTAs for nt and nr. "
-            "Users are asked to generate those themselves using "
-            "ncbi-blast+. "
-            "We have yet to find a way to generate these FASTAs in "
-            "k2 without external dependencies as such direct building "
-            "nr and nt databases may get deprecated sometime "
-            "in the future."
-        )
-        sys.exit(1)
-        protein_lib = args.library == "nr"
-        if protein_lib and not args.protein:
-            LOG.error(
-                "{:s} is a protein database, and the Kraken2 database"
-                " specified is nucleotide".format(args.library)
-            )
-            sys.exit(1)
+    elif args.library in ["core_nt", "nt", "env_nt"]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
-        url = "blast/db/FASTA/" + args.library + ".gz"
-        http_download_file2(
-            NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
-        )
-        with gzip.open(args.library + ".gz", mode="rt") as in_file:
-            with open(library_filename, "w") as out_file:
-                shutil.copyfileobj(in_file, out_file)
-        with open(library_filename, "r") as in_file:
-            with open("prelim_map.txt", "w") as out_file:
-                out_file.write("# prelim_map for " + args.library + "\n")
-                scan_fasta_file(
-                    in_file,
-                    out_file,
-                    sequence_to_url="blast/db/FASTA/nt.gz",
-                    lenient=True,
-                )
+        create_manifest_for_blast_db(args.library)
+        download_and_process_blast_volumes(args)
     elif args.library in ["UniVec", "UniVec_Core"]:
         if args.protein:
             LOG.error(
@@ -2230,16 +2467,16 @@ def download_genomic_library(args):
     else:
         if args.library.upper().startswith("GCF")\
            or args.library.upper().startswith("GCA"):
-            download_dataset_by_project(args, "accession",
+            download_dataset_by_project(args, "genome/accession",
                                         [args.library.upper()])
         elif args.library.upper().startswith("PRJ"):
-            download_dataset_by_project(args, "bioproject",
+            download_dataset_by_project(args, "genome/bioproject",
                                         [args.library.upper()])
         else:
-            download_dataset_by_project(args, "taxon", [args.library])
+            download_dataset_by_project(args, "genome/taxon", [args.library])
 
     if not args.no_masking\
-       and args.library in ["UniVec", "UniVec_Core", "nt", "nr"]:
+       and args.library in ["UniVec", "UniVec_Core"]:
         mask_files(
             [library_filename],
             library_filename + ".masked",
@@ -3341,7 +3578,7 @@ def inspect_db(args):
     else:
         with open(output_filename, "wb") as fout:
             shutil.copyfileobj(process.stdout, fout)
-    sys.exit(process.wait())
+    process.wait()
 
 
 def format_bytes(size):
@@ -3423,6 +3660,17 @@ def make_build_parser(subparsers):
         nargs="+",
         help="A list of files or regex matching the files needed to build\
               the special database."
+    )
+    group.add_argument(
+        "--gtdb-use-ncbi-taxonomy",
+        action="store_true",
+        help="Use NCBI tax IDs and taxonomy tree when building GTDB database"
+    )
+    group.add_argument(
+        "--gtdb-server",
+        type=str,
+        default=GTDB_SERVER,
+        help="The GTDB server to use (default: {})".format(GTDB_SERVER)
     )
     group.add_argument(
         "--no-masking",
@@ -4047,7 +4295,8 @@ class Logger:
             self.logger.addHandler(handler)
 
         self.thread = threading.Thread(
-            target=Logger.process_thread, args=(self,)
+            target=Logger.process_thread, args=(self,),
+            daemon=True
         )
         self.thread.start()
 
@@ -4072,11 +4321,13 @@ class Logger:
                     break
             except queue.Empty:
                 continue
+            except Exception:
+                break
             self.logger.handle(record)
 
     def stop_thread(self):
         self.queue.put(None)
-        self.thread.join()
+        # self.thread.join()
 
     def get_queue(self):
         return self.queue
@@ -4091,6 +4342,12 @@ class Logger:
         logger.addHandler(queue_handler)
 
         return logger
+
+    def __del__(self):
+        try:
+            self.stop_thread()
+        except Exception:
+            pass
 
 
 def k2_main():
@@ -4199,6 +4456,10 @@ if __name__ == "__main__":
     try:
         k2_main()
     except KeyboardInterrupt:
-        LOG.stop_thread()
-        sys.exit(1)
-    LOG.stop_thread()
+        pass
+    except Exception as e:
+        # LOG.stop_thread()
+        print(e.with_traceback())
+        # sys.exit(1)
+    # else:
+    #     LOG.stop_thread()
