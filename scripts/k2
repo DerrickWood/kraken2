@@ -420,7 +420,7 @@ def download_and_process_blast_volumes(args):
         NCBI_SERVER, args.threads, resume=args.resume
     )
     extraction_futures = []
-    converted_volumes = []
+    tarballs_and_converted_volumes = []
     with concurrent.futures.ProcessPoolExecutor(
             max_workers=1
     ) as pool:
@@ -440,12 +440,12 @@ def download_and_process_blast_volumes(args):
             f = pool.submit(extract_blast_db_files, tarball.strip())
             extraction_futures.append(f)
         for future in concurrent.futures.as_completed(extraction_futures):
-            (tarball, volume) = future.result()
-            converted_volumes.append(volume)
+            result = future.result()
+            tarballs_and_converted_volumes.append(result)
             LOG.info("Finished extracting files from {}\n".format(tarball))
-        for volume in converted_volumes:
+        for tarball, volume in tarballs_and_converted_volumes:
             LOG.info("Converting BLAST volume {} to FASTA\n".format(volume))
-            convert_blast_to_fasta(args, volume)
+            convert_blast_to_fasta(args, volume, tarball)
             LOG.info(
                 "Finished converting BLAST volume {} to FASTA\n"
                 .format(volume)
@@ -455,7 +455,7 @@ def download_and_process_blast_volumes(args):
     LOG.info("Generating {} from converted volumes\n".format(library_filename))
     with open(library_filename, "w") as lib,\
          open("prelim_map.txt", "w") as plm:
-        for volume in sorted(converted_volumes):
+        for _, volume in sorted(tarballs_and_converted_volumes):
             if not os.path.exists(volume + library_extension):
                 LOG.error(
                     "Missing volume: {}, "
@@ -496,14 +496,15 @@ def extract_blast_db_files(tarball_pathname):
     )
 
 
-def convert_blast_to_fasta(args, volume):
+def convert_blast_to_fasta(args, volume, tarball):
     extension = ".faa" if args.protein else ".fna"
     volume_dirname = os.path.dirname(volume)
     volume_basename = os.path.basename(volume)
+    tarball = os.path.basename(tarball)
     tmp_fasta_filename = volume + extension + ".tmp"
     fasta_filename = volume + extension
     remote_filepath = url_join(
-        NCBI_SERVER, path="blast/db/" + volume_basename + ".tar.gz"
+        NCBI_SERVER, path="blast/db/" + tarball
     )
     blast_to_fasta_bin = find_kraken2_binary("blast_to_fasta")
     # blast_to_fasta_argv = ""
