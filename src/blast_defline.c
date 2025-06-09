@@ -217,7 +217,7 @@ int get_pdb_seq_id(asn1_t *asn1_data, pdb_seqid *seqid) {
 
   (void)asn1_sequence_start(asn1_data);
   asn1_get_mandatory_visible_string_field(asn1_data, &seqid->mol);
-  // asn1_get_mandatory_integer_field(asn1_data, &seqid->chain);
+  asn1_get_optional_integer_field(asn1_data, 0xA1, &seqid->chain);
   if (asn1_peek_byte(asn1_data) == 0xA2) {
     get_explicit_tag(asn1_data);
     get_date(asn1_data, &seqid->rel);

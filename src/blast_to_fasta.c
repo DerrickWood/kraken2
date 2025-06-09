@@ -335,9 +335,12 @@ void pdb_seq_id_to_string(string_t *s, pdb_seqid seqid) {
   string_append_str(s, (const char *)str);
 
   str = seqid.chain_id;
-  if (*str) {
+  if (str) {
     string_append_char(s, '_');
     string_append_str(s, (const char *)str);
+  } else if (seqid.chain != 0) {
+    string_append_char(s, '_');
+    string_append_char(s, (char)seqid.chain);
   }
 }
 
@@ -695,7 +698,8 @@ int main(int argc, char **argv) {
       }
     } else {
       string_clear(&hdr_data->fasta_hdr);
-      deflines_to_header(&hdr_data->fasta_hdr, hdr_data->deflines, include_taxid, num_headers);
+      deflines_to_header(&hdr_data->fasta_hdr, hdr_data->deflines,
+                         include_taxid, num_headers);
       fprintf(out_file, "%s\n", to_c_string(&hdr_data->fasta_hdr));
       write_sequence(&seq_data->seq, seq_width, out_file);
     }
