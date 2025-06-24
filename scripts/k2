@@ -453,7 +453,7 @@ def download_and_process_blast_volumes(args):
     library_extension = ".faa" if args.protein else ".fna"
     library_filename = "library" + library_extension
     LOG.info("Generating {} from converted volumes\n".format(library_filename))
-    with open(library_filename, "w") as lib,\
+    with open(library_filename, "w") as lib, \
          open("prelim_map.txt", "w") as plm:
         for _, volume in sorted(tarballs_and_converted_volumes):
             if not os.path.exists(volume + library_extension):
@@ -468,7 +468,7 @@ def download_and_process_blast_volumes(args):
                 shutil.copyfileobj(in_file, plm)
 
 
-def create_manifest_for_blast_db(db_name, protein=False):
+def create_manifest_for_blast_db(db_name, volume_numbers, protein=False):
     suffix = "-prot-metadata.json" if protein else "-nucl-metadata.json"
     json_filename = "blast/db/" + db_name + suffix
     http_download_file2(NCBI_SERVER, [json_filename])
@@ -477,6 +477,11 @@ def create_manifest_for_blast_db(db_name, protein=False):
         data = json.load(in_file)
         with open("manifest.txt", "w") as out_file:
             for volume in data["files"]:
+                match = re.search(r"\.(\d+)\.", volume)
+                if match:
+                    volume_number = match.group(1)
+                    if int(volume_number) not in volume_numbers:
+                        continue
                 path = urllib.parse.urlsplit(volume).path
                 out_file.write(path[1:] + "\n")
 
@@ -508,7 +513,6 @@ def convert_blast_to_fasta(args, volume, tarball):
     )
     blast_to_fasta_bin = find_kraken2_binary("blast_to_fasta")
     # blast_to_fasta_argv = ""
-    LOG.info("Converting BLAST volume {} to FASTA\n".format(volume))
     proc = subprocess.Popen([blast_to_fasta_bin, "-s", "-t", volume])
     if proc.wait() != 0:
         LOG.error(
@@ -531,6 +535,7 @@ def convert_blast_to_fasta(args, volume, tarball):
             [tmp_fasta_filename], fasta_filename,
             args.masker_threads, args.protein
         )
+        os.remove(tmp_fasta_filename)
 
 
 def wrapper_args_to_binary_args(opts, argv, binary_args):
@@ -831,10 +836,17 @@ def mask_files(input_filenames, output_filename, threads, protein=False):
         # number_of_files = len(input_filenames)
         for i, input_filename in enumerate(input_filenames):
             library_name = os.path.basename(os.getcwd())
+            if "blast" in output_filename:
+                library_name = "blast"
             if library_name == "added":
                 LOG.info(
                     "Masking low-complexity regions of added "
                     "library {}\n".format(input_filename)
+                )
+            elif library_name == "blast":
+                LOG.info(
+                    "Masking low-complexity regions for blast "
+                    "volume {}\n".format(output_filename)
                 )
             else:
                 LOG.info(
@@ -2419,11 +2431,11 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library in ["core_nt", "nt", "env_nt"]:
+    elif args.library in ["core_nt", "nt", "env_nt", "nt_viruses", "ref_viruses_rep_genomes"]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
-        create_manifest_for_blast_db(args.library)
+        create_manifest_for_blast_db(args.library, args.blast_volumes)
         download_and_process_blast_volumes(args)
     elif args.library in ["UniVec", "UniVec_Core"]:
         if args.protein:
@@ -2993,7 +3005,10 @@ def build_rdp_taxonomy(f):
 
 # Build the standard Kraken database
 def build_standard_database(args):
-    download_taxonomy(args)
+    # download_taxonomy(args)
+    args.assembly_source = "refseq"
+    args.assembly_levels = ["chromosome", "complete_genome"]
+    args.resume = True
     for library in [
         "archaea",
         "bacteria",
@@ -3603,6 +3618,30 @@ def clean_up(filenames):
     )
 
 
+def range_parser(input):
+    if input == "all":
+        input = ".."
+    volumes = []
+    regex = re.compile(r"(\d+)?..(\d+)?")
+    for volume in input.replace(' ', '').split(','):
+        if volume.isdecimal():
+            volumes.append(int(volume))
+        else:
+            match = regex.match(volume)
+            if not match:
+                raise argparse.ArgumentTypeError(input)
+            start, end = match.group(1), match.group(2)
+            if not start:
+                start = 0
+            if not end:
+                end = 1000
+            start, end = int(start), int(end) + 1
+            expanded_range = list(range(start, end))
+            volumes.extend(expanded_range)
+    volumes = set(volumes)
+    return volumes
+
+
 def clean_db(args):
     if args.stop_daemon:
         message_daemon(b"STOP\n")
@@ -3817,6 +3856,7 @@ def make_download_library_parser(subparsers):
         "download-library", aliases=["download"],
         help="Download and build a special database"
     )
+    parser.register("type", "range", range_parser)
     parser.add_argument(
         "--db",
         type=str,
@@ -3880,7 +3920,13 @@ def make_download_library_parser(subparsers):
     parser.add_argument(
         "--has-annotation",
         action="store_true",
-        help="Return only annotated genome assemblies (default false)"
+        help="Return only annotated genome assemblies (default: false)"
+    )
+    parser.add_argument(
+        "--blast-volumes",
+        type="range",
+        default="all",
+        help="Select the blast volume(s) to download (default: all)"
     )
     parser.add_argument(
         "--protein",
@@ -3892,7 +3938,7 @@ def make_download_library_parser(subparsers):
         type=str,
         metavar="FILENAME",
         default=None,
-        help="Specify a log filename (default stderr)",
+        help="Specify a log filename (default: stderr)",
     )
     parser.add_argument(
         "--threads",
