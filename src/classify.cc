@@ -253,7 +253,8 @@ load_index(Options &opts) {
   idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
 
-  Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
+  Taxonomy taxonomy(opts.taxonomy_filename, // opts.use_memory_mapping
+                    false);
   KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
 
   cerr << " done." << endl;
