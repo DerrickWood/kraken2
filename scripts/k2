@@ -3550,7 +3550,21 @@ def classify(args):
                 argv.append(fifo1_pathname)
             thread = threading.Thread(target=subprocess.call, args=(argv,))
             thread.start()
-            write_to_fifo(args.filenames, fifo1_pathname, fifo2_pathname)
+            if "-P" in argv:
+                writer_thread1 = threading.Thread(
+                    target=write_to_fifo,
+                    args=(args.filenames[0::2], fifo1_pathname)
+                )
+                writer_thread2 = threading.Thread(
+                    target=write_to_fifo,
+                    args=(args.filenames[1::2], fifo2_pathname)
+                )
+                writer_thread1.start()
+                writer_thread2.start()
+                writer_thread1.join()
+                writer_thread2.join()
+            else:
+                write_to_fifo(args.filenames, fifo1_pathname)
             thread.join()
     else:
         for i, filename in enumerate(args.filenames):
