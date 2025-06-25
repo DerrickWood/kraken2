@@ -119,8 +119,22 @@ if ($use_ftp) {
 }
 else {
   print STDERR "Step 1/2: Performing rsync file transfer of requested files\n";
-  system("rsync --no-motd --files-from=manifest.txt rsync://${SERVER}${SERVER_PATH}/ .") == 0
-    or die "$PROG: rsync error, exiting: $?\n";
+
+  # Get the number of threads from the environment variable
+  my $thread_ct = $ENV{KRAKEN2_THREAD_CT};
+
+  # Split the manifest.txt into parts based on the number of threads
+  system("split -n l/$thread_ct manifest.txt manifest_part_") == 0
+    or die "$PROG: split error, exiting: $?\n";
+
+  # Run rsync in parallel on the split manifest files
+  system("parallel -j $thread_ct rsync --no-motd --files-from={} rsync://${SERVER}${SERVER_PATH}/ . ::: manifest_part_*") == 0
+    or die "$PROG: parallel rsync error, exiting: $?\n";
+
+  # Remove the split manifest files after completion
+  system("rm manifest_part_*") == 0
+    or die "$PROG: rm error, exiting: $?\n";
+
   print STDERR "Rsync file transfer complete.\n";
 }
 print STDERR "Step 2/2: Assigning taxonomic IDs to sequences\n";
