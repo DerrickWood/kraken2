@@ -12,8 +12,17 @@
 namespace kraken2 {
   class MMapFile {
     public:
-
-    MMapFile();
+      MMapFile();
+      MMapFile(MMapFile &&o) {
+        valid_ = o.valid_;
+        o.valid_ = false;
+        fd_ = o.fd_;
+        o.fd_ = -1;
+        fptr_ = o.fptr_;
+        o.fptr_ = NULL;
+        filesize_ = o.filesize_;
+        o.filesize_ = 0;
+      };
     ~MMapFile();
     void OpenFile(const std::string &filename, int mode = O_RDONLY, int map_flags = -1, int prot_flags = -1, size_t size = 0);
     void OpenFile(const char *filename, int mode = O_RDONLY, int map_flags = -1, int prot_flags = -1, size_t size = 0);

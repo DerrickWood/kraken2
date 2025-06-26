@@ -16,17 +16,14 @@
 #include "aa_translate.h"
 #include "reports.h"
 #include "utilities.h"
-#include "readcounts.h"
 using namespace kraken2;
 
-using std::cout;
 using std::cerr;
 using std::endl;
 using std::ifstream;
 using std::map;
 using std::ostringstream;
 using std::ofstream;
-using std::set;
 using std::string;
 using std::vector;
 using namespace kraken2;
@@ -35,6 +32,8 @@ static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
+
+using IndexData = std::tuple<IndexOptions, Taxonomy, CompactHashTable *>;
 
 struct Options {
   string index_filename;
@@ -240,8 +239,7 @@ void OpenFifos(Options &opts, pid_t pid) {
   dup2(write_fd, 2);
 }
 
-std::tuple<IndexOptions, Taxonomy, KeyValueStore *>
-load_index(Options &opts) {
+IndexData load_index(Options &opts) {
   cerr << "Loading database information...";
 
   IndexOptions idx_opts = {0};
@@ -252,17 +250,17 @@ load_index(Options &opts) {
   auto opts_filesize = sb.st_size;
   idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
-
-  Taxonomy taxonomy(opts.taxonomy_filename, // opts.use_memory_mapping
-                    false);
-  KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
-
+  Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
+  IndexData index_data {
+    idx_opts, std::move(taxonomy),
+    new CompactHashTable(opts.index_filename, opts.use_memory_mapping)
+  };
   cerr << " done." << endl;
 
-  return std::tuple<IndexOptions, Taxonomy, KeyValueStore*>( idx_opts, std::move(taxonomy), hash_ptr );
+  return index_data;
 }
 
-void classify(Options &opts, std::tuple<IndexOptions, Taxonomy, KeyValueStore *>& index_data) {
+void classify(Options &opts, IndexData& index_data) {
   taxon_counters_t taxon_counters; // stats per taxon
   IndexOptions idx_opts = std::get<0>(index_data);
   Taxonomy &taxonomy = std::get<1>(index_data);
@@ -335,7 +333,7 @@ void ClassifyDaemon(Options opts) {
   daemonize();
 
   std::vector<char *> args;
-  std::map<std::string, std::tuple<IndexOptions, Taxonomy, KeyValueStore *>> indexes;
+  std::map<std::string, IndexData> indexes;
   std::stringstream ss;
   char *cmdline = NULL;
   size_t linecap = 0;

@@ -52,6 +52,7 @@ class Taxonomy {
 
   Taxonomy(Taxonomy &&o)
       : FILE_MAGIC(o.FILE_MAGIC),
+        taxonomy_data_file_(std::move(o.taxonomy_data_file_)),
         external_to_internal_id_map_(std::move(o.external_to_internal_id_map_)) {
     file_backed_ = o.file_backed_;
     nodes_ = o.nodes_;
