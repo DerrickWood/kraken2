@@ -25,6 +25,7 @@ import pty
 import random
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -2431,7 +2432,7 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library in ["core_nt", "nt", "env_nt", "nt_viruses", "ref_viruses_rep_genomes"]:
+    elif args.library in ["core_nt", "nt", "env_nt", "nt_viruses"]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
@@ -3489,14 +3490,22 @@ def classify_using_daemon(args, argv):
             for line in in_file:
                 line = line.strip()
                 print(line)
-    # wait for the classification job to complete
+                # wait for the classification job to complete
     if thread:
         thread.join()
+
     with open("/tmp/classify_stdout", "r") as in_file:
-        for line in in_file:
-            line = line.strip()
-            if line == "DONE":
-                break
+        try:
+            for line in in_file:
+                line = line.strip()
+                if line == "DONE":
+                    break
+        except KeyboardInterrupt:
+            os.kill(int(pid), signal.SIGINT)
+            for line in in_file:
+                line = line.strip()
+                if line == "DONE":
+                    break
 
 
 def classify(args):

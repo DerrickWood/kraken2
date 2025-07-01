@@ -5,6 +5,7 @@
  */
 
 #include <sys/wait.h>
+#include <sys/types.h>
 
 #include "kraken2_headers.h"
 #include "kv_store.h"
