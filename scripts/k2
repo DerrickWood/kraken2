@@ -2305,12 +2305,46 @@ def download_genomic_library(args):
         if args.library == "human":
             remote_dir_name = "vertebrate_mammalian/Homo_sapiens"
         try:
-            url = "genomes/{}/{:s}/assembly_summary.txt".format(
-                args.assembly_source, remote_dir_name
-            )
-            http_download_file2(
-                NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
-            )
+            if args.assembly_source == "all":
+                # Download and merge assembly summaries from both RefSeq and GenBank
+                refseq_url = "genomes/refseq/{:s}/assembly_summary.txt".format(remote_dir_name)
+                genbank_url = "genomes/genbank/{:s}/assembly_summary.txt".format(remote_dir_name)
+                
+                # Download RefSeq assembly summary
+                http_download_file2(
+                    NCBI_SERVER, [refseq_url], save_to=os.path.abspath(os.curdir)
+                )
+                os.rename("assembly_summary.txt", "assembly_summary_refseq.txt")
+                
+                # Download GenBank assembly summary
+                http_download_file2(
+                    NCBI_SERVER, [genbank_url], save_to=os.path.abspath(os.curdir)
+                )
+                os.rename("assembly_summary.txt", "assembly_summary_genbank.txt")
+                
+                # Merge the two files, keeping the header from RefSeq only
+                with open("assembly_summary.txt", "w") as merged_file:
+                    # Write RefSeq entries
+                    with open("assembly_summary_refseq.txt", "r") as refseq_file:
+                        merged_file.write(refseq_file.read())
+                    
+                    # Write GenBank entries (skip header lines starting with #)
+                    with open("assembly_summary_genbank.txt", "r") as genbank_file:
+                        for line in genbank_file:
+                            if not line.startswith("#"):
+                                merged_file.write(line)
+                
+                # Clean up temporary files
+                os.remove("assembly_summary_refseq.txt")
+                os.remove("assembly_summary_genbank.txt")
+            else:
+                # Original behavior for "refseq" or "genbank"
+                url = "genomes/{}/{:s}/assembly_summary.txt".format(
+                    args.assembly_source, remote_dir_name
+                )
+                http_download_file2(
+                    NCBI_SERVER, [url], save_to=os.path.abspath(os.curdir)
+                )
         except urllib.error.URLError:
             LOG.error(
                 "Error downloading assembly summary file for {:s}, "
