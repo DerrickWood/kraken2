@@ -3557,7 +3557,12 @@ def classify(args):
                 argv.extend([fifo1_pathname, fifo2_pathname])
             else:
                 argv.append(fifo1_pathname)
-            thread = threading.Thread(target=subprocess.call, args=(argv,))
+            if args.use_daemon:
+                thread = threading.Thread(
+                    target=classify_using_daemon, args=(args, argv)
+                )
+            else:
+                thread = threading.Thread(target=subprocess.call, args=(argv,))
             thread.start()
             if "-P" in argv:
                 writer_thread1 = threading.Thread(
