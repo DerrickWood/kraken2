@@ -1306,7 +1306,7 @@ def map_accessions_to_url(accessions, protein=False):
 
     size = len(accessions)
     start = 0
-    step = 400
+    step = 100
     stop = min(size, step)
     base_uri = "/datasets/v2/genome/accession/{}/links"
     accession_to_url = {}
