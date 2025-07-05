@@ -3684,7 +3684,7 @@ def range_parser(input):
     if input == "all":
         input = ".."
     volumes = []
-    regex = re.compile(r"(\d+)?..(\d+)?")
+    regex = re.compile(r"(\d+)?(?:\.{2,3}|\-|:)(\d+)?")
     for volume in input.replace(' ', '').split(','):
         if volume.isdecimal():
             volumes.append(int(volume))
@@ -3988,7 +3988,9 @@ def make_download_library_parser(subparsers):
         "--blast-volumes",
         type="range",
         default="all",
-        help="Select the blast volume(s) to download (default: all)"
+        help="A comma separated list of the blast volume numbers to download.\
+        Ranges are also accepted in the forms start..end, start-end, start:end,\
+        ranges are inclusive (default: all volumes)"
     )
     parser.add_argument(
         "--protein",
