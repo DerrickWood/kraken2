@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8...3.11)
 
 project(kraken2)
 
@@ -24,6 +24,7 @@ else(OPENMP_FOUND)
 endif(OPENMP_FOUND)
 
 find_package(Threads REQUIRED)
+find_library(MATH m REQUIRED)
 find_package(ZLIB REQUIRED)
 include_directories(${ZLIB_INCLUDE_DIRS})
 

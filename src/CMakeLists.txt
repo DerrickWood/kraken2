@@ -47,4 +47,10 @@ add_executable(k2mask
         k2mask.cc
         seqreader.cc)
 
-target_link_libraries(dustmasker ${ZLIB_LIBRARIES} Threads::Threads)
+add_executable(blast_to_fasta
+        blast_to_fasta.c
+        blast_utils.c
+        blast_defline.c)
+
+target_link_libraries(k2mask ${ZLIB_LIBRARIES} Threads::Threads)
+target_link_libraries(blast_to_fasta ${MATH})
