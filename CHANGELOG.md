@@ -1,4 +1,24 @@
 # Changelog
+
+## [2.1.6] - 2025-07-06
+
+### Changed
+- Updated GTDB version from 220 to 226
+
+### Added
+- Added BLAST files to FASTA convertor, this currently only works for nucleotides
+- Added support to `k2` for downloading and processing `core_nt`, `nt`, `env_nt` and `viral_nt` BLAST databases
+- Added `--blast-volumes` option for allowing users the ability to download specific volumes
+- Added `--gtdb-server` option to `k2 build` allowing users to select the appropriate GTDB server
+
+### Fixed
+- Fixed an issue causing undefined behavior in `k2` due to sharing of global variables between processes
+- Fixed an issue causing `k2` to hang when processing compressed reads
+- Fixed an issue causing "classify daemon" to behave incorrectly when processing compressed reads
+- Fixed an issue causing `classify` to crash when using the `--memory-mapping` option
+- Fixed an issue preventing `k2` from fetching assemblies from both `refseq` and `genbank` when 
+  `--assembly-source` is set to `all` (@beantkapoor786: [PR 968](https://github.com/DerrickWood/kraken2/pull/968))
+
 ## [2.1.5] - 2025-04-18
 
 ### Added

@@ -334,6 +334,10 @@ special:
   --gtdb-files GTDB_FILES [GTDB_FILES ...]
                         A list of files or regex matching the files needed to
                         build the special database.
+  --gtdb-use-ncbi-taxonomy
+                        Use NCBI tax IDs and taxonomy tree when building GTDB database
+  --gtdb-server GTDB_SERVER
+                        The GTDB server to use (default: data.ace.uq.edu.au)
   --no-masking          Avoid masking low-complexity sequences prior to
                         building database.
   --masker-threads K2MASK_THREADS
@@ -447,13 +451,19 @@ optional arguments:
   --assembly-source {refseq,genbank,all}
                         Download RefSeq (GCF_) or GenBank (GCA_) genome
                         assemblies or both (default RefSeq)
-  --resume              Resume fetching the files needed for a library, skipping files that have already been downloaded
+  --resume              Resume fetching the files needed for a library, skipping files
+                        that have already been downloaded
   --assembly-levels {chromosome,complete_genome,scaffold,contig} [{chromosome,complete_genome,scaffold,contig} ...]
                         Only return genome assemblies that have one of the
                         specified assembly levels (default chromosome and
                         complete genome)
   --has-annotation      Return only annotated genome assemblies (default
                         false)
+  --blast-volumes BLAST_VOLUMES
+                        A comma separated list of the blast volume numbers to download.
+                        Ranges are also accepted in the forms start..end, start-end,
+                        start:end, ranges are inclusive (default: all volumes)
+
   --protein             Files being added are for a protein database
   --log FILENAME        Specify a log filename (default stderr)
   --threads THREADS     The number of threads/processes k2 uses when
