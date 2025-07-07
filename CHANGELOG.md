@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.1.6] - 2025-07-06
+## [2.1.6] - 2025-07-07
 
 ### Changed
 - Updated GTDB version from 220 to 226
