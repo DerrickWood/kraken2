@@ -836,6 +836,8 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   finished_searching:
 
   auto total_kmers = taxa.size();
+  // account for ambiguous bases
+  total_kmers -= count(taxa.begin(), taxa.end(), AMBIGUOUS_SPAN_TAXON);
   if (opts.paired_end_processing)
     total_kmers--;  // account for the mate pair marker
   if (opts.use_translated_search)  // account for reading frame markers
