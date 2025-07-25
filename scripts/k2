@@ -380,7 +380,7 @@ def get_binary_options(binary_pathname):
 def construct_seed_template(args):
     if int(args.minimizer_len / 4) < args.minimizer_spaces:
         LOG.error(
-            "Number of minimizer spaces, {}, exceeds max for"
+            "Number of minimizer spaces, {}, exceeds max for "
             "minimizer length, {}; max: {}\n".format(
                 args.minimizer_spaces,
                 args.minimizer_len,
@@ -624,7 +624,7 @@ def remove_files(filepaths, forked=False):
                 if not forked and len(directories) >= 4:
                     total_size += remove_files_parallel(directories)
                 else:
-                    total_size += remove_files(directories)
+                    total_size += remove_files(directories, forked)
                     for directory in directories:
                         shutil.rmtree(directory)
         else:
@@ -642,14 +642,14 @@ def remove_files_parallel(filepaths):
             max_workers=4,
     ) as pool:
         futures = []
+        f = functools.partial(
+            wrap_with_globals, remove_files,
+            LOG.get_queue(), LOG.get_level(),
+            SCRIPT_PATHNAME
+        )
         for fname in filepaths:
             if not os.path.exists(fname):
                 continue
-            f = functools.partial(
-                wrap_with_globals, remove_files,
-                LOG.get_queue(), LOG.get_level(),
-                SCRIPT_PATHNAME
-            )
             future = pool.submit(f, [fname], True)
             futures.append(future)
 
