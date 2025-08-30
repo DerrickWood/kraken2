@@ -661,13 +661,13 @@ def remove_files_parallel(filepaths):
 
 def get_taxid_from_seqid(seqid):
     taxid = None
-    match = re.match(r"(?:^|\|)kraken:taxid\|(\d+)", seqid)
+    match = re.search(r"(?:^|\|)kraken:taxid\|(\d+)", seqid)
     if match:
         taxid = match.group(1)
     elif re.match(r"^\d+$", seqid):
         taxid = seqid
     if not taxid:
-        match = re.match(r"(?:^|\|)([A-Z]+_?[A-Z0-9]+)(?:\||\b|\.)", seqid)
+        match = re.search(r"(?:^|\|)([A-Z]+_?[A-Z0-9]+)(?:\||\b|\.)", seqid)
         if match:
             taxid = match.group(1)
     return taxid
