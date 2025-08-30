@@ -2895,23 +2895,30 @@ def build_kraken2_db(args):
                 argv, stdin=subprocess.PIPE,
             )
 
-        for filename in fasta_filenames:
-            with open(filename, "rb") as in_file:
-                while True:
-                    data = in_file.read(8192)
-                    if not data:
-                        break
-                    proc.stdin.write(data)
+        error = None
+        try:
+            for filename in fasta_filenames:
+                with open(filename, "rb") as in_file:
+                    while True:
+                        data = in_file.read(8192)
+                        if not data:
+                            break
+                        proc.stdin.write(data)
+        except Exception as e:
+            error = e
 
         proc.stdin.close()
-        if proc.wait() != 0:
-            LOG.error("Encountered error while building database\n")
-            sys.exit(1)
-
         if total_sequences > 0:
-            thread.join()
             os.close(m_err)
             os.close(s_err)
+            thread.join()
+
+        if proc.wait() != 0:
+            LOG.error(
+                "Encountered error while building database: {}\n"
+                .format(error)
+            )
+            return
 
         move("hash.k2d.tmp", "hash.k2d")
         move("taxo.k2d.tmp", "taxo.k2d")
@@ -4569,8 +4576,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        # LOG.stop_thread()
-        print(e.with_traceback())
+        LOG.stop_thread()
+        LOG.error(str(e) + "\n")
         # sys.exit(1)
     # else:
     #     LOG.stop_thread()
