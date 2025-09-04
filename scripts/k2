@@ -2466,7 +2466,7 @@ def download_genomic_library(args):
                     out_file,
                     sequence_to_url=sequence_to_url,
                 )
-    elif args.library in ["core_nt", "nt", "env_nt", "nt_viruses"]:
+    elif args.library in ["core_nt", "nt", "env_nt", "nt_viruses", "nt_euk"]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
         os.chdir(library_pathname)
