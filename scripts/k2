@@ -2880,45 +2880,40 @@ def build_kraken2_db(args):
         LOG.info("Running: " + " ".join(argv) + "\n")
         if total_sequences > 0:
             m_err, s_err = pty.openpty()
-            proc = subprocess.Popen(
-                argv, stdin=subprocess.PIPE,
+            cat_proc = subprocess.Popen(
+                ["cat"] + fasta_filenames,
+                stdout=subprocess.PIPE
+            )
+            build_proc = subprocess.Popen(
+                argv, stdin=cat_proc.stdout,
                 stdout=s_err,
                 stderr=s_err,
             )
+
             thread = threading.Thread(
                 target=read_from_stderr,
                 args=(m_err, total_sequences)
             )
             thread.start()
         else:
-            proc = subprocess.Popen(
+            build_proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE,
             )
 
-        error = None
-        try:
-            for filename in fasta_filenames:
-                with open(filename, "rb") as in_file:
-                    while True:
-                        data = in_file.read(8192)
-                        if not data:
-                            break
-                        proc.stdin.write(data)
-        except Exception as e:
-            error = e
+        build_proc.communicate()
+        cat_proc.stdout.close()
+        if build_proc.returncode != 0:
+            LOG.error(
+                "Encountered error while building database: "
+                "build process died unexpectedly\n"
+            )
 
-        proc.stdin.close()
         if total_sequences > 0:
-            os.close(m_err)
             os.close(s_err)
             thread.join()
-
-        if proc.wait() != 0:
-            LOG.error(
-                "Encountered error while building database: {}\n"
-                .format(error)
-            )
-            return
+            if build_proc.wait() != 0 or cat_proc.wait() != 0:
+                os.close(m_err)
+                return
 
         move("hash.k2d.tmp", "hash.k2d")
         move("taxo.k2d.tmp", "taxo.k2d")
@@ -2965,6 +2960,7 @@ def read_from_stderr(fd, total_sequences):
                 LOG.debug(line.decode())
             else:
                 buffer = line
+    os.close(fd)
 
 
 # Parses RDP sequence data to create Kraken taxonomy
