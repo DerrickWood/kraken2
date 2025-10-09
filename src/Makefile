@@ -1,6 +1,6 @@
 CXX ?= g++
 KRAKEN2_SKIP_FOPENMP ?= -fopenmp
-CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3
+CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3 -fpic
 CXXFLAGS += -DLINEAR_PROBING
 CFLAGS = -Wall -std=c99 -O2 -g3
 
@@ -58,3 +58,8 @@ k2mask: k2mask.o seqreader.o
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
 	$(CC) $(CFLAGS) -o $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc #-fsanitize=address,undefined
+
+libtax.o: libtax.cpp
+
+libtax: taxonomy.o mmap_file.o libtax.o
+	$(CXX) $(CXXFLAGS) -shared -o libtax.so taxonomy.o mmap_file.o libtax.o

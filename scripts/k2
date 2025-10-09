@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
+import array
 import argparse
 import bz2
 import concurrent.futures
 import collections
 import csv
+import ctypes
 import ftplib
 import functools
 import glob
@@ -32,6 +34,7 @@ import tarfile
 import time
 import tempfile
 import threading
+import traceback
 import urllib
 import urllib.error
 import urllib.parse
@@ -51,6 +54,7 @@ GREENGENES_SERVER = "greengenes.microbio.me"
 SILVA_SERVER = "ftp.arb-silva.de"
 # GTDB_SERVER = "data.gtdb.ecogenomic.org"
 GTDB_SERVER = "data.ace.uq.edu.au"
+AMBIGUOUS_TAXID = 2 ** 32 - 1
 
 WRAPPER_ARGS_TO_BIN_ARGS = {
     "block_size": "-B",
@@ -3545,6 +3549,847 @@ def classify_using_daemon(args, argv):
                     break
 
 
+# TODO: modify to include the scientific name?
+def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
+    fastq = False
+    lines_printed = 0
+    if chr(header[0]) == '@':
+        fastq = True
+    if taxid:
+        header = header.strip() + (" kraken:taxid|" + str(taxid) + "\n").encode()
+    if out_file:
+        out_file.write(header)
+    lines_printed += 1
+    header = ""
+    while True:
+        if fastq and lines_printed == 4:
+            break
+        if len(in_file.peek()) == 0:
+            break
+        if not fastq and chr(in_file.peek()[0]) == '>':
+            break
+        line = in_file.readline()
+        if out_file:
+            out_file.write(line)
+        lines_printed += 1
+
+
+def process_unpaired(input_filenames, classified_out_filename,
+                     unclassified_out_filename, classified_headers):
+    if classified_out_filename:
+        classified_out_file = open(classified_out_filename, "wb")
+    if unclassified_out_filename:
+        unclassified_out_file = open(unclassified_out_filename, "wb")
+
+    for filename in input_filenames:
+        with open(filename, "rb") as in_file:
+            for line in in_file:
+                read_name = line.split(b' ', 1)[0]
+                read_name = read_name[1:].strip()
+                classified = read_name.decode() in classified_headers
+                if classified and classified_out_filename:
+                    taxid = classified_headers[read_name.decode()]
+                    write_raw_sequence_to_file(
+                        in_file, classified_out_file, line, taxid
+                    )
+                elif not classified and unclassified_out_filename:
+                    write_raw_sequence_to_file(
+                        in_file, unclassified_out_file, line
+                    )
+                else:
+                    write_raw_sequence_to_file(in_file, None, line)
+
+    if classified_out_filename:
+        classified_out_file.close()
+    if unclassified_out_filename:
+        unclassified_out_file.close()
+
+
+def process_paired(input_filenames, classified_out_filename,
+                   unclassified_out_filename, classified_headers):
+    if classified_out_filename:
+        classified_out_filename1 =\
+            classified_out_filename.replace('#', "_1")
+        classified_out_file1 = open(classified_out_filename1, "wb")
+        classified_out_filename2 =\
+            classified_out_filename.replace('#', "_2")
+        classified_out_file2 = open(classified_out_filename2, "wb")
+    if unclassified_out_filename:
+        unclassified_out_filename1 =\
+            unclassified_out_filename.replace('#', "_1")
+        unclassified_out_file1 = open(unclassified_out_filename1, "wb")
+        unclassified_out_filename2 =\
+            unclassified_out_filename.replace('#', "_2")
+        unclassified_out_file2 = open(unclassified_out_filename2, "wb")
+    for filename1, filename2 in zip(input_filenames[::1], input_filenames[::2]):
+        with open(filename1, "rb") as in_file1, open(filename2, "rb") as in_file2:
+            for line1, line2 in zip(in_file1, in_file2):
+                read_name = line1.split(b' ', 1)[0]
+                read_name = read_name[1:].strip()
+                classified = read_name.decode() in classified_headers
+                if classified and classified_out_filename:
+                    taxid = classified_headers[read_name.decode()]
+                    write_raw_sequence_to_file(
+                        in_file1, classified_out_file1, line1, taxid
+                    )
+                    write_raw_sequence_to_file(
+                        in_file2, classified_out_file2, line2, taxid
+                    )
+                elif not classified and unclassified_out_filename:
+                    write_raw_sequence_to_file(
+                        in_file1, unclassified_out_file1, line1
+                    )
+                    write_raw_sequence_to_file(
+                        in_file2, unclassified_out_file2, line2
+                    )
+                else:
+                    write_raw_sequence_to_file(
+                        in_file1, None, line1
+                    )
+                    write_raw_sequence_to_file(
+                        in_file2, None, line2
+                    )
+
+    if classified_out_filename:
+        classified_out_file1.close()
+        classified_out_file2.close()
+    if unclassified_out_filename:
+        unclassified_out_file1.close()
+        unclassified_out_file2.close()
+
+
+def process_interleaved(
+        input_filenames, classified_out_filename,
+        unclassified_out_filename, classified_headers):
+    if classified_out_filename:
+        classified_out_file = open(classified_out_filename, "wb")
+    if unclassified_out_filename:
+        unclassified_out_file = open(unclassified_out_filename, "wb")
+
+    for filename in input_filenames:
+        with open(filename, "rb") as in_file:
+            for line in in_file:
+                line2 = in_file.readline()
+                read_name = line.split(b' ', 1)[0]
+                read_name = read_name[1:].strip()
+                classified = read_name.decode() in classified_headers
+                if classified and classified_out_filename:
+                    taxid = classified_headers[read_name.decode()]
+                    write_raw_sequence_to_file(
+                        in_file, classified_out_file, line, taxid
+                    )
+                    write_raw_sequence_to_file(
+                        in_file, classified_out_file, line2, taxid
+                    )
+                elif not classified and unclassified_out_filename:
+                    write_raw_sequence_to_file(
+                        in_file, unclassified_out_file, line
+                    )
+                    write_raw_sequence_to_file(
+                        in_file, unclassified_out_file, line2
+                    )
+                else:
+                    write_raw_sequence_to_file(in_file, None, line)
+                    write_raw_sequence_to_file(in_file, None, line2)
+
+    if classified_out_filename:
+        classified_out_file.close()
+    if unclassified_out_filename:
+        unclassified_out_file.close()
+
+
+def write_fasta_sequences(
+        args, input_filenames, classified_out_filename,
+        unclassified_out_filename, classified_headers):
+
+    if "paired" in args:
+        process_paired(
+            input_filenames, classified_out_filename,
+            unclassified_out_filename, classified_headers
+        )
+    elif "interleaved" in args:
+        process_interleaved(
+            input_filenames, classified_out_filename,
+            unclassified_out_filename, classified_headers
+        )
+    else:
+        process_unpaired(
+            input_filenames, classified_out_filename,
+            unclassified_out_filename, classified_headers
+        )
+
+
+class TaxonomyStruct(ctypes.Structure):
+    pass
+
+
+class Taxonomy:
+    def __init__(self, dll_pathname):
+        self.dll = ctypes.CDLL(dll_pathname)
+        self.dll.init_taxonomy.restype = ctypes.POINTER(TaxonomyStruct)
+        self.dll.get_lca.restype = ctypes.c_uint64
+        self.dll.get_internal_taxid.restype = ctypes.c_uint64
+        self.dll.is_ancestor_of.restype = ctypes.c_bool
+        self.dll.get_rank.restype = ctypes.c_char_p
+        self.dll.get_child_count.restype = ctypes.c_uint64
+        self.dll.taxid_to_name.restype = ctypes.c_char_p
+        # self.dll.get_child_taxids.restype = ctypes.c_
+
+    def generate_taxonomy(self, names, nodes, seqid2taxid, taxonomy_pathname):
+        names = ctypes.c_char_p(names.encode())
+        nodes = ctypes.c_char_p(nodes.encode())
+        seqid2taxid = ctypes.c_char_p(seqid2taxid.encode())
+        taxonomy_pathname = ctypes.c_char_p(taxonomy_pathname.encode())
+        self.dll.generate_taxonomy(
+            names, nodes, seqid2taxid, taxonomy_pathname
+        )
+
+    def load_taxonomy(self, taxonomy_pathname):
+        tax_file = ctypes.c_char_p(taxonomy_pathname.encode())
+        self.taxonomy = self.dll.init_taxonomy(tax_file)
+
+    def get_lca(self, taxid1, taxid2):
+        taxid1 = int(taxid1)
+        taxid2 = int(taxid2)
+        return self.dll.get_lca(self.taxonomy, taxid1, taxid2)
+
+    def get_internal_taxid(self, taxid):
+        return self.dll.get_internal_taxid(self.taxonomy, taxid)
+
+    def is_ancestor_of(self, parent, child):
+        return self.dll.is_ancestor_of(self.taxonomy, parent, child)
+
+    def destroy_taxonomy(self):
+        self.dll.destroy_taxonomy(self.taxonomy)
+
+    def get_rank(self, taxid):
+        return self.dll.get_rank(self.taxonomy, taxid)
+
+    def taxid_to_name(self, taxid):
+        return self.dll.taxid_to_name(self.taxonomy, taxid)
+
+    def get_child_count(self, taxid):
+        return self.dll.get_child_count(self.taxonomy, taxid)
+
+    def get_parent_id(self, taxid):
+        return self.dll.get_parent_id(self.taxonomy, taxid)
+
+    def get_child_taxids(self, taxid):
+        num_children = self.get_child_count(taxid)
+        child_taxids = (ctypes.c_uint64 * num_children)(*([0] * num_children))
+        self.dll.get_child_taxids(
+            self.taxonomy, taxid, ctypes.byref(child_taxids), num_children
+        )
+        return child_taxids
+
+
+class ReadCounts:
+    def __init__(self):
+        self.n_kmers = 0
+        self.n_reads = 0
+
+    def get_read_count(self):
+        return self.n_reads
+
+    def get_kmer_count(self):
+        return self.n_kmers
+
+    def increment_read_count(self):
+        self.n_reads += 1
+
+    def __iadd__(self, other):
+        self.n_kmers += other.n_kmers
+        self.n_reads += other.n_reads
+
+        return self
+
+
+class TaxonCounters:
+    def __init__(self):
+        self.counter = collections.defaultdict(ReadCounts)
+
+    def __getitem__(self, taxid):
+        return self.counter[taxid]
+
+    def __setitem__(self, taxid, c):
+        self.counter[taxid] = c
+
+    def items(self):
+        return self.counter.items()
+
+    def keys(self):
+        return self.counter.keys()
+
+
+def get_clade_counters(taxonomy, call_counters):
+    clade_counters = TaxonCounters()
+    for k, v in call_counters.items():
+        while k != 0:
+            clade_counters[k] += v
+            k = taxonomy.get_parent_id(k)
+
+    return clade_counters
+
+
+def print_kraken_style_report(out_file, report_kmer_data,
+                              total_seqs, clade_counter, taxon_counter,
+                              rank_string, taxid, scientific_name, depth):
+    read_count = clade_counter.get_read_count()
+    percentage = 100.0 * read_count / total_seqs
+    out_string = "{:6.2f}".format(percentage) +\
+        "\t" + str(clade_counter.get_read_count()) +\
+        "\t" + str(taxon_counter.get_read_count()) +\
+        "\t" + rank_string + "\t" + str(taxid) +\
+        "\t" + " " * depth + scientific_name + "\n"
+    out_file.write(out_string)
+
+
+def kraken_report_dfs(out_file, taxid, report_zeros, report_kmer_data,
+                      taxonomy, clade_counters, call_counters, total_seqs,
+                      rank_code, rank_depth, depth):
+    clade_counter = clade_counters[taxid]
+    call_counter = call_counters[taxid]
+    if not report_zeros and clade_counter.get_read_count() == 0:
+        return
+
+    rank = taxonomy.get_rank(taxid).decode()
+    if rank == "superkingdom":
+        rank_code = 'D'
+        rank_depth = 0
+    elif rank == "kingdom":
+        rank_code = 'K'
+        rank_depth = 0
+    elif rank == "phylum":
+        rank_code = 'P'
+        rank_depth = 0
+    elif rank == "class":
+        rank_code = 'C'
+        rank_depth = 0
+    elif rank == "order":
+        rank_code = 'O'
+        rank_depth = 0
+    elif rank == "family":
+        rank_code = 'F'
+        rank_depth = 0
+    elif rank == "genus":
+        rank_code = 'G'
+        rank_depth = 0
+    elif rank == "species":
+        rank_code = 'S'
+        rank_depth = 0
+    else:
+        rank_depth += 1
+
+    rank_string = rank_code
+    if rank_depth > 0:
+        rank_string += str(rank_depth)
+    scientific_name = taxonomy.taxid_to_name(taxid).decode()
+    print_kraken_style_report(
+        out_file, False, total_seqs, clade_counter,
+        call_counter, rank_string, taxid, scientific_name,
+        depth
+    )
+    children = sorted(
+        taxonomy.get_child_taxids(taxid),
+        key=lambda t: clade_counters[t].get_read_count()
+    )
+    for child_taxid in children:
+        kraken_report_dfs(
+            out_file, child_taxid, report_zeros,
+            report_kmer_data, taxonomy, clade_counters,
+            call_counters, total_seqs, rank_code, rank_depth,
+            depth + 1
+        )
+
+
+def report_kraken_style(filename, report_zeros, report_kmer_data,
+                        taxonomy, call_counters, total_seqs):
+    clade_counters = get_clade_counters(taxonomy, call_counters)
+    total_unclassified = call_counters[0].get_read_count()
+    rank_code = "R"
+
+    with open(filename, "w") as out_file:
+        if total_unclassified > 0:
+            print_kraken_style_report(
+                out_file, False, total_seqs, call_counters[0],
+                call_counters[0], "U", 0, "unclassified", 0
+            )
+        kraken_report_dfs(
+            out_file, 1, report_zeros, False, taxonomy, clade_counters,
+            call_counters, total_seqs, rank_code, 0, 0
+        )
+
+
+# Taken from ResolveTree function in classify.cc
+def resolve_taxa_tree(hit_counts, taxonomy, total_kmers, args):
+    max_taxid = 0
+    max_score = 0
+    required_score = math.ceil(args.confidence * total_kmers)
+
+    for taxid in hit_counts.keys():
+        score = 0
+        for taxid2, counts in hit_counts.items():
+            if taxonomy.is_ancestor_of(taxid2, taxid):
+                score += counts
+        if score > max_score:
+            max_score, max_taxid = score, taxid
+        elif score == max_score:
+            max_taxid = taxonomy.get_lca(max_taxid, taxid)
+    max_score = hit_counts[max_taxid]
+    while max_taxid != 0 and max_score < required_score:
+        max_score = 0
+        for taxid, counts in hit_counts.items():
+            if taxonomy.is_ancestor_of(max_taxid, taxid):
+                max_score += counts
+        if max_score >= required_score:
+            return max_taxid
+        else:
+            max_taxid = taxonomy.get_parent_id(max_taxid)
+
+    return max_taxid
+
+
+def parse_taxid_counts(string, counts):
+    index = 0
+    counts_len = string.count(':') * 2
+    if counts is None:
+        counts = array.array('I', range(0, counts_len))
+    _, counts_capacity = counts.buffer_info()
+    if counts_capacity < counts_len:
+        counts.extend(range(0, counts_len - counts_capacity))
+
+    for entry in string.split():
+        taxid, count = entry.split(':')
+        if taxid == 'A':
+            taxid, count = AMBIGUOUS_TAXID, int(count)
+        # separator for paired reads, set the taxid and count
+        # to an invalid value
+        elif taxid == '|':
+            taxid, count = 0, 0
+        else:
+            taxid, count = int(taxid), int(count)
+        counts[index] = taxid
+        index += 1
+        counts[index] = count
+        index += 1
+
+    return counts, counts_len
+
+
+def get_lca(taxonomy, cache, taxid1, taxid2):
+    taxid1, taxid2 = (taxid1, taxid2) if taxid1 < taxid2 else (taxid2, taxid1)
+    if (taxid1, taxid2) not in cache:
+        cache[(taxid1, taxid2)] = taxonomy.get_lca(taxid1, taxid2)
+    return cache[(taxid1, taxid2)]
+
+
+def merge_counts(
+        taxonomy, lca_cache, counts1, counts1_len, counts2, counts2_len):
+    index1 = 0
+    index2 = 0
+    total_minimizers = 0
+    counts_str = ""
+    counts_map = collections.defaultdict(int)
+    final_counts = []
+    while True:
+        taxid1, count1 = counts1[index1], counts1[index1 + 1]
+        taxid2, count2 = counts2[index2], counts2[index2 + 1]
+        final_count = 0
+        # final_taxid = taxonomy.get_lca(taxid1, taxid2)
+        if taxid1 == AMBIGUOUS_TAXID or taxid2 == AMBIGUOUS_TAXID:
+            final_taxid = AMBIGUOUS_TAXID
+        else:
+            final_taxid = get_lca(taxonomy, lca_cache, taxid1, taxid2)
+        if count1 < count2:
+            counts2[index2 + 1] -= count1
+            index1 += 2
+            final_count = count1
+            if counts2[index2 + 1] == 0:
+                index2 += 2
+        elif count2 < count1:
+            counts1[index1 + 1] -= count2
+            index2 += 2
+            final_count = count2
+            if counts1[index1 + 1] == 0:
+                index1 += 2
+        else:
+            index1 += 2
+            index2 += 2
+            final_count = count1
+
+        total_minimizers += final_count
+        counts_map[final_taxid] += final_count
+        final_counts.append((final_taxid, final_count))
+
+        if index1 >= counts1_len:
+            break
+
+    def taxid_to_string(taxid):
+        if taxid == AMBIGUOUS_TAXID:
+            return "A"
+        else:
+            return str(taxid)
+
+    counts_str = io.StringIO()
+    previous_taxid, previous_count = final_counts[0]
+    if len(final_counts) > 1:
+        for taxid, count in final_counts[1:]:
+            if taxid == 0 and count == 0:
+                counts_str.write(taxid_to_string(previous_taxid))
+                counts_str.write(":")
+                counts_str.write(str(previous_count))
+                counts_str.write(" ")
+                counts_str.write("|")
+                counts_str.write(":")
+                counts_str.write("|")
+                counts_str.write(" ")
+                previous_taxid = taxid
+                previous_count = count
+            if previous_taxid == taxid:
+                previous_count += count
+            else:
+                # counts_str += str(previous_taxid) + ":" + str(previous_count)
+                # counts_str += " "
+                counts_str.write(taxid_to_string(previous_taxid))
+                counts_str.write(":")
+                counts_str.write(str(previous_count))
+                counts_str.write(" ")
+                previous_taxid = taxid
+                previous_count = count
+    # counts_str += str(previous_taxid) + ":" + str(previous_count)
+    counts_str.write(taxid_to_string(previous_taxid))
+    counts_str.write(":")
+    counts_str.write(str(previous_count))
+
+    return (counts_str.getvalue(), counts_map, total_minimizers)
+
+
+def merge_classification_output(
+        taxonomy, in_filename1, in_filename2,
+        out_filename, use_names, args, final=False):
+    call_counters = TaxonCounters()
+    total_seqs = 0
+    counts_array1 = None
+    counts_array2 = None
+    lca_cache = {}
+    with open(in_filename1) as file1, open(in_filename2) as file2:
+        with open(out_filename, "w") as out_file:
+            for (line1, line2) in zip(file1, file2):
+                (status1, name1, taxid1, len1, counts1) =\
+                    line1.strip().split('\t', 5)
+                (status2, name2, taxid2, len2, counts2) =\
+                    line2.strip().split('\t', 5)
+                if status1 == "C" and status2 == "C":
+                    status = "C"
+                    counts_array1, counts_len1 =\
+                        parse_taxid_counts(counts1, counts_array1)
+                    counts_array2, counts_len2 =\
+                        parse_taxid_counts(counts2, counts_array2)
+                    counts, counts_map, total_minimizers =\
+                        merge_counts(
+                            taxonomy, lca_cache, counts_array1,
+                            counts_len1, counts_array2, counts_len2
+                        )
+                    taxid = resolve_taxa_tree(
+                        counts_map, taxonomy, total_minimizers, args
+                    )
+                elif status1 == "C" and status2 == "U":
+                    status = "C"
+                    taxid = taxid1
+                    counts = counts1
+                elif status1 == "U" and status2 == "C":
+                    status = "C"
+                    taxid = taxid2
+                    counts = counts2
+                else:
+                    status = "U"
+                    taxid = 0
+                    counts = "0:0"
+
+                if final:
+                    call_counters[int(taxid)].increment_read_count()
+                total_seqs += 1
+                if use_names:
+                    scientific_name = taxonomy.taxid_to_name(int(taxid))
+                    records = "\t".join(
+                        [status, name1, scientific_name.decode(),
+                         "(taxid " + str(taxid) + ")", len1]
+                    )
+
+                else:
+                    records = "\t".join(
+                        [status, name1, str(taxid), len1]
+                    )
+                out_file.write(records)
+                out_file.write("\t")
+                out_file.write(counts)
+                out_file.write("\n")
+    return (call_counters, total_seqs) if final else (None, total_seqs)
+
+
+def merge_classification_output2(
+        taxonomy_pathname, lines, job_number, use_names, args,
+        save_seq_names, final):
+    taxonomy_dll_pathname = find_kraken2_binary("libtax.so")
+    taxonomy = Taxonomy(taxonomy_dll_pathname)
+    taxonomy.load_taxonomy(taxonomy_pathname)
+
+    call_counters = TaxonCounters()
+    total_seqs = 0
+    counts_array1 = None
+    classified_headers = {}
+    counts_array2 = None
+    lca_cache = {}
+    out_filename = tempfile.mktemp(
+        prefix="k2_job" + str(job_number) + "_"
+    )
+    with open(out_filename, "w") as out_file:
+        for (left, right) in lines:
+            (status1, seq_name1, taxid1, len1, counts1) =\
+                left.strip().split('\t', 5)
+            (status2, seq_name2, taxid2, len2, counts2) =\
+                right.strip().split('\t', 5)
+            if status1 == "C" and status2 == "C":
+                status = "C"
+                counts_array1, counts_len1 =\
+                    parse_taxid_counts(counts1, counts_array1)
+                counts_array2, counts_len2 =\
+                    parse_taxid_counts(counts2, counts_array2)
+                counts, counts_map, total_minimizers =\
+                    merge_counts(
+                        taxonomy, lca_cache, counts_array1,
+                        counts_len1, counts_array2, counts_len2
+                    )
+                taxid = resolve_taxa_tree(
+                    counts_map, taxonomy, total_minimizers, args
+                )
+            elif status1 == "C" and status2 == "U":
+                status = "C"
+                taxid = taxid1
+                counts = counts1
+            elif status1 == "U" and status2 == "C":
+                status = "C"
+                taxid = taxid2
+                counts = counts2
+            else:
+                status = "U"
+                taxid = 0
+                counts = "0:0"
+
+            if final:
+                call_counters[int(taxid)].increment_read_count()
+                if save_seq_names:
+                    if status == "C":
+                        classified_headers[seq_name1] = taxid
+            total_seqs += 1
+            if use_names:
+                scientific_name = taxonomy.taxid_to_name(int(taxid))
+                records = "\t".join(
+                    [status, seq_name1,
+                     scientific_name.decode() + " " + "(taxid " + str(taxid) + ")", len1]
+                )
+            else:
+                records = "\t".join(
+                    [status, seq_name1, str(taxid), len1]
+                )
+            out_file.write(records)
+            out_file.write("\t")
+            out_file.write(counts)
+            out_file.write("\n")
+    if final:
+        return (
+            out_filename, call_counters, total_seqs, classified_headers
+        )
+    else:
+        return (out_filename, None, None, None)
+
+
+def merge_classification_output_parallel(
+        pool, taxonomy_pathname, in_filename1, in_filename2,
+        out_filename, use_names, args, save_seq_names, final):
+    filenames = []
+    call_counters = TaxonCounters()
+    total_seqs = 0
+    with open(in_filename1) as file1, open(in_filename2) as file2:
+        input = list(zip(file1.readlines(), file2.readlines()))
+    input_len = len(input)
+    partition_ranges = list(range(0, input_len, int(input_len / args.threads)))
+    partition_ranges[-1] = input_len
+    job_number = 0
+    futures = []
+    for start, end in zip(partition_ranges, partition_ranges[1:]):
+        future = pool.submit(
+            merge_classification_output2, taxonomy_pathname,
+            input[start:end], job_number, use_names, args,
+            save_seq_names, final
+        )
+        futures.append(future)
+        job_number += 1
+    done, not_done = concurrent.futures.wait(futures)
+
+    classified_headers = []
+    for future in done:
+        filename, counters, total, classified_set =\
+            future.result()
+        filenames.append(filename)
+        if final:
+            classified_headers.append(classified_set)
+            total_seqs += total
+            for key, value in counters.items():
+                call_counters[key] += value
+
+    with open(out_filename, "w") as out_file:
+        for filename in sorted(filenames):
+            with open(filename, "r") as in_file:
+                shutil.copyfileobj(in_file, out_file)
+            os.remove(filename)
+
+    if final:
+        classified_headers = collections.ChainMap(*classified_headers)
+        return (call_counters, total_seqs, classified_headers)
+    else:
+        return (None, total_seqs, None)
+
+
+def classify_multi_dbs(args):
+    dbs = args.db
+    use_names = False
+    report_filename = None
+    report_zeros = False
+    classified_out_filename = None
+    unclassified_out_filename = None
+    if "use_mpa_style" in args:
+        LOG.error(
+            "--use-mpa-style not supported when using multiple dbs\n"
+        )
+        sys.exit(1)
+    if "report_minimizer_data" in args:
+        LOG.error(
+            "--report-minimizer-data not supported when using "
+            "multiple dbs\n"
+        )
+        sys.exit(1)
+    if "report" in args:
+        report_filename, args.report = (args.report, None)
+    output = args.output if "output" in args else None
+    if "report_zeros" in args:
+        report_zeros = True
+        args.report_zeros = None
+    if "classified_out" in args:
+        classified_out_filename = args.classified_out
+        args.classified_out = None
+    if "unclassified_out" in args:
+        unclassified_out_filename = args.unclassified_out
+        args.unclassified_out = None
+    if "use_names" in args:
+        use_names = True
+        args.use_names = None
+    tmp_filenames = []
+
+    LOG.info("Creating merged taxonomy\n")
+    seqid2taxid_maps = []
+    for db in dbs:
+        seqid2taxid_map = os.path.join(db, "seqid2taxid.map")
+        if not os.path.exists(seqid2taxid_map):
+            LOG.error(
+                "Unable to find seqid2taxid.map for database {}\n".format(db)
+            )
+            LOG.error(
+                "seqid2taxid.map files are needed to create a merged taxonomy"
+                " for mulit-database classification\n"
+            )
+        seqid2taxid_maps.append(seqid2taxid_map)
+    seqid2taxid_maps = sorted(seqid2taxid_maps)
+    with tempfile.NamedTemporaryFile(
+            prefix="k2_seqid2taxid", suffix=".map", delete=False) as out_file:
+        seqid2taxid_map_pathname = out_file.name
+        for seqid2taxid_map in seqid2taxid_maps:
+            with open(seqid2taxid_map, "rb") as in_file:
+                shutil.copyfileobj(in_file, out_file)
+    taxonomy_pathname = os.path.join(dbs[0], "taxonomy")
+    names_pathname = os.path.join(taxonomy_pathname, "names.dmp")
+    nodes_pathname = os.path.join(taxonomy_pathname, "nodes.dmp")
+    taxonomy_dll_pathname = find_kraken2_binary("libtax.so")
+    taxonomy = Taxonomy(taxonomy_dll_pathname)
+    taxonomy_pathname = tempfile.mktemp(prefix="k2_taxo", suffix=".k2d")
+    taxonomy.generate_taxonomy(
+        names_pathname, nodes_pathname, seqid2taxid_map_pathname,
+        taxonomy_pathname
+    )
+    LOG.info("Finished creating and loading merged taxonomy\n")
+
+    for db in dbs:
+        args.db = db
+        pathname = tempfile.mktemp(prefix="k2_")
+        tmp_filenames.append(pathname)
+        args.output = pathname
+
+        LOG.info(
+            "Running classification job for database {}\n".format(db)
+        )
+        classify(args)
+        LOG.info(
+            "Finished running classification job for database {}\n".format(db)
+        )
+
+    LOG.info("Merging output files\n")
+    out_filename = tempfile.mktemp(prefix="k2_")
+    tmp_filenames_copy = tmp_filenames.copy()
+    tmp_filenames.append(out_filename)
+    final = False
+    pool = concurrent.futures.ProcessPoolExecutor(max_workers=args.threads)
+    progress = ProgressBar(len(tmp_filenames), 0)
+    while True:
+        LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
+        if len(tmp_filenames_copy) == 2:
+            final = True
+        filename1, filename2 = tmp_filenames_copy.pop(), tmp_filenames_copy.pop()
+        # LOG.info("merging classification output\n")
+        save_seq_names = final and (classified_out_filename is not None
+                                    or unclassified_out_filename is not None)
+        call_counters, total_seqs, classified_headers =\
+            merge_classification_output_parallel(
+                pool, taxonomy_pathname, filename1, filename2, out_filename,
+                use_names and final, args, save_seq_names, final
+            )
+        progress.progress(1, relative=True)
+        # LOG.info("finished merging classification output\n")
+        LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
+        if len(tmp_filenames_copy) == 0:
+            break
+        tmp_filenames_copy.insert(0, out_filename)
+        out_filename = filename1
+    pool.shutdown()
+    LOG.info("Finished merging output files\n")
+    if output:
+        shutil.move(out_filename, os.path.abspath(output))
+        if out_filename in tmp_filenames:
+            tmp_filenames.remove(out_filename)
+    else:
+        with open(out_filename, "r") as out_file:
+            shutil.copyfileobj(out_file, sys.stdout)
+    for tmp_filename in tmp_filenames:
+        os.remove(tmp_filename)
+
+    if classified_out_filename or unclassified_out_filename:
+        LOG.info("Writing (un)classified sequences to file\n")
+        write_fasta_sequences(
+            args, args.filenames, classified_out_filename,
+            unclassified_out_filename, classified_headers
+        )
+        LOG.info("Finished writing (un)classified sequences to file\n")
+    if report_filename is not None:
+        LOG.info("Generating report file\n")
+        taxonomy.load_taxonomy(taxonomy_pathname)
+        report_kraken_style(
+            report_filename, report_zeros, False,
+            taxonomy, call_counters, total_seqs
+        )
+        LOG.info("Finished generating report file\n")
+    os.remove(taxonomy_pathname)
+    os.remove(seqid2taxid_map_pathname)
+
+
 def classify(args):
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
@@ -4116,8 +4961,9 @@ def make_classify_parser(subparsers):
         "--db",
         type=str,
         metavar="PATHNAME",
+        nargs="+",
         required=True,
-        help="Pathname to Kraken2 database.",
+        help="Pathname to Kraken2 database(s).",
     )
     parser.add_argument(
         "--threads",
@@ -4479,12 +5325,18 @@ def k2_main():
     task = sys.argv[1]
     # if task not in ["classify", "inspect"]:
     #     args.db = os.path.abspath(args.db)
-    if args.db:
+    if isinstance(args.db, list):
+        args.db = list(map(os.path.abspath, args.db))
+    elif isinstance(args.db, str):
         args.db = os.path.abspath(args.db)
     if task == "download-taxonomy":
         download_taxonomy(args)
     elif task == "classify":
-        classify(args)
+        if len(args.db) > 1:
+            classify_multi_dbs(args)
+        else:
+            args.db = args.db[0]
+            classify(args)
     elif task == "download-library":
         download_genomic_library(args)
     elif task == "add-to-library":
@@ -4571,9 +5423,9 @@ if __name__ == "__main__":
         k2_main()
     except KeyboardInterrupt:
         pass
-    except Exception as e:
+    except Exception:
         LOG.stop_thread()
-        LOG.error(str(e) + "\n")
-        # sys.exit(1)
+        LOG.error(traceback.format_exc())
+        sys.exit(1)
     # else:
     #     LOG.stop_thread()
