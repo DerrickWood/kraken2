@@ -4959,11 +4959,13 @@ def make_classify_parser(subparsers):
     )
     parser.add_argument(
         "--db",
-        type=str,
+        type=lambda x: x.split(","),
         metavar="PATHNAME",
-        nargs="+",
+        # nargs="+",
         required=True,
-        help="Pathname to Kraken2 database(s).",
+        help="Pathname to Kraken2 database(s).\
+        Multiple databases are specified as a comma-\
+        separated list with no spaces.",
     )
     parser.add_argument(
         "--threads",
