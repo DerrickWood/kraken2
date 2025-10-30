@@ -94,7 +94,7 @@ uint8_t *to_c_string(string_t *s) {
 }
 
 void string_append_char(string_t *s, uint8_t c) {
-  if (s->len == s->cap) {
+  if ((s->len + 1) >= s->cap) {
     uint32_t new_cap = next_power_of_2(s->cap + 1);
     s->string = alloc_memory(s->string, 1, s->cap, new_cap);
     s->cap = new_cap;
@@ -300,6 +300,10 @@ void free_hdr_data(hdr_t *hdr) {
 
   if (hdr->hdr_file != NULL) {
     fclose(hdr->hdr_file);
+  }
+  for (size_t i = 0; i < kv_size(hdr->deflines); i++) {
+    blast_defline *defline = kv_a(blast_defline *, hdr->deflines, i);
+    destroy_blast_defline(defline);
   }
   kv_destroy(hdr->deflines);
   free_string(&hdr->fasta_hdr);
@@ -670,7 +674,7 @@ int main(int argc, char **argv) {
   read_idx_data(idx_data);
   hdr_t *hdr_data = init_hdr_data(hdr_filename, idx_data->hdr_arr, idx_data->num_oids);
   uint32_t max_seq_block_size =
-      max_block_size(idx_data->seq_arr, idx_data->num_oids);
+    next_power_of_2(max_block_size(idx_data->seq_arr, idx_data->num_oids));
   seq_t *seq_data = init_seq_data(seq_filename, idx_data->max_seq_len, max_seq_block_size);
 
   fprintf(stderr, "The version of this database is %X\n", idx_data->fmt_version);

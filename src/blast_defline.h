@@ -202,6 +202,8 @@ int get_blast_defline(asn1_t *data, blast_defline *defline);
 
 blast_defline *init_blast_defline();
 
+void destroy_blast_defline(blast_defline *defline);
+
 int get_blast_deflines(asn1_t *asn1_data, blast_deflines *deflines);
 
 #endif

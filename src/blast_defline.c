@@ -548,7 +548,14 @@ void reset_blast_defline(blast_defline *defline) {
   kv_clear(defline->links);
   kv_clear(defline->other_info);
   defline->taxid = 0;
+}
 
+void destroy_blast_defline(blast_defline *defline) {
+  kv_destroy(defline->seq_ids);
+  kv_destroy(defline->memberships);
+  kv_destroy(defline->links);
+  kv_destroy(defline->other_info);
+  free(defline);
 }
 
 int get_blast_deflines(asn1_t *asn1_data, blast_deflines *deflines) {
