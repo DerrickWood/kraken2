@@ -4251,6 +4251,35 @@ def merge_classification_output_parallel(
         return (None, total_seqs, None)
 
 
+def sanity_check_taxonomies(db_pathnames):
+    LOG.info("Sanity checking taxonomies\n")
+    nodes = {}
+    for db_pathname in db_pathnames:
+        nodes_pathname = os.path.join(db_pathname, "nodes.dmp")
+        nodes_pathname2 = os.path.join(db_pathname, os.path.join("taxonomy", "nodes.dmp"))
+        if os.path.exists(nodes_pathname):
+            pass
+        elif os.path.exists(nodes_pathname2):
+            nodes_pathname = nodes_pathname2
+        else:
+            LOG.error("Cannot find nodes.dmp file in {}\n".format(db_pathname))
+            sys.exit(1)
+        with open(nodes_pathname, "r") as in_file:
+            for line in in_file:
+                line = line.strip()
+                taxid, parent_taxid = line.split('|')[0:2]
+                parent_taxid = parent_taxid.strip()
+                taxid = taxid.strip()
+                if taxid in nodes and nodes[taxid] != parent_taxid:
+                    LOG.error(
+                        "taxid {} does not map to the same parent "
+                        "taxid in some of the nodes file\n".format(taxid)
+                    )
+                    sys.exit(1)
+                nodes[taxid] = parent_taxid
+    LOG.info("Finished sanity checking taxonomies\n")
+
+
 def classify_multi_dbs(args):
     dbs = args.db
     use_names = False
@@ -4306,6 +4335,7 @@ def classify_multi_dbs(args):
         for seqid2taxid_map in seqid2taxid_maps:
             with open(seqid2taxid_map, "rb") as in_file:
                 shutil.copyfileobj(in_file, out_file)
+    sanity_check_taxonomies(dbs)
     taxonomy_pathname = os.path.join(dbs[0], "taxonomy")
     names_pathname = os.path.join(taxonomy_pathname, "names.dmp")
     nodes_pathname = os.path.join(taxonomy_pathname, "nodes.dmp")
@@ -4338,7 +4368,7 @@ def classify_multi_dbs(args):
     tmp_filenames.append(out_filename)
     final = False
     pool = concurrent.futures.ProcessPoolExecutor(max_workers=args.threads)
-    progress = ProgressBar(len(tmp_filenames), 0)
+    progress = ProgressBar(len(tmp_filenames) - 1, 0)
     while True:
         LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
         if len(tmp_filenames_copy) == 2:
@@ -4359,8 +4389,11 @@ def classify_multi_dbs(args):
             break
         tmp_filenames_copy.insert(0, out_filename)
         out_filename = filename1
+    progress.progress(1, relative=True)
+    # LOG.info("finished merging classification output\n")
+    LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
     pool.shutdown()
-    LOG.info("Finished merging output files\n")
+    LOG.info("\nFinished merging output files\n")
     if output:
         shutil.move(out_filename, os.path.abspath(output))
         if out_filename in tmp_filenames:
