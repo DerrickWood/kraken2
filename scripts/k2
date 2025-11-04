@@ -4336,9 +4336,13 @@ def classify_multi_dbs(args):
             with open(seqid2taxid_map, "rb") as in_file:
                 shutil.copyfileobj(in_file, out_file)
     sanity_check_taxonomies(dbs)
-    taxonomy_pathname = os.path.join(dbs[0], "taxonomy")
-    names_pathname = os.path.join(taxonomy_pathname, "names.dmp")
-    nodes_pathname = os.path.join(taxonomy_pathname, "nodes.dmp")
+    if os.path.exists(os.path.join(dbs[0], "taxonomy")):
+        taxonomy_pathname = os.path.join(dbs[0], "taxonomy")
+        names_pathname = os.path.join(taxonomy_pathname, "names.dmp")
+        nodes_pathname = os.path.join(taxonomy_pathname, "nodes.dmp")
+    else:
+        names_pathname = os.path.join(dbs[0], "names.dmp")
+        nodes_pathname = os.path.join(dbs[0], "nodes.dmp")
     taxonomy_dll_pathname = find_kraken2_binary("libtax.so")
     taxonomy = Taxonomy(taxonomy_dll_pathname)
     taxonomy_pathname = tempfile.mktemp(prefix="k2_taxo", suffix=".k2d")
@@ -4370,7 +4374,7 @@ def classify_multi_dbs(args):
     pool = concurrent.futures.ProcessPoolExecutor(max_workers=args.threads)
     progress = ProgressBar(len(tmp_filenames) - 1, 0)
     while True:
-        LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
+        LOG.debug("{}\r".format(progress.get_bar()))
         if len(tmp_filenames_copy) == 2:
             final = True
         filename1, filename2 = tmp_filenames_copy.pop(), tmp_filenames_copy.pop()
@@ -4384,16 +4388,17 @@ def classify_multi_dbs(args):
             )
         progress.progress(1, relative=True)
         # LOG.info("finished merging classification output\n")
-        LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
+        LOG.debug("{}\r".format(progress.get_bar()))
         if len(tmp_filenames_copy) == 0:
             break
         tmp_filenames_copy.insert(0, out_filename)
         out_filename = filename1
     progress.progress(1, relative=True)
     # LOG.info("finished merging classification output\n")
-    LOG.debug("Merge progress: {}\r".format(progress.get_bar()))
+    LOG.debug("{}\r".format(progress.get_bar()))
     pool.shutdown()
-    LOG.info("\nFinished merging output files\n")
+    # Add space to overwrite progress bar
+    LOG.info("Finished merging output files              \n")
     if output:
         shutil.move(out_filename, os.path.abspath(output))
         if out_filename in tmp_filenames:
