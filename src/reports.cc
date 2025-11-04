@@ -61,7 +61,7 @@ void MpaReportDFS(taxid_t taxid, ostream& ofs, bool report_zeros,
   string rank = taxonomy.rank_data() + node.rank_offset;
 
   char rank_code = '\0';
-  if (rank == "superkingdom") {
+  if (rank == "superkingdom" || rank == "domain") {
     rank_code = 'd';
   } else if (rank == "kingdom") {
     rank_code = 'k';
@@ -169,7 +169,7 @@ void KrakenReportDFS(uint32_t taxid, ostream& ofs, bool report_zeros,
   TaxonomyNode node = taxonomy.nodes()[taxid];
   string rank = taxonomy.rank_data() + node.rank_offset;
 
-  if (rank == "superkingdom") {
+  if (rank == "superkingdom" || rank == "domain") {
     rank_code = 'D';
     rank_depth = 0;
   } else if (rank == "kingdom") {
