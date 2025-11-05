@@ -1,12 +1,12 @@
 CXX ?= g++
 KRAKEN2_SKIP_FOPENMP ?= -fopenmp
-CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3
+CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3 -fPIC
 CXXFLAGS += -DLINEAR_PROBING
 CFLAGS = -Wall -std=c99 -O0 -g3
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta
+PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta libtax
 
 all: $(PROGS)
 
@@ -57,7 +57,7 @@ k2mask: k2mask.o seqreader.o
 	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o -lz -pthread -L/usr/local/lib -lprofiler
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
-	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc -fsanitize=address
+	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc
 
 libtax.o: libtax.cc
 
