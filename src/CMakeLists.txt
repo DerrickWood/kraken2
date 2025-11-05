@@ -52,5 +52,11 @@ add_executable(blast_to_fasta
         blast_utils.c
         blast_defline.c)
 
+add_library(tax SHARED
+       libtax.cc
+       taxonomy.cc
+       mmap_file.cc
+)
+
 target_link_libraries(k2mask ${ZLIB_LIBRARIES} Threads::Threads)
 target_link_libraries(blast_to_fasta ${MATH})
