@@ -1,4 +1,24 @@
 # Changelog
+## [2.17.0] - 2025-11-04
+
+### Changed
+- The release version for `kraken2` has been updated to 2.17.0 to
+  resolve an issue created by an errand tag attached to prior release.
+
+### Added
+- Added initial support for classifying reads across multiple NCBI
+  databases
+
+### Fixed
+- Fixed memory related issues in `blast_to_fasta` program
+- Fixed an issue causing `classify` to report domain-level taxonomies
+  as root
+- Fixed an issue causing `k2 classify` to hang due to invalid total
+  sequence count
+- Fixed an issue causing description field to be discarded when saving classified,
+  or unclassified inputs to file
+- Fixed an issue causing `k2 classify` to dead lock when processing
+  compressed inputs
 
 ## [2.1.6] - 2025-07-08
 
