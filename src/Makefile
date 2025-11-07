@@ -6,7 +6,7 @@ CFLAGS = -Wall -std=c99 -O0 -g3
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta libtax
+PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta libtax.so
 
 all: $(PROGS)
 
@@ -61,5 +61,5 @@ blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
 
 libtax.o: libtax.cc
 
-libtax: taxonomy.o mmap_file.o libtax.o
+libtax.so: taxonomy.o mmap_file.o libtax.o
 	$(CXX) $(CXXFLAGS) -shared -o libtax.so taxonomy.o mmap_file.o libtax.o
