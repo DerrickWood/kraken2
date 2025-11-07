@@ -54,7 +54,7 @@ lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o util
 	$(CXX) $(CXXFLAGS) -o $@ lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o
 
 k2mask: k2mask.o seqreader.o
-	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o -lz -pthread -L/usr/local/lib -lprofiler
+	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o -lz -pthread
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
 	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc
