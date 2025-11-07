@@ -39,27 +39,27 @@ blast_to_fasta.o: blast_to_fasta.c
 blast_utils.o: blast_utils.c
 
 build_db: build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
-	$(CXX) $(CXXFLAGS) -o $@ build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o
+	$(CXX) $(CXXFLAGS) -o $@ build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o utilities.o $(LDFLAGS)
 
 classify: classify.o reports.o hyperloglogplus.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
-	$(CXX) $(CXXFLAGS) -o $@ classify.o reports.o hyperloglogplus.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
+	$(CXX) $(CXXFLAGS) -o $@ classify.o reports.o hyperloglogplus.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o $(LDFLAGS)
 
 estimate_capacity: estimate_capacity.o seqreader.o mmscanner.o omp_hack.o utilities.o
-	$(CXX) $(CXXFLAGS) -o $@ estimate_capacity.o seqreader.o mmscanner.o omp_hack.o utilities.o
+	$(CXX) $(CXXFLAGS) -o $@ estimate_capacity.o seqreader.o mmscanner.o omp_hack.o utilities.o $(LDFLAGS)
 
 dump_table: dump_table.o mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o hyperloglogplus.o
-	$(CXX) $(CXXFLAGS) -o $@ dump_table.o mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o hyperloglogplus.o
+	$(CXX) $(CXXFLAGS) -o $@ dump_table.o mmap_file.o compact_hash.o omp_hack.o taxonomy.o reports.o hyperloglogplus.o $(LDFLAGS)
 
 lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o
-	$(CXX) $(CXXFLAGS) -o $@ lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o
+	$(CXX) $(CXXFLAGS) -o $@ lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o $(LDFLAGS)
 
 k2mask: k2mask.o seqreader.o
-	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o -lz -pthread
+	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o $(LDFLAGS) -lz -pthread
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
-	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o -lm -lc
+	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o $(LDFLAGS) -lm -lc
 
 libtax.o: libtax.cc
 
 libtax.so: taxonomy.o mmap_file.o libtax.o
-	$(CXX) $(CXXFLAGS) -shared -o libtax.so taxonomy.o mmap_file.o libtax.o
+	$(CXX) $(CXXFLAGS) -shared -o libtax.so taxonomy.o mmap_file.o libtax.o $(LDFLAGS)
