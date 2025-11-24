@@ -1,4 +1,12 @@
 # Changelog
+## [2.17.1] - 2025-11-24
+
+### Changed
+- Fixed an issue causing merge on multi-database classification to
+  fail silently when using one thread
+- Removed libpropfiler as a linker target
+- Fixed installation error on MacOS
+
 ## [2.17.0] - 2025-11-04
 
 ### Changed
