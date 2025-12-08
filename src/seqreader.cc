@@ -23,8 +23,10 @@ string &Sequence::to_string() {
   case FORMAT_FASTQ:
     str_representation.append("@");
     str_representation.append(header);
-    str_representation.append(" ");
-    str_representation.append(comment);
+    if (!comment.empty()) {
+      str_representation.append(" ");
+      str_representation.append(comment);
+    }
     str_representation.append("\n");
     str_representation.append(seq);
     str_representation.append("\n+\n");
@@ -34,8 +36,10 @@ string &Sequence::to_string() {
   default:
     str_representation.append(">");
     str_representation.append(header);
-    str_representation.append(" ");
-    str_representation.append(comment);
+    if (!comment.empty()) {
+      str_representation.append(" ");
+      str_representation.append(comment);
+    }
     str_representation.append("\n");
     str_representation.append(seq);
     str_representation.append("\n");
