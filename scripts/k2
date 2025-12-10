@@ -345,6 +345,20 @@ def wrap_with_globals(f, log_queue, log_level, script_pathname, *args):
     return f(*args)
 
 
+def make_https_connection(server):
+    if "https_proxy" in os.environ:
+        parts = urllib.parse.urlsplit(os.environ["https_proxy"])
+        hostname, port = parts.netloc.split(":")
+        print(hostname)
+        port = int(port)
+        conn = http.client.HTTPSConnection(hostname, port)
+        conn.set_tunnel(server)
+    else:
+        conn = http.client.HTTPSConnection(server)
+
+    return conn
+
+
 def clear_console_line():
     LOG.debug("\33[2K\r")
 
@@ -1044,7 +1058,7 @@ def download_dataset_by_project(args, endpoint, identifiers):
 
 
 def download_and_process_accessions(args, endpoint, identifier):
-    api = http.client.HTTPSConnection(NCBI_REST_API)
+    api = make_https_connection(NCBI_REST_API)
     identifier = urllib.parse.quote(identifier)
     accession_to_taxid = {}
     builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
@@ -1248,7 +1262,7 @@ def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
 
 
 def download_zip_from_ncbi(args, accessions):
-    api = http.client.HTTPSConnection(NCBI_REST_API)
+    api = make_https_connection(NCBI_REST_API)
     accessions = ",".join(accessions)
     md5 = hash_string(accessions)
     os.makedirs("zips", exist_ok=True)
@@ -1306,7 +1320,7 @@ def partition_list(list, num_partitions):
 
 
 def map_accessions_to_url(accessions, protein=False):
-    api = http.client.HTTPSConnection(NCBI_REST_API)
+    api = make_https_connection(NCBI_REST_API)
 
     size = len(accessions)
     start = 0
@@ -1613,7 +1627,7 @@ def http_download_file(url, local_name=None, call_back=None):
 def http_download_file2(server, urls, save_to=None, md5sums=None):
     conn = None
     if isinstance(server, str):
-        conn = http.client.HTTPSConnection(server, timeout=60)
+        conn = make_https_connection(server)
     else:
         conn = server
         server = conn.host
@@ -2053,7 +2067,7 @@ def identity(object):
 def remap_secondary_taxids(taxids):
     new_taxids = {}
     partitions = math.ceil(len(taxids) / 500)
-    conn = http.client.HTTPSConnection(NCBI_REST_API)
+    conn = make_https_connection(NCBI_REST_API)
 
     for taxid_list in partition_list(taxids, partitions):
         endpoint = NCBI_URI_Builder(
