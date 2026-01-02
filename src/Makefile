@@ -2,7 +2,7 @@ CXX ?= g++
 KRAKEN2_SKIP_FOPENMP ?= -fopenmp
 CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3 -fPIC
 CXXFLAGS += -DLINEAR_PROBING
-CFLAGS = -Wall -std=c99 -O0 -g3
+CFLAGS = -Wall -std=c99 -O3 -g3
 
 .PHONY: all clean install
 
