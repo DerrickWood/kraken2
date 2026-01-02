@@ -3765,6 +3765,10 @@ class Taxonomy:
     def get_lca(self, taxid1, taxid2):
         taxid1 = int(taxid1)
         taxid2 = int(taxid2)
+        if taxid1 == 0:
+            return taxid2
+        if taxid2 == 0:
+            return taxid1
         return self.dll.get_lca(self.taxonomy, taxid1, taxid2)
 
     def get_internal_taxid(self, taxid):
@@ -3938,7 +3942,8 @@ def report_kraken_style(filename, report_zeros, report_kmer_data,
 def resolve_taxa_tree(hit_counts, taxonomy, total_kmers, args):
     max_taxid = 0
     max_score = 0
-    required_score = math.ceil(args.confidence * total_kmers)
+    # required_score = math.ceil(args.confidence * total_kmers)
+    required_score = 0
 
     for taxid in hit_counts.keys():
         score = 0
@@ -4032,7 +4037,8 @@ def merge_counts(
             final_count = count1
 
         total_minimizers += final_count
-        counts_map[final_taxid] += final_count
+        if final_taxid != 0:
+            counts_map[final_taxid] += final_count
         final_counts.append((final_taxid, final_count))
 
         if index1 >= counts1_len:
@@ -4061,6 +4067,9 @@ def merge_counts(
                 previous_count = count
             if previous_taxid == taxid:
                 previous_count += count
+            elif previous_count == 0 and count > 0:
+                previous_count = count
+                previous_taxid = taxid
             else:
                 # counts_str += str(previous_taxid) + ":" + str(previous_count)
                 # counts_str += " "
@@ -4188,8 +4197,15 @@ def merge_classification_output2(
             else:
                 status = "U"
                 taxid = 0
-                counts = "0:0"
-
+                counts_array1, counts_len1 =\
+                    parse_taxid_counts(counts1, counts_array1)
+                counts_array2, counts_len2 =\
+                    parse_taxid_counts(counts2, counts_array2)
+                counts, counts_map, total_minimizers =\
+                    merge_counts(
+                        taxonomy, lca_cache, counts_array1,
+                        counts_len1, counts_array2, counts_len2
+                    )
             if final:
                 call_counters[int(taxid)].increment_read_count()
                 if save_seq_names:
@@ -4398,8 +4414,9 @@ def classify_multi_dbs(args):
             final = True
         filename1, filename2 = tmp_filenames_copy.pop(), tmp_filenames_copy.pop()
         # LOG.info("merging classification output\n")
-        save_seq_names = final and (classified_out_filename is not None
-                                    or unclassified_out_filename is not None)
+        # save_seq_names = final and (classified_out_filename is not None
+        #                             or unclassified_out_filename is not None)
+        save_seq_names = True
         call_counters, total_seqs, classified_headers =\
             merge_classification_output_parallel(
                 pool, taxonomy_pathname, filename1, filename2, out_filename,
@@ -4427,7 +4444,15 @@ def classify_multi_dbs(args):
             shutil.copyfileobj(out_file, sys.stdout)
     for tmp_filename in tmp_filenames:
         os.remove(tmp_filename)
-
+    num_classified_sequences = len(classified_headers)
+    num_unclassified_sequences = total_seqs - num_classified_sequences
+    percentage_classified = (num_classified_sequences / total_seqs) * 100
+    percentage_unclassified = (num_unclassified_sequences / total_seqs) * 100
+    LOG.info("{:d} sequences processed\n".format(total_seqs))
+    LOG.info("  {:d} sequences classified ({:.2f}%)\n"
+          .format(num_classified_sequences, percentage_classified))
+    LOG.info("  {:d} sequences unclassified ({:.2f}%)\n"
+          .format(num_unclassified_sequences, percentage_unclassified))
     if classified_out_filename or unclassified_out_filename:
         LOG.info("Writing (un)classified sequences to file\n")
         write_fasta_sequences(
