@@ -42,7 +42,7 @@ import urllib.request
 import zipfile
 import zlib
 
-LOG = None
+LOG = logging.getLogger()
 SCRIPT_PATHNAME = None
 # this is a placeholder value. The real version will
 # be substituted once after calling `install_kraken.sh`.
@@ -4315,7 +4315,7 @@ def sanity_check_taxonomies(db_pathnames):
     LOG.info("Finished sanity checking taxonomies\n")
 
 
-def classify_multi_dbs(args):
+def classify_multi_dbs(args, filenames=[]):
     dbs = args.db
     use_names = False
     report_filename = None
@@ -4387,23 +4387,29 @@ def classify_multi_dbs(args):
     )
     LOG.info("Finished creating and loading merged taxonomy\n")
 
-    for db in dbs:
-        args.db = db
-        pathname = tempfile.mktemp(prefix="k2_")
-        tmp_filenames.append(pathname)
-        args.output = pathname
+    if not filenames:
+        for db in dbs:
+            args.db = db
+            pathname = tempfile.mktemp(prefix="k2_")
+            tmp_filenames.append(pathname)
+            args.output = pathname
 
-        LOG.info(
-            "Running classification job for database {}\n".format(db)
-        )
-        classify(args)
-        LOG.info(
-            "Finished running classification job for database {}\n".format(db)
-        )
+            LOG.info(
+                "Running classification job for database {}\n".format(db)
+            )
+            classify(args)
+            LOG.info(
+                "Finished running classification job for database {}\n".format(db)
+            )
 
     LOG.info("Merging output files\n")
+    merge_filename = tempfile.mktemp(prefix="k2_")
     out_filename = tempfile.mktemp(prefix="k2_")
-    tmp_filenames_copy = tmp_filenames.copy()
+    if filenames:
+        tmp_filenames_copy = filenames
+    else:
+        tmp_filenames_copy = tmp_filenames.copy()
+    tmp_filenames.append(merge_filename)
     tmp_filenames.append(out_filename)
     final = False
     pool = concurrent.futures.ProcessPoolExecutor(max_workers=args.threads)
@@ -4427,8 +4433,10 @@ def classify_multi_dbs(args):
         LOG.debug("{}\r".format(progress.get_bar()))
         if len(tmp_filenames_copy) == 0:
             break
-        tmp_filenames_copy.insert(0, out_filename)
-        out_filename = filename1
+        # tmp_filenames_copy.insert(0, out_filename)
+        out_filename, merge_filename = merge_filename, out_filename
+        tmp_filenames_copy.append(merge_filename)
+
     progress.progress(1, relative=True)
     # LOG.info("finished merging classification output\n")
     LOG.debug("{}\r".format(progress.get_bar()))
@@ -4442,8 +4450,9 @@ def classify_multi_dbs(args):
     else:
         with open(out_filename, "r") as out_file:
             shutil.copyfileobj(out_file, sys.stdout)
-    for tmp_filename in tmp_filenames:
-        os.remove(tmp_filename)
+    if not filenames:
+        for tmp_filename in tmp_filenames:
+            os.remove(tmp_filename)
     num_classified_sequences = len(classified_headers)
     num_unclassified_sequences = total_seqs - num_classified_sequences
     percentage_classified = (num_classified_sequences / total_seqs) * 100
@@ -5283,6 +5292,49 @@ def make_clean_parser(subparsers):
         """
     )
 
+def make_merge_parser(subparsers):
+    parser = subparsers.add_parser(
+        "merge-classifications",
+        help="Merge classification results for different databases"
+    )
+    parser.add_argument(
+        "--db",
+        type=lambda x: x.split(","),
+        metavar="PATHNAME",
+        # nargs="+",
+        required=True,
+        help="Pathname to Kraken2 database(s).\
+        Multiple databases are specified as a comma-\
+        separated list with no spaces.",
+    )
+    parser.add_argument(
+        "--log",
+        type=str,
+        metavar="FILENAME",
+        default=None,
+        help="Specify a log filename (default: stderr)",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        metavar="INT",
+        default=os.environ.get("KRAKEN2_NUM_THREADS") or 1,
+        help="Number of threads",
+    )
+    parser.add_argument(
+        "--output", "--out",
+        type=str,
+        metavar="FILENAME",
+        default=None,
+        help="Write inspect output to FILENAME (default: stdout)"
+    )
+    parser.add_argument(
+        "filenames",
+        nargs="*",
+        type=str,
+        help="Filenames to be merged, supports bz2, gzip, and xz",
+    )
+
 
 class HelpAction(argparse._HelpAction):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -5313,6 +5365,7 @@ def make_cmdline_parser():
     make_classify_parser(subparsers)
     make_inspect_parser(subparsers)
     make_clean_parser(subparsers)
+    make_merge_parser(subparsers)
     return parser
 
 
@@ -5429,6 +5482,8 @@ def k2_main():
         inspect_db(args)
     elif task == "clean":
         clean_db(args)
+    elif task == "merge":
+        classify_multi_dbs(args, args.filenames)
     elif task == "build":
         # Protein defaults
         default_aa_minimizer_length = 12
