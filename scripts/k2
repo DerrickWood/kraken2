@@ -971,7 +971,7 @@ def make_manifest_from_assembly_summary(
         if line.startswith("#"):
             continue
         fields = line.strip().split("\t")
-        taxid, asm_level, ftp_path = fields[5], fields[11], fields[19]
+        taxid, asm_level, ftp_path = fields[5], fields[11], fields[19].rstrip("/")
         if not re.match(asm_level_regex, asm_level, re.IGNORECASE):
             continue
         if ftp_path == "na":
@@ -1382,6 +1382,7 @@ def map_accessions_to_url_parallel(args, accessions):
 
 
 def get_download_path(resource_link, protein):
+    resource_link = resource_link.rstrip("/")
     dir = os.path.basename(resource_link)
     filename = dir + "_genomic.fna.gz"
     resource_link += "/"
