@@ -1433,6 +1433,7 @@ def map_accessions_to_url_parallel(args, accessions):
 
 
 def get_download_path(resource_link, protein):
+    resource_link = resource_link.rstrip("/")
     dir = os.path.basename(resource_link)
     filename = dir + "_genomic.fna.gz"
     resource_link += "/"
