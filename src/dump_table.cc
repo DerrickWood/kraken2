@@ -40,19 +40,8 @@ std::string mask2str(uint64_t mask, int digits) {
   return str;
 }
 
-int main(int argc, char **argv) {
-  Options opts;
-  opts.report_zeros = false;
-  opts.output_filename = "/dev/fd/1";
-  opts.use_mpa_style = false;
-  opts.skip_counts = false;
-  opts.num_threads = 1;
-  opts.memory_mapping = false;
-  ParseCommandLine(argc, argv, opts);
-
-  omp_set_num_threads(opts.num_threads);
-
-  CompactHashTable kraken_index(opts.hashtable_filename, opts.memory_mapping);
+template<typename Cell>
+void dump_table(CompactHashTable<Cell> &kraken_index, const Options &opts) {
   Taxonomy taxonomy(opts.taxonomy_filename);
   IndexOptions idx_opts = {0};
   std::ifstream idx_opt_fs(opts.options_filename);
@@ -90,6 +79,34 @@ int main(int argc, char **argv) {
     else
       ReportKrakenStyle(opts.output_filename, opts.report_zeros, false, taxonomy,
                         taxid_counters, total_seqs, 0);
+  }
+}
+
+int main(int argc, char **argv) {
+  Options opts;
+  opts.report_zeros = false;
+  opts.output_filename = "/dev/fd/1";
+  opts.use_mpa_style = false;
+  opts.skip_counts = false;
+  opts.num_threads = 1;
+  opts.memory_mapping = false;
+  ParseCommandLine(argc, argv, opts);
+
+  omp_set_num_threads(opts.num_threads);
+
+  switch (GetKVStoreCellType(opts.hashtable_filename)) {
+  case CompactHash32: {
+    CompactHashTable<CompactHashCell> kraken_index(opts.hashtable_filename, opts.memory_mapping);
+    dump_table<CompactHashCell>(kraken_index, opts);
+    break;
+  }
+  case CompactHash40: {
+    CompactHashTable<CompactHashCell40> kraken_index(opts.hashtable_filename, opts.memory_mapping);
+    dump_table<CompactHashCell40>(kraken_index, opts);
+    break;
+  }
+  case Unknown:
+    break;
   }
 
   return 0;

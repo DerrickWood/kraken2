@@ -34,7 +34,25 @@ static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
 
-using IndexData = std::tuple<IndexOptions, Taxonomy, CompactHashTable *>;
+// template <typename Cell>
+// using IndexData = std::tuple<IndexOptions, Taxonomy, CompactHashTable<Cell> *>;
+
+struct IndexData {
+  IndexOptions options;
+  Taxonomy *taxonomy;
+  KeyValueStore *cht;
+
+  ~IndexData() {
+    if (taxonomy) {
+      delete taxonomy;
+    }
+
+    if (cht) {
+      delete cht;
+    }
+  }
+  // size_t cell_size;
+};
 
 struct Options {
   string index_filename;
@@ -251,11 +269,28 @@ IndexData load_index(Options &opts) {
   auto opts_filesize = sb.st_size;
   idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
-  Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
-  IndexData index_data {
-    idx_opts, std::move(taxonomy),
-    new CompactHashTable(opts.index_filename, opts.use_memory_mapping)
+
+  IndexData index_data{
+      .options = idx_opts,
+      .taxonomy = new Taxonomy(opts.taxonomy_filename, opts.use_memory_mapping),
   };
+  // .cht =
+  //     new CompactHashTable<Cell>(opts.index_filename, opts.use_memory_mapping),
+
+  KeyValueStore *cht;
+  switch (GetKVStoreCellType(opts.index_filename)) {
+  case CompactHash32:
+    cht = new CompactHashTable<CompactHashCell>(opts.index_filename, opts.use_memory_mapping);
+    break;
+  case CompactHash40:
+    cht = new CompactHashTable<CompactHashCell40>(opts.index_filename, opts.use_memory_mapping);
+    break;
+  case Unknown:
+    errx(1, "Unable to determine width of compact hash cell\n");
+  }
+
+  index_data.cht = cht;
+
   cerr << " done." << endl;
 
   return index_data;
@@ -263,9 +298,9 @@ IndexData load_index(Options &opts) {
 
 void classify(Options &opts, IndexData& index_data) {
   taxon_counters_t taxon_counters; // stats per taxon
-  IndexOptions idx_opts = std::get<0>(index_data);
-  Taxonomy &taxonomy = std::get<1>(index_data);
-  KeyValueStore *hash_ptr = std::get<2>(index_data);
+  IndexOptions idx_opts = index_data.options;
+  Taxonomy &taxonomy = *(index_data.taxonomy);
+  KeyValueStore *hash_ptr = index_data.cht;
 
   omp_set_num_threads(opts.num_threads);
 
@@ -402,10 +437,11 @@ void ClassifyDaemon(Options opts) {
     }
   }
 
-  for (auto &entry : indexes) {
-    auto &index_data = entry.second;
-    delete std::get<2>(index_data);
-  }
+  // for (auto &entry : indexes) {
+  //   auto &index_data = entry.second;
+  //   delete index_data.taxonomy;
+  //   delete index_data.cht;
+  // }
   for (auto i = 0; i < 3; i++) {
     close(i);
   }
@@ -422,7 +458,6 @@ int main(int argc, char **argv) {
   } else {
     auto index_data = load_index(opts);
     classify(opts, index_data);
-    delete std::get<2>(index_data);
   }
 
   return 0;

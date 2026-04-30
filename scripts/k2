@@ -54,7 +54,7 @@ GREENGENES_SERVER = "greengenes.microbio.me"
 SILVA_SERVER = "ftp.arb-silva.de"
 # GTDB_SERVER = "data.gtdb.ecogenomic.org"
 GTDB_SERVER = "data.ace.uq.edu.au"
-AMBIGUOUS_TAXID = 2 ** 32 - 1
+AMBIGUOUS_TAXID = 2**32 - 1
 
 WRAPPER_ARGS_TO_BIN_ARGS = {
     "block_size": "-B",
@@ -105,9 +105,7 @@ class FTP:
             size_on_disk = f.tell()
             pb.progress(size_on_disk)
             LOG.debug(
-                "{:s} {: >10s}\r".format(
-                    pb.get_bar(), format_bytes(size_on_disk)
-                )
+                "{:s} {: >10s}\r".format(pb.get_bar(), format_bytes(size_on_disk))
             )
 
         return inner
@@ -127,9 +125,7 @@ class FTP:
                 if os.path.basename(filepath) != filepath:
                     os.makedirs(os.path.dirname(filepath), exist_ok=True)
             if local_size == remote_size:
-                LOG.info(
-                    "Already downloaded {:s}\n".format(get_abs_path(filepath))
-                )
+                LOG.info("Already downloaded {:s}\n".format(get_abs_path(filepath)))
                 continue
             if local_size > remote_size:
                 mode = "wb"
@@ -149,9 +145,7 @@ class FTP:
                 while True:
                     try:
                         cb = self._progress_bar(f, remote_size)
-                        self.ftp.retrbinary(
-                            "RETR " + filepath, cb, rest=f.tell()
-                        )
+                        self.ftp.retrbinary("RETR " + filepath, cb, rest=f.tell())
                         break
                     except KeyboardInterrupt:
                         f.flush()
@@ -167,9 +161,7 @@ class FTP:
                 absolute_path
             ), os.path.dirname(absolute_path)
             clear_console_line()
-            LOG.info(
-                "Saved {:s} to {:s}\n".format(local_filename, local_dirname)
-            )
+            LOG.info("Saved {:s} to {:s}\n".format(local_filename, local_dirname))
 
     def cwd(self, remote_pathname):
         self.ftp.cwd(remote_pathname)
@@ -324,11 +316,7 @@ class NCBI_URI_Builder:
                 filters.append("{}={}".format(k, v))
         query = "&".join(filters)
         split = urllib.parse.SplitResult(
-            scheme="",
-            netloc="",
-            path=self.path,
-            query=query,
-            fragment=""
+            scheme="", netloc="", path=self.path, query=query, fragment=""
         )
 
         return urllib.parse.urlunsplit(split)
@@ -424,9 +412,7 @@ def future_raised_exception(future):
 
 
 def url_join(netloc, scheme="https", path="", query="", fragment=""):
-    split_result = urllib.parse.SplitResult(
-        scheme, netloc, path, query, fragment
-    )
+    split_result = urllib.parse.SplitResult(scheme, netloc, path, query, fragment)
     return urllib.parse.urlunsplit(split_result)
 
 
@@ -435,25 +421,25 @@ def execute_in_process_pool(func, num_processes, *args):
 
 
 def download_and_process_blast_volumes(args):
-    download_files_from_manifest(
-        NCBI_SERVER, args.threads, resume=args.resume
-    )
+    download_files_from_manifest(NCBI_SERVER, args.threads, resume=args.resume)
     extraction_futures = []
     tarballs_and_converted_volumes = []
-    with concurrent.futures.ProcessPoolExecutor(
-            max_workers=6
-    ) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=6) as pool:
         with open("manifest.txt", "r") as in_file:
             tarballs = in_file.readlines()
         wrapped_extract_func = functools.partial(
-            wrap_with_globals, extract_blast_db_files,
-            LOG.get_queue(), LOG.get_level(),
-            SCRIPT_PATHNAME
+            wrap_with_globals,
+            extract_blast_db_files,
+            LOG.get_queue(),
+            LOG.get_level(),
+            SCRIPT_PATHNAME,
         )
         wrapped_convert_func = functools.partial(
-            wrap_with_globals, convert_blast_to_fasta,
-            LOG.get_queue(), LOG.get_level(),
-            SCRIPT_PATHNAME
+            wrap_with_globals,
+            convert_blast_to_fasta,
+            LOG.get_queue(),
+            LOG.get_level(),
+            SCRIPT_PATHNAME,
         )
 
         LOG.info(
@@ -469,9 +455,7 @@ def download_and_process_blast_volumes(args):
             tarballs_and_converted_volumes.append(result)
 
         conversion_futures = []
-        LOG.info(
-            "Converting BLAST volumes to FASTA\n"
-        )
+        LOG.info("Converting BLAST volumes to FASTA\n")
 
         for tarball, volume in tarballs_and_converted_volumes:
             f = pool.submit(wrapped_convert_func, args, volume, tarball)
@@ -482,14 +466,10 @@ def download_and_process_blast_volumes(args):
     library_extension = ".faa" if args.protein else ".fna"
     library_filename = "library" + library_extension
     LOG.info("Generating {} from converted volumes\n".format(library_filename))
-    with open(library_filename, "w") as lib, \
-         open("prelim_map.txt", "w") as plm:
+    with open(library_filename, "w") as lib, open("prelim_map.txt", "w") as plm:
         for _, volume in sorted(tarballs_and_converted_volumes):
             if not os.path.exists(volume + library_extension):
-                LOG.error(
-                    "Missing volume: {}, "
-                    .format(volume + library_extension)
-                )
+                LOG.error("Missing volume: {}, ".format(volume + library_extension))
                 sys.exit(1)
             with open(volume + library_extension, "r") as in_file:
                 shutil.copyfileobj(in_file, lib)
@@ -525,8 +505,10 @@ def extract_blast_db_files(tarball_pathname):
             if member.endswith(("nsq", "nin", "nhr")):
                 member_pathname = os.path.join(extract_dirname, member)
                 member_info = tar.getmember(member)
-                if os.path.exists(member_pathname) and\
-                   os.stat(member_pathname).st_size == member_info.size:
+                if (
+                    os.path.exists(member_pathname)
+                    and os.stat(member_pathname).st_size == member_info.size
+                ):
                     LOG.info(
                         "Already extracted {} to {}\n".format(member, member_pathname)
                     )
@@ -535,10 +517,7 @@ def extract_blast_db_files(tarball_pathname):
                 tar.extract(member, extract_dirname)
         LOG.info("Finished extracting files from {}\n".format(tarball_pathname))
 
-    return (
-        tarball_pathname,
-        os.path.join(extract_dirname, volume)
-    )
+    return (tarball_pathname, os.path.join(extract_dirname, volume))
 
 
 def convert_blast_to_fasta(args, volume, tarball):
@@ -548,38 +527,28 @@ def convert_blast_to_fasta(args, volume, tarball):
     tarball = os.path.basename(tarball)
     tmp_fasta_filename = volume + extension + ".tmp"
     fasta_filename = volume + extension
-    remote_filepath = url_join(
-        NCBI_SERVER, path="blast/db/" + tarball
-    )
+    remote_filepath = url_join(NCBI_SERVER, path="blast/db/" + tarball)
     blast_to_fasta_bin = find_kraken2_binary("blast_to_fasta")
     # blast_to_fasta_argv = ""
     LOG.info("Converting BLAST volume {} to FASTA\n".format(volume))
     proc = subprocess.Popen([blast_to_fasta_bin, "-s", "-t", volume])
     if proc.wait() != 0:
-        LOG.error(
-            "Encountered an error while converting BLAST format to FASTA\n"
-        )
+        LOG.error("Encountered an error while converting BLAST format to FASTA\n")
         sys.exit(1)
-    LOG.info(
-        "Finished converting BLAST volume {} to FASTA\n"
-        .format(volume)
-    )
+    LOG.info("Finished converting BLAST volume {} to FASTA\n".format(volume))
 
     with open(fasta_filename, "r") as in_file:
         prelim_map_name = os.path.join(
-            volume_dirname,
-            volume_basename + "_prelim_map.txt"
+            volume_dirname, volume_basename + "_prelim_map.txt"
         )
         with open(prelim_map_name, "w") as out_file:
             scan_fasta_file(
-                in_file, out_file, lenient=True,
-                sequence_to_url=remote_filepath
+                in_file, out_file, lenient=True, sequence_to_url=remote_filepath
             )
     if not args.no_masking:
         shutil.move(fasta_filename, tmp_fasta_filename)
         mask_files(
-            [tmp_fasta_filename], fasta_filename,
-            args.masker_threads, args.protein
+            [tmp_fasta_filename], fasta_filename, args.masker_threads, args.protein
         )
         os.remove(tmp_fasta_filename)
 
@@ -684,13 +653,15 @@ def remove_files_parallel(filepaths):
     total_size = 0
 
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=4,
+        max_workers=4,
     ) as pool:
         futures = []
         f = functools.partial(
-            wrap_with_globals, remove_files,
-            LOG.get_queue(), LOG.get_level(),
-            SCRIPT_PATHNAME
+            wrap_with_globals,
+            remove_files,
+            LOG.get_queue(),
+            LOG.get_level(),
+            SCRIPT_PATHNAME,
         )
         for fname in filepaths:
             if not os.path.exists(fname):
@@ -752,9 +723,7 @@ def hash_file(filename, buf_size=8192):
 # an accession number ("ACCNUM") for the sequence ID listed in the second
 # column.
 #
-def scan_fasta_file(
-    in_file, out_file, lenient=False, sequence_to_url=None
-):
+def scan_fasta_file(in_file, out_file, lenient=False, sequence_to_url=None):
     LOG.info("Generating prelim_map.txt for {}.\n".format(in_file.name))
     iterator = in_file
     iterator_is_dict = False
@@ -793,8 +762,9 @@ def scan_fasta_file(
                     continue
                 else:
                     LOG.error(
-                        "No Tax ID or Accession number associated with sequence {}\n"
-                        .format(line)
+                        "No Tax ID or Accession number associated with sequence {}\n".format(
+                            line
+                        )
                     )
                     sys.exit(1)
             if taxid:
@@ -809,9 +779,7 @@ def scan_fasta_file(
                         seqid, acc_num, comment, remote_filepath
                     )
                 )
-    LOG.info(
-        "Finished generating prelim_map.txt for {}.\n".format(in_file.name)
-    )
+    LOG.info("Finished generating prelim_map.txt for {}.\n".format(in_file.name))
 
 
 # This function is part of the Kraken 2 taxonomic sequence
@@ -824,9 +792,7 @@ def scan_fasta_file(
 # accession2taxid files from NCBI.  Output is tab-delimited lines,
 # with sequence IDs in first column and taxonomy IDs in second.
 #
-def lookup_accession_numbers(
-    lookup_list_filename, out_filename, *accession_map_files
-):
+def lookup_accession_numbers(lookup_list_filename, out_filename, *accession_map_files):
     target_lists = {}
     with open(lookup_list_filename, "r") as f:
         for line in f:
@@ -848,8 +814,9 @@ def lookup_accession_numbers(
                     split = line.split("\t")
                     if len(split) != 4:
                         LOG.warning(
-                            "{}:{}-'{}' contains fewer than 4 fields\n"
-                            .format(filename, line_count, line)
+                            "{}:{}-'{}' contains fewer than 4 fields\n".format(
+                                filename, line_count, line
+                            )
                         )
                         continue
                     accession, with_version, taxid, gi = split
@@ -865,9 +832,9 @@ def lookup_accession_numbers(
     if target_lists:
         LOG.warning(
             "{}/{} accession numbers remain unmapped, "
-            "see unmapped_accessions.txt in {} directory\n"
-            .format(len(target_lists), initial_target_count,
-                    os.path.abspath(os.curdir))
+            "see unmapped_accessions.txt in {} directory\n".format(
+                len(target_lists), initial_target_count, os.path.abspath(os.curdir)
+            )
         )
         with open("unmapped_accessions.txt", "w") as f:
             for k in target_lists:
@@ -883,14 +850,11 @@ def spawn_masking_subprocess(output_file, threads, protein=False):
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
     if masking_binary.find("k2mask") >= 0:
         # k2mask can run multithreaded
-        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(
-            threads
-        )
+        argv = masking_binary + " -outfmt fasta -threads {} -r x".format(threads)
 
     cwd = os.path.dirname(os.path.abspath(output_file.name))
     p = subprocess.Popen(
-        argv, shell=True, cwd=cwd,
-        stdin=subprocess.PIPE, stdout=output_file
+        argv, shell=True, cwd=cwd, stdin=subprocess.PIPE, stdout=output_file
     )
 
     return p
@@ -906,18 +870,19 @@ def mask_files(input_filenames, output_filename, threads, protein=False):
             if "blast" in output_filename:
                 library_name = "blast"
             if library_name == "added":
-                message =\
-                    "low-complexity regions of added "\
-                    "library {}\n".format(input_filename)
+                message = "low-complexity regions of added " "library {}\n".format(
+                    input_filename
+                )
 
             elif library_name == "blast":
-                message =\
-                    "low-complexity regions for blast "\
-                    "volume {}\n".format(output_filename)
+                message = "low-complexity regions for blast " "volume {}\n".format(
+                    output_filename
+                )
             else:
-                message =\
-                    "low-complexity regions of downloaded "\
+                message = (
+                    "low-complexity regions of downloaded "
                     "library {:s}\n".format(library_name)
+                )
 
             LOG.info("Masking " + message)
             with open(input_filename, "rb") as fin:
@@ -952,9 +917,7 @@ def add_file(args, filename, hashes):
     prelim_map_filename = "prelim_map_" + filehash + ".txt"
     with open(prelim_map_filename, mode="a") as out_file:
         with open(filename, "r") as in_file:
-            scan_fasta_file(
-                in_file, out_file, lenient=True, sequence_to_url=filename
-            )
+            scan_fasta_file(in_file, out_file, lenient=True, sequence_to_url=filename)
         shutil.copyfile(filename, destination)
 
     if not args.no_masking:
@@ -983,36 +946,30 @@ def add_to_library(args):
     if os.path.exists("added.md5"):
         with open("added.md5", "r") as in_file:
             hashes = dict([line.split()[:2] for line in in_file.readlines()])
-    with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.threads
-    ) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
         futures = []
         files = map(lambda f: glob.glob(f, recursive=True), args.files)
         for filename in itertools.chain(*files):
             f = functools.partial(
-                wrap_with_globals, add_file,
-                LOG.get_queue(), LOG.get_level(),
-                SCRIPT_PATHNAME
+                wrap_with_globals,
+                add_file,
+                LOG.get_queue(),
+                LOG.get_level(),
+                SCRIPT_PATHNAME,
             )
             future = pool.submit(f, args, filename, hashes)
             if future_raised_exception(future):
-                LOG.error(
-                    "Error while adding file to library\n"
-                )
+                LOG.error("Error while adding file to library\n")
                 raise future.exception()
             futures.append(future)
         with open("added.md5", "a") as out_file:
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
                 (filename, filehash, destination) = result
-                out_file.write(
-                    filename + "\t" + filehash + "\t" + destination + "\n"
-                )
+                out_file.write(filename + "\t" + filehash + "\t" + destination + "\n")
 
 
-def make_manifest_from_assembly_summary(
-        args, assembly_summary_file
-):
+def make_manifest_from_assembly_summary(args, assembly_summary_file):
     asm_level_regex = "|".join(args.assembly_levels).replace("_", " ")
     suffix = "_protein.faa.gz" if args.protein else "_genomic.fna.gz"
     manifest_to_taxid = {}
@@ -1037,8 +994,9 @@ def make_manifest_from_assembly_summary(
     return manifest_to_taxid
 
 
-def assign_taxids(args, filepath, manifest_to_taxid,
-                  accession_to_taxid={}, filepath_to_url={}):
+def assign_taxids(
+    args, filepath, manifest_to_taxid, accession_to_taxid={}, filepath_to_url={}
+):
     absolute_filepath = os.path.abspath(filepath)
     sequences_added = 0
     ch_added = 0
@@ -1053,9 +1011,7 @@ def assign_taxids(args, filepath, manifest_to_taxid,
     os.makedirs(os.path.dirname(absolute_filepath), exist_ok=True)
     with open(out_filepath, "w") as out_file:
         if not args.no_masking:
-            masker = spawn_masking_subprocess(
-                out_file, args.masker_threads, False
-            )
+            masker = spawn_masking_subprocess(out_file, args.masker_threads, False)
         opener = open
         if absolute_filepath.endswith(".gz"):
             opener = gzip.open
@@ -1070,8 +1026,9 @@ def assign_taxids(args, filepath, manifest_to_taxid,
                         match = re.search(r"GC[AF]_[0-9]{9}\.\d+", line)
                         if not match or match.group(0) not in accession_to_taxid:
                             LOG.error(
-                                "Unable to assign taxid to sequence {} in file {}\n"
-                                .format(line, in_file.name)
+                                "Unable to assign taxid to sequence {} in file {}\n".format(
+                                    line, in_file.name
+                                )
                             )
                             sys.exit(1)
                         taxid = accession_to_taxid[match.group(0)]
@@ -1121,17 +1078,12 @@ def download_and_process_accessions(args, endpoint, identifier):
         api.request("GET", builder.build())
         response = api.getresponse()
         if response.status == 429:
-            LOG.warning(
-                "Connection is being rate limited by NCBI, backing off\n"
-            )
+            LOG.warning("Connection is being rate limited by NCBI, backing off\n")
             time.sleep(1)
             response.close()
             continue
         if response.status != 200:
-            LOG.error(
-                "Encountered an error while trying to gather "
-                "accessions."
-            )
+            LOG.error("Encountered an error while trying to gather " "accessions.")
             sys.exit(1)
         results = response.readlines()[0]
         results = json.loads(results)
@@ -1139,16 +1091,18 @@ def download_and_process_accessions(args, endpoint, identifier):
 
         if not results:
             LOG.error(
-                "Could not find any accessions matching the query: {}\n"
-                .format(identifier)
+                "Could not find any accessions matching the query: {}\n".format(
+                    identifier
+                )
             )
             sys.exit(1)
 
         for report in results["reports"]:
-            accession_to_taxid[report["accession"]] =\
-                report["organism"]["tax_id"]
-        if "next_page_token" in results \
-           and results["next_page_token"] != old_page_token:
+            accession_to_taxid[report["accession"]] = report["organism"]["tax_id"]
+        if (
+            "next_page_token" in results
+            and results["next_page_token"] != old_page_token
+        ):
             builder = builder.page_token(results["next_page_token"])
             old_page_token = results["next_page_token"]
         else:
@@ -1156,13 +1110,13 @@ def download_and_process_accessions(args, endpoint, identifier):
 
     api.close()
     LOG.info(
-        "Found {} accession(s) associated with {}\n"
-        .format(len(accession_to_taxid), identifier)
+        "Found {} accession(s) associated with {}\n".format(
+            len(accession_to_taxid), identifier
+        )
     )
 
     accessions = list(accession_to_taxid.keys())
-    accession_to_url =\
-        map_accessions_to_url_parallel(args, accessions)
+    accession_to_url = map_accessions_to_url_parallel(args, accessions)
 
     filepath_to_taxid = {}
     with open("manifest.txt", "w") as fout:
@@ -1219,8 +1173,7 @@ def download_accessions(args, accession_to_taxid):
             for accession in accessions:
                 if accession in downloaded_accessions:
                     LOG.info(
-                        "Already downloaded accession: {}, skipping\n"
-                        .format(accession)
+                        "Already downloaded accession: {}, skipping\n".format(accession)
                     )
                     zip_filename = downloaded_accessions[accession]
                     if zip_filename in zip_filename_to_accessions:
@@ -1246,17 +1199,12 @@ def download_accessions(args, accession_to_taxid):
         unzip_futures = []
         for future in concurrent.futures.as_completed(download_futures):
             unzip_futures.append(
-                pool.submit(
-                    extract_fastas_from_zip_file,
-                    future.result(), args.protein
-                )
+                pool.submit(extract_fastas_from_zip_file, future.result(), args.protein)
             )
         for zip_filename, accessions in zip_filename_to_accessions.items():
             unzip_futures.append(
                 pool.submit(
-                    extract_fastas_from_zip_file,
-                    zip_filename, args.protein,
-                    accessions
+                    extract_fastas_from_zip_file, zip_filename, args.protein, accessions
                 )
             )
         for future in concurrent.futures.as_completed(unzip_futures):
@@ -1280,8 +1228,7 @@ def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
                 filename = os.path.basename(entry)
                 dirname = filename.replace(suffix, "")
                 accession = re.search(r"GC[AF]_\d{9}\.\d+", filename).group()
-                if accessions_to_extract and\
-                   accession not in accessions_to_extract:
+                if accessions_to_extract and accession not in accessions_to_extract:
                     continue
                 modified_accession = accession.split(".")[0].replace("_", "")
                 dir_components.extend(partition_list(modified_accession, 4))
@@ -1292,12 +1239,15 @@ def extract_fastas_from_zip_file(filename, protein, accessions_to_extract=None):
                 entry_size = zip.getinfo(entry).file_size
                 if os.path.exists(filepath) and os.stat(filepath).st_size == entry_size:
                     LOG.info(
-                        "Already extracted {} from {}\n"
-                        .format(entry, os.path.abspath(filename))
+                        "Already extracted {} from {}\n".format(
+                            entry, os.path.abspath(filename)
+                        )
                     )
                 else:
                     LOG.info(
-                        "Extracting {} from {}\n".format(entry, os.path.abspath(filename))
+                        "Extracting {} from {}\n".format(
+                            entry, os.path.abspath(filename)
+                        )
                     )
                     zip.extract(entry, os.path.curdir)
                     os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -1321,13 +1271,15 @@ def download_zip_from_ncbi(args, accessions):
     tmp_filename = filename + ".tmp"
     if os.path.exists(os.path.join("zip", filename)):
         LOG.info(
-            "Already downloaded {} from NCBI which contains accessions: {}\n"
-            .format(os.path.basename(filename), accessions)
+            "Already downloaded {} from NCBI which contains accessions: {}\n".format(
+                os.path.basename(filename), accessions
+            )
         )
         return filename
     LOG.info(
-        "Downloading {} from NCBI containing the following accessions: {}\n"
-        .format(os.path.basename(filename), accessions)
+        "Downloading {} from NCBI containing the following accessions: {}\n".format(
+            os.path.basename(filename), accessions
+        )
     )
     accessions = urllib.parse.quote(accessions)
     annotation_type = "PROT_FASTA" if args.protein else "GENOME_FASTA"
@@ -1342,10 +1294,9 @@ def download_zip_from_ncbi(args, accessions):
 
     res.close()
     shutil.move(tmp_filename, filename)
-    LOG.info("Saved {} to {}\n".format(
-        os.path.basename(filename),
-        os.path.abspath(filename)
-    ))
+    LOG.info(
+        "Saved {} to {}\n".format(os.path.basename(filename), os.path.abspath(filename))
+    )
 
     return filename
 
@@ -1383,7 +1334,7 @@ def map_accessions_to_url(accessions, protein=False):
     while True:
         query = ",".join(accessions[start:stop])
         query = urllib.parse.quote(query)
-        headers = {'accept': 'application/json'}
+        headers = {"accept": "application/json"}
         api.request("GET", base_uri.format(query), headers=headers)
         res = api.getresponse()
         if res.status != 200:
@@ -1398,11 +1349,10 @@ def map_accessions_to_url(accessions, protein=False):
 
         for entry in results["assembly_links"]:
             if entry["assembly_link_type"] == "FTP_LINK":
-                filepath = get_download_path(
-                    entry["resource_link"], protein
+                filepath = get_download_path(entry["resource_link"], protein)
+                accession_to_url[entry["accession"]] = url_join(
+                    NCBI_SERVER, path=filepath
                 )
-                accession_to_url[entry["accession"]] =\
-                    url_join(NCBI_SERVER, path=filepath)
         start, stop = stop, min(size, stop + step)
         if start == stop:
             break
@@ -1420,9 +1370,7 @@ def map_accessions_to_url_parallel(args, accessions):
     workers = min(args.threads, 5)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for partition in partition_list(accessions, args.threads):
-            future = pool.submit(
-                map_accessions_to_url, partition, args.protein
-            )
+            future = pool.submit(map_accessions_to_url, partition, args.protein)
             futures.append(future)
     for future in concurrent.futures.as_completed(futures):
         accession_to_url.update(future.result())
@@ -1450,16 +1398,13 @@ def get_download_path(resource_link, protein):
     return path
 
 
-def assign_taxid_to_sequences(args,
-                              manifest_to_taxid,
-                              accession_to_taxid={},
-                              filepath_to_url={}):
+def assign_taxid_to_sequences(
+    args, manifest_to_taxid, accession_to_taxid={}, filepath_to_url={}
+):
     if args.no_masking:
         LOG.info("Assigning taxonomic IDs to sequences\n")
     else:
-        LOG.info(
-            "Assigning taxonomic IDs and masking sequences\n"
-        )
+        LOG.info("Assigning taxonomic IDs and masking sequences\n")
     library_filename = "library.faa" if args.protein else "library.fna"
     sequence_to_url = {}
     projects_added = 0
@@ -1474,26 +1419,27 @@ def assign_taxid_to_sequences(args,
 
     LOG.debug("{:s}\r".format(out_line))
     filepaths = sorted(manifest_to_taxid)
-    with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.threads
-    ) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
         futures = []
         max_out_line_len = 0
         for filepath in filepaths:
             f = functools.partial(
-                wrap_with_globals, assign_taxids,
-                LOG.get_queue(), LOG.get_level(),
-                SCRIPT_PATHNAME
+                wrap_with_globals,
+                assign_taxids,
+                LOG.get_queue(),
+                LOG.get_level(),
+                SCRIPT_PATHNAME,
             )
             future = pool.submit(
-                f, args, filepath,
-                manifest_to_taxid, accession_to_taxid,
-                filepath_to_url
+                f,
+                args,
+                filepath,
+                manifest_to_taxid,
+                accession_to_taxid,
+                filepath_to_url,
             )
             if future_raised_exception(future):
-                LOG.error(
-                    "Error encountered while assigning tax IDs\n"
-                )
+                LOG.error("Error encountered while assigning tax IDs\n")
                 raise future.exception()
             futures.append(future)
         for future in concurrent.futures.as_completed(futures):
@@ -1601,9 +1547,7 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
 
 
 def decompress_file(in_file, out_file, buf_size=8129):
-    LOG.info(
-        "Decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name))
-    )
+    LOG.info("Decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name)))
     inflator = zlib.decompressobj(15 + 32)
     while True:
         data = in_file.read(buf_size)
@@ -1613,9 +1557,7 @@ def decompress_file(in_file, out_file, buf_size=8129):
         out_file.write(inflated_data)
     # shutil.copyfileobj(in_file, out_file, buf_size)
     LOG.info(
-        "Finished decompressing {:s}\n".format(
-            os.path.join(os.getcwd(), in_file.name)
-        )
+        "Finished decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name))
     )
 
     return True
@@ -1643,9 +1585,7 @@ def download_log(filename, total_size=None):
             pb = ProgressBar(total_size or size)
         current_size += read_size
         pb.progress(current_size)
-        LOG.debug(
-            "{:s} {: >10s}\r".format(pb.get_bar(), format_bytes(current_size))
-        )
+        LOG.debug("{:s} {: >10s}\r".format(pb.get_bar(), format_bytes(current_size)))
 
     return inner
 
@@ -1658,13 +1598,9 @@ def http_download_file(url, local_name=None, call_back=None):
         os.makedirs(os.path.dirname(local_name), exist_ok=True)
     with urllib.request.urlopen(url) as conn:
         remote_size = int(conn.headers["Content-Length"])
-        local_size = (
-            os.stat(local_name).st_size if os.path.exists(local_name) else 0
-        )
+        local_size = os.stat(local_name).st_size if os.path.exists(local_name) else 0
         if local_size == remote_size:
-            LOG.info(
-                "Already downloaded {:s}\n".format(get_abs_path(local_name))
-            )
+            LOG.info("Already downloaded {:s}\n".format(get_abs_path(local_name)))
             return
 
     LOG.info("Beginning download of {:s}\n".format(url))
@@ -1700,21 +1636,21 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
             if filename not in md5:
                 checksums = []
                 remote_dirname = os.path.dirname(url)
-                for md5_filename in ["md5checksums.txt", filename + ".md5", "MD5SUM.txt"]:
+                for md5_filename in [
+                    "md5checksums.txt",
+                    filename + ".md5",
+                    "MD5SUM.txt",
+                ]:
                     # Check if file exists before trying to download.
                     # This avoids NCBI sending BadStatusLine when
                     # making the request.
-                    conn.request(
-                        "HEAD", "/" + remote_dirname + "/" + md5_filename
-                    )
+                    conn.request("HEAD", "/" + remote_dirname + "/" + md5_filename)
                     response = conn.getresponse()
                     if response.status == 200:
                         response.close()
                         # If we have found the file, then go ahead
                         # and download.
-                        conn.request(
-                            "GET", "/" + remote_dirname + "/" + md5_filename
-                        )
+                        conn.request("GET", "/" + remote_dirname + "/" + md5_filename)
                         response = conn.getresponse()
                         checksums = response.readlines()
                         response.close()
@@ -1724,12 +1660,14 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                 if len(checksums) > 0:
                     for checksum in checksums:
                         (md5sum, remote_filename) = checksum.split()
-                        remote_filename = os.path.basename(
-                            remote_filename.decode()
-                        )
+                        remote_filename = os.path.basename(remote_filename.decode())
                         md5[remote_filename] = md5sum.decode()
-            if not skip_md5_check and os.path.exists(local_name)\
-               and filename in md5 and md5[filename] == hash_file(local_name):
+            if (
+                not skip_md5_check
+                and os.path.exists(local_name)
+                and filename in md5
+                and md5[filename] == hash_file(local_name)
+            ):
                 LOG.info(
                     "Already downloaded {:s}\n".format(
                         urllib.parse.urljoin(server, url)
@@ -1765,8 +1703,7 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
 
         except (http.client.HTTPException, http.client.RemoteDisconnected) as e:
             LOG.warning(
-                "Unable to download " + url + ". Reason: {}, will try again\n"
-                .format(e)
+                "Unable to download " + url + ". Reason: {}, will try again\n".format(e)
             )
             conn.close()
             time.sleep(0.1)
@@ -1781,8 +1718,9 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
             if md5[filename] != local_md5sum:
                 LOG.warning(
                     "The MD5 sum of {} does not match the MD5 provided"
-                    " by the server. The file will be downloaded again.\n"
-                    .format(local_name)
+                    " by the server. The file will be downloaded again.\n".format(
+                        local_name
+                    )
                 )
                 # We have already confirmed that MD5 sum does not match
                 # do not bother checking it again at the top of the loop.
@@ -1791,13 +1729,10 @@ def http_download_file2(server, urls, save_to=None, md5sums=None):
                 continue
             else:
                 LOG.info(
-                    "The remote and local MD5 sum of {} match\n"
-                    .format(local_name)
+                    "The remote and local MD5 sum of {} match\n".format(local_name)
                 )
 
-        LOG.info(
-            "Saved {:s} to {:s}\n".format(filename, local_directory)
-        )
+        LOG.info("Saved {:s} to {:s}\n".format(filename, local_directory))
         # Reset the MD5 check for the next file.
         skip_md5_check = False
         i += 1
@@ -1858,7 +1793,7 @@ def download_files_from_manifest(
     manifest_filename="manifest.txt",
     filepath_to_taxid_table=None,
     md5sums=None,
-    resume=False
+    resume=False,
 ):
     threads = min(threads, 12)
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
@@ -1896,9 +1831,7 @@ def download_files_from_manifest(
 
 
 def download_and_decompress(filename):
-    http_download_file2(
-        NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
-    )
+    http_download_file2(NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir))
     decompress_files(os.path.abspath(os.path.basename(filename)))
 
 
@@ -1908,49 +1841,43 @@ def download_taxonomy(args):
     os.chdir(taxonomy_path)
     futures = []
 
-    with concurrent.futures.ProcessPoolExecutor(
-            max_workers=2
-    ) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
         if not args.skip_maps:
             if not args.protein:
                 for subsection in ["gb", "wgs"]:
                     filename = "pub/taxonomy/accession2taxid/"
                     filename += "nucl_" + subsection + ".accession2taxid.gz"
                     f = functools.partial(
-                        wrap_with_globals, download_and_decompress,
-                        LOG.get_queue(), LOG.get_level(),
-                        SCRIPT_PATHNAME
+                        wrap_with_globals,
+                        download_and_decompress,
+                        LOG.get_queue(),
+                        LOG.get_level(),
+                        SCRIPT_PATHNAME,
                     )
-                    future = pool.submit(
-                        f, filename
-                    )
+                    future = pool.submit(f, filename)
                     if future_raised_exception(future):
-                        LOG.error(
-                            "Error encountered while downloading file\n"
-                        )
+                        LOG.error("Error encountered while downloading file\n")
                         raise future.exception()
                     futures.append(future)
             else:
                 filename = "/pub/taxonomy/accession2taxid/"
                 filename += "prot.accession2taxid.gz"
                 f = functools.partial(
-                    wrap_with_globals, download_and_decompress,
-                    LOG.get_queue(), LOG.get_level(),
-                    SCRIPT_PATHNAME
+                    wrap_with_globals,
+                    download_and_decompress,
+                    LOG.get_queue(),
+                    LOG.get_level(),
+                    SCRIPT_PATHNAME,
                 )
                 future = pool.submit(f, filename)
                 if future_raised_exception(future):
-                    LOG.error(
-                        "Error encountered while downloading file\n"
-                    )
+                    LOG.error("Error encountered while downloading file\n")
                     raise future.exception()
                 futures.append(future)
 
         LOG.info("Downloading taxonomy tree data\n")
         filename = "pub/taxonomy/taxdump.tar.gz"
-        http_download_file2(
-            NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir)
-        )
+        http_download_file2(NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir))
         LOG.info("Untarring taxonomy tree data\n")
         with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
             tar.extractall()
@@ -1965,9 +1892,7 @@ def download_gtdb_taxonomy(args, files, md5s):
 
     LOG.info("Dowloading GTDB taxonomy for bacteria and archaea\n")
     http_download_file2(
-        GTDB_SERVER,
-        files,
-        save_to=os.path.abspath(os.curdir), md5sums=md5s
+        GTDB_SERVER, files, save_to=os.path.abspath(os.curdir), md5sums=md5s
     )
     LOG.info("Finished downloading GTDB taxonomy for bacteria and archaea\n")
 
@@ -2034,9 +1959,7 @@ def build_gtdb_taxonomy(in_file):
                     )
                 )
                 nodes_file.write(
-                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(
-                        node_id, parent_id, rank
-                    )
+                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(node_id, parent_id, rank)
                 )
                 children = (
                     sorted([key for key in child_data[node]])
@@ -2049,10 +1972,11 @@ def build_gtdb_taxonomy(in_file):
         for accession in sorted([key for key in accession_map]):
             taxid = id_map[accession_map[accession]]
             accession_without_revision = accession.split(".")[0]
-            f.write("{:s}\t{:s}\t{:d}\t-\n".format(
-                accession_without_revision,
-                accession, taxid
-            ))
+            f.write(
+                "{:s}\t{:s}\t{:d}\t-\n".format(
+                    accession_without_revision, accession, taxid
+                )
+            )
 
 
 def download_gtdb_genomes(args, remote_filepath, md5s):
@@ -2060,10 +1984,7 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
         os.makedirs(directory, exist_ok=True)
     filename = os.path.basename(remote_filepath)
     filepath = os.path.abspath(filename)
-    http_download_file2(
-        GTDB_SERVER, [remote_filepath],
-        save_to=os.curdir, md5sums=md5s
-    )
+    http_download_file2(GTDB_SERVER, [remote_filepath], save_to=os.curdir, md5sums=md5s)
     os.chdir("library")
     accession_to_filepath = {}
     filepaths_without_accession = []
@@ -2076,34 +1997,25 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
                 if member.isfile() and re.search(ext, member.name):
                     if re.search("GC[AF]", member.name):
                         filename = os.path.basename(member.name)
-                        accession = re.search(
-                            r"(GC[AF]_\d{9}\.\d+)", filename
-                        ).group(1)
-                        if os.path.exists(member.name)\
-                           and member.size == os.stat(member.name).st_size:
+                        accession = re.search(r"(GC[AF]_\d{9}\.\d+)", filename).group(1)
+                        if (
+                            os.path.exists(member.name)
+                            and member.size == os.stat(member.name).st_size
+                        ):
                             LOG.info(
-                                "Already extracted {}...skipping\n"
-                                .format(member.name)
+                                "Already extracted {}...skipping\n".format(member.name)
                             )
                         else:
                             LOG.info("Extracting {}\n".format(member.name))
                             tar.extract(member)
-                            LOG.info(
-                                "Finished extracting {}\n"
-                                .format(member.name)
-                            )
-                        accession_to_filepath[accession] =\
-                            os.path.abspath(member.name)
+                            LOG.info("Finished extracting {}\n".format(member.name))
+                        accession_to_filepath[accession] = os.path.abspath(member.name)
                     else:
                         # We do not check if a file has already been extracted here
                         LOG.info("Extracting {}\n".format(member.name))
                         tar.extract(member)
-                        LOG.info(
-                            "Finished extracting {}\n".format(member.name)
-                        )
-                        filepaths_without_accession.append(
-                            os.path.abspath(member.name)
-                        )
+                        LOG.info("Finished extracting {}\n".format(member.name))
+                        filepaths_without_accession.append(os.path.abspath(member.name))
     else:
         library = filename.split(".")[0]
         filepaths_without_accession.append(os.path.abspath(filepath))
@@ -2121,17 +2033,15 @@ def remap_secondary_taxids(taxids):
     conn = make_https_connection(NCBI_REST_API)
 
     for taxid_list in partition_list(taxids, partitions):
-        endpoint = NCBI_URI_Builder(
-            "taxonomy", "taxon", taxid_list
-        ).build()
+        endpoint = NCBI_URI_Builder("taxonomy", "taxon", taxid_list).build()
         conn.request("GET", endpoint)
         response = conn.getresponse()
         if response.status == 200:
             result = response.readlines()[0]
             response.close()
-            for entry in json.loads(
-                    result, parse_float=identity, parse_int=identity
-            )["taxonomy_nodes"]:
+            for entry in json.loads(result, parse_float=identity, parse_int=identity)[
+                "taxonomy_nodes"
+            ]:
                 query = entry["query"][0]
                 taxid = entry["taxonomy"]["tax_id"]
                 new_taxids[query] = taxid
@@ -2166,15 +2076,12 @@ def find_and_remap_secondary_taxids(metadata):
 
     taxids = list(gtdb_assigned_taxids.difference(ncbi_taxids))
     LOG.info(
-        "The following tax IDs were not found in nodes.dmp"
-        " and need to be remapped\n"
+        "The following tax IDs were not found in nodes.dmp" " and need to be remapped\n"
     )
     remapped_taxids = remap_secondary_taxids(taxids)
     for accession, taxid in metadata.items():
         if taxid in remapped_taxids:
-            LOG.info(
-                "Remapping {} to {}\n".format(taxid, remapped_taxids[taxid])
-            )
+            LOG.info("Remapping {} to {}\n".format(taxid, remapped_taxids[taxid]))
             metadata[accession] = remapped_taxids[taxid]
 
     return metadata
@@ -2187,14 +2094,12 @@ def get_gtdb_latest_md5sums(path_prefix):
         )
         http_download_file(md5_url)
     except Exception:
-        url = url_join(
-            GTDB_SERVER, path=path_prefix + "/releases/latest/VERSION.txt"
-        )
+        url = url_join(GTDB_SERVER, path=path_prefix + "/releases/latest/VERSION.txt")
         # remove the leading 'v' from the version number
         version = urllib.request.urlopen(url).readline().decode().strip()[1:]
         md5_url = url_join(
             GTDB_SERVER,
-            path=path_prefix + "/releases/release" + version + "/MD5SUM.txt"
+            path=path_prefix + "/releases/release" + version + "/MD5SUM.txt",
         )
         http_download_file(md5_url)
 
@@ -2212,9 +2117,7 @@ def get_needed_files(args, path_prefix):
             filename_regex = r"protein|faa"
         for line in in_file:
             md5sum, filepath = line.split()
-            filepath = urllib.parse.urljoin(
-                path_prefix + "/releases/latest/", filepath
-            )
+            filepath = urllib.parse.urljoin(path_prefix + "/releases/latest/", filepath)
             # remove the release tag since they do not appear in the "latest"
             # file listings
             filepath = re.sub(r"_r\d+", "", filepath)
@@ -2230,10 +2133,14 @@ def get_needed_files(args, path_prefix):
             md5s[filepath] = md5sum
 
     if len(files_needed["fasta"]) != len(args.gtdb_files):
-        LOG.error("At least one of the files did not match: {}\n"
-                  .format(", ".join(args.gtdb_files)))
-        LOG.error("Here is a list of candidates:\n{}\n"
-                  .format("\n".join(candidate_files)))
+        LOG.error(
+            "At least one of the files did not match: {}\n".format(
+                ", ".join(args.gtdb_files)
+            )
+        )
+        LOG.error(
+            "Here is a list of candidates:\n{}\n".format("\n".join(candidate_files))
+        )
         sys.exit(1)
 
     return (md5s, files_needed)
@@ -2287,22 +2194,20 @@ def build_gtdb_database(args):
     if not args.gtdb_use_ncbi_taxonomy:
         with open("gtdb.accession2taxid", "r") as in_file:
             for line in in_file:
-                base_accession, accession, taxid,  gi = line.split("\t")
+                base_accession, accession, taxid, gi = line.split("\t")
                 accession_to_taxid[accession] = taxid
 
-    with concurrent.futures.ProcessPoolExecutor(
-            max_workers=workers
-    ) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
         for remote_filepath in files_needed["fasta"]:
             os.chdir(db_pathname)
             f = functools.partial(
-                wrap_with_globals, download_gtdb_genomes,
-                LOG.get_queue(), LOG.get_level(),
-                SCRIPT_PATHNAME
+                wrap_with_globals,
+                download_gtdb_genomes,
+                LOG.get_queue(),
+                LOG.get_level(),
+                SCRIPT_PATHNAME,
             )
-            futures.append(pool.submit(
-                f, args, remote_filepath, md5s
-            ))
+            futures.append(pool.submit(f, args, remote_filepath, md5s))
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             library = result[0]
@@ -2311,27 +2216,24 @@ def build_gtdb_database(args):
 
             for accession, filepath in result[1].items():
                 accession_to_filepath[accession] = filepath
-                filepath_to_url[filepath] =\
-                    url_join(GTDB_SERVER, path=remote_filepath)
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
             for filepath in result[2]:
                 filepaths_without_accessions.append(filepath)
-                filepath_to_url[filepath] =\
-                    url_join(GTDB_SERVER, path=remote_filepath)
+                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
 
             filepath_to_taxid_table = {}
-            library_pathname = os.path.join(db_pathname,
-                                            os.path.join("library", library))
+            library_pathname = os.path.join(
+                db_pathname, os.path.join("library", library)
+            )
             os.makedirs(library_pathname, exist_ok=True)
             os.chdir(library_pathname)
             for accession, filepath in accession_to_filepath.items():
-                filepath_to_taxid_table[filepath] =\
-                    accession_to_taxid[accession]
+                filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
             for filepath in filepaths_without_accessions:
                 filepath_to_taxid_table[filepath] = ""
 
             sequence_to_url = assign_taxid_to_sequences(
-                args, filepath_to_taxid_table,
-                accession_to_taxid, filepath_to_url
+                args, filepath_to_taxid_table, accession_to_taxid, filepath_to_url
             )
             with open("library.fna", "r") as in_file:
                 with open("prelim_map.txt", "w") as out_file:
@@ -2346,22 +2248,21 @@ def build_gtdb_database(args):
     build_kraken2_db(args)
 
 
-
 def download_genomic_library(args):
     library_filename = "library.faa" if args.protein else "library.fna"
     library_pathname = os.path.join(args.db, "library")
     LOG.info("Adding {:s} to {:s}\n".format(args.library, args.db))
     if args.library in [
-            "archaea",
-            "bacteria",
-            "viral",
-            "fungi",
-            "invertebrate",
-            "plant",
-            "human",
-            "protozoa",
-            "vertebrate_mammalian",
-            "vertebrate_other"
+        "archaea",
+        "bacteria",
+        "viral",
+        "fungi",
+        "invertebrate",
+        "plant",
+        "human",
+        "protozoa",
+        "vertebrate_mammalian",
+        "vertebrate_other",
     ]:
         library_pathname = os.path.join(library_pathname, args.library)
         os.makedirs(library_pathname, exist_ok=True)
@@ -2376,8 +2277,12 @@ def download_genomic_library(args):
         try:
             if args.assembly_source == "all":
                 # Download and merge assembly summaries from both RefSeq and GenBank
-                refseq_url = "genomes/refseq/{:s}/assembly_summary.txt".format(remote_dir_name)
-                genbank_url = "genomes/genbank/{:s}/assembly_summary.txt".format(remote_dir_name)
+                refseq_url = "genomes/refseq/{:s}/assembly_summary.txt".format(
+                    remote_dir_name
+                )
+                genbank_url = "genomes/genbank/{:s}/assembly_summary.txt".format(
+                    remote_dir_name
+                )
 
                 # Download RefSeq assembly summary
                 http_download_file2(
@@ -2429,20 +2334,17 @@ def download_genomic_library(args):
             os.rename("grc.txt", "assembly_summary.txt")
         with open("assembly_summary.txt", "r") as f:
             filepath_to_url = {}
-            filepath_to_taxid_table = make_manifest_from_assembly_summary(
-                args, f
-            )
+            filepath_to_taxid_table = make_manifest_from_assembly_summary(args, f)
             for filepath in filepath_to_taxid_table:
                 filepath_to_url[filepath] = url_join(NCBI_SERVER, path=filepath)
             download_files_from_manifest(
                 NCBI_SERVER,
                 args.threads,
                 filepath_to_taxid_table=filepath_to_taxid_table,
-                resume=args.resume
+                resume=args.resume,
             )
             sequence_to_url = assign_taxid_to_sequences(
-                args, filepath_to_taxid_table,
-                filepath_to_url=filepath_to_url
+                args, filepath_to_taxid_table, filepath_to_url=filepath_to_url
             )
         with open(library_filename, "r") as in_file:
             with open("prelim_map.txt", "w") as out_file:
@@ -2471,22 +2373,20 @@ def download_genomic_library(args):
         with open("manifest.txt", "r") as manifest:
             filenames = manifest.readlines()
         filenames = sorted(filenames)
-        with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.threads
-        ) as pool:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
             futures = []
             for filename in filenames:
                 filename = filename.strip()
                 filename = os.path.abspath(filename)
                 if not args.no_masking:
                     f = functools.partial(
-                        wrap_with_globals, decompress_and_mask,
-                        LOG.get_queue(), LOG.get_level(),
-                        SCRIPT_PATHNAME
+                        wrap_with_globals,
+                        decompress_and_mask,
+                        LOG.get_queue(),
+                        LOG.get_level(),
+                        SCRIPT_PATHNAME,
                     )
-                    future = pool.submit(
-                        f, filename, args.masker_threads
-                    )
+                    future = pool.submit(f, filename, args.masker_threads)
                     if future_raised_exception(future):
                         LOG.error(
                             "Error encountered while decompressing"
@@ -2496,25 +2396,22 @@ def download_genomic_library(args):
                     futures.append(future)
                 else:
                     f = functools.partial(
-                        wrap_with_globals, decompress_files,
-                        LOG.get_queue(), LOG.get_level(),
-                        SCRIPT_PATHNAME
+                        wrap_with_globals,
+                        decompress_files,
+                        LOG.get_queue(),
+                        LOG.get_level(),
+                        SCRIPT_PATHNAME,
                     )
                     future = pool.submit(f, [filename])
                     if future_raised_exception(future):
-                        LOG.error(
-                            "Error encountered while decompressing files\n"
-                        )
+                        LOG.error("Error encountered while decompressing files\n")
                         raise future.exception()
                     futures.append(future)
             result = concurrent.futures.wait(
-                futures,
-                return_when=concurrent.futures.ALL_COMPLETED
+                futures, return_when=concurrent.futures.ALL_COMPLETED
             )
             if len(result.not_done) > 0:
-                LOG.error(
-                    "Encountered error while downloading Plasmid library\n"
-                )
+                LOG.error("Encountered error while downloading Plasmid library\n")
                 sys.exit(1)
         LOG.info("Generating {}\n".format(library_filename))
         with open(library_filename, "w") as out_file:
@@ -2544,9 +2441,7 @@ def download_genomic_library(args):
     elif args.library in ["UniVec", "UniVec_Core"]:
         if args.protein:
             LOG.error(
-                "{:s} is available for nucleotide databases only\n".format(
-                    args.library
-                )
+                "{:s} is available for nucleotide databases only\n".format(args.library)
             )
             sys.exit(1)
         library_pathname = os.path.join(library_pathname, args.library)
@@ -2559,9 +2454,7 @@ def download_genomic_library(args):
         )
         special_taxid = 28384
         LOG.info(
-            "Assigning taxonomy ID of {:d} to all sequences\n".format(
-                special_taxid
-            )
+            "Assigning taxonomy ID of {:d} to all sequences\n".format(special_taxid)
         )
         with open(args.library, "r") as in_file:
             with open("library.fna", "w") as out_file:
@@ -2582,23 +2475,25 @@ def download_genomic_library(args):
                     sequence_to_url="pub/UniVec/" + args.library,
                 )
     else:
-        if args.library.upper().startswith("GCF")\
-           or args.library.upper().startswith("GCA"):
-            download_dataset_by_project(args, "genome/accession",
-                                        [args.library.upper()])
+        if args.library.upper().startswith("GCF") or args.library.upper().startswith(
+            "GCA"
+        ):
+            download_dataset_by_project(
+                args, "genome/accession", [args.library.upper()]
+            )
         elif args.library.upper().startswith("PRJ"):
-            download_dataset_by_project(args, "genome/bioproject",
-                                        [args.library.upper()])
+            download_dataset_by_project(
+                args, "genome/bioproject", [args.library.upper()]
+            )
         else:
             download_dataset_by_project(args, "genome/taxon", [args.library])
 
-    if not args.no_masking\
-       and args.library in ["UniVec", "UniVec_Core"]:
+    if not args.no_masking and args.library in ["UniVec", "UniVec_Core"]:
         mask_files(
             [library_filename],
             library_filename + ".masked",
             args.masker_threads,
-            args.protein
+            args.protein,
         )
         shutil.move(library_filename + ".masked", library_filename)
     LOG.info("Added {:s} to {:s}\n".format(args.library, args.db))
@@ -2609,9 +2504,9 @@ def get_abs_path(filename):
 
 
 def is_compressed(filename):
-    bzip_magic = b"\x42\x5A\x68"
-    gzip_magic = b"\x1F\x8B"
-    xz_magic = b"\xFD\x37\x7A\x58\x5A\x00"
+    bzip_magic = b"\x42\x5a\x68"
+    gzip_magic = b"\x1f\x8b"
+    xz_magic = b"\xfd\x37\x7a\x58\x5a\x00"
 
     nbytes = len(xz_magic)
     with open(filename, "rb") as f:
@@ -2622,9 +2517,9 @@ def is_compressed(filename):
 
 
 def get_reader(filename):
-    bzip_magic = b"\x42\x5A\x68"
-    gzip_magic = b"\x1F\x8B"
-    xz_magic = b"\xFD\x37\x7A\x58\x5A\x00"
+    bzip_magic = b"\x42\x5a\x68"
+    gzip_magic = b"\x1f\x8b"
+    xz_magic = b"\xfd\x37\x7a\x58\x5a\x00"
 
     nbytes = len(xz_magic)
     with open(filename, "rb") as f:
@@ -2701,7 +2596,6 @@ def check_seqidmap():
             old_taxid, new_taxid = entry.split("\t|")[:2]
             merged_nodes[old_taxid.strip()] = new_taxid.strip()
 
-
     with open("seqid2taxid.map.new", "w") as fout:
         with open("seqid2taxid.map", "r") as fin:
             for line in fin:
@@ -2716,43 +2610,44 @@ def check_seqidmap():
                         " be remapped according. See merged.dmp for details\n"
                     )
                     LOG.warning(
-                        "The taxid, {}, associated with {} has been remapped to {}\n"
-                        .format(taxid, seqid, new_taxid)
+                        "The taxid, {}, associated with {} has been remapped to {}\n".format(
+                            taxid, seqid, new_taxid
+                        )
                     )
-                    fout.write("\t".join([seqid, new_taxid]) + '\n')
+                    fout.write("\t".join([seqid, new_taxid]) + "\n")
                 else:
                     LOG.warning(
                         "There is no entry for taxid, '{}', associated with {},"
-                        "in nodes.dmp. Please contact NCBI about this\n"
-                        .format(taxid, seqid)
+                        "in nodes.dmp. Please contact NCBI about this\n".format(
+                            taxid, seqid
+                        )
                     )
     shutil.move("seqid2taxid.map.new", "seqid2taxid.map")
 
 
 def suffix_to_multiplier(suffix):
     name_to_size = {
-        'byte': 1,
-        'kebibyte': 2 ** 10,
-        'mebibyte': 2 ** 20,
-        'gebibyte': 2 ** 30,
-        'tebibyte': 2 ** 40,
-        'kilobyte': 10 ** 3,
-        'megabyte': 10 ** 6,
-        'gigabyte': 10 ** 9,
-        'terabyte': 10 ** 12
-
+        "byte": 1,
+        "kebibyte": 2**10,
+        "mebibyte": 2**20,
+        "gebibyte": 2**30,
+        "tebibyte": 2**40,
+        "kilobyte": 10**3,
+        "megabyte": 10**6,
+        "gigabyte": 10**9,
+        "terabyte": 10**12,
     }
 
     unit_to_size = {
-        'B': 1,
-        'KiB': 2 ** 10,
-        'KB':  10 ** 3,
-        'MiB': 2 ** 20,
-        'MB':  10 ** 6,
-        'GiB': 2 ** 30,
-        'GB':  10 ** 9,
-        'TiB': 2 ** 40,
-        'TB':  10 ** 12,
+        "B": 1,
+        "KiB": 2**10,
+        "KB": 10**3,
+        "MiB": 2**20,
+        "MB": 10**6,
+        "GiB": 2**30,
+        "GB": 10**9,
+        "TiB": 2**40,
+        "TB": 10**12,
     }
 
     original_suffix = suffix
@@ -2776,7 +2671,7 @@ def parse_db_size(input):
 
     input = input.replace(" ", "")
     number = "".join(itertools.takewhile(str.isnumeric, input))
-    suffix = "".join(itertools.takewhile(str.isalpha, input[len(number):]))
+    suffix = "".join(itertools.takewhile(str.isalpha, input[len(number) :]))
     number = int(number)
     multiplier = suffix_to_multiplier(suffix)
 
@@ -2799,16 +2694,16 @@ def build_kraken2_db(args):
     prelim_map_mtime = 0
     if os.path.isdir("library"):
         glob_path = os.path.join("library", "*")
-        prelim_map_filepaths = glob.glob(
-            os.path.join(glob_path, "prelim_map*.txt")
-        )
+        prelim_map_filepaths = glob.glob(os.path.join(glob_path, "prelim_map*.txt"))
         for prelim_map_filepath in prelim_map_filepaths:
             mtime = os.path.getmtime(prelim_map_filepath)
             if mtime > prelim_map_mtime:
                 prelim_map_mtime = mtime
 
-    if os.path.exists("seqid2taxid.map") and \
-       os.path.getmtime("seqid2taxid.map") > prelim_map_mtime:
+    if (
+        os.path.exists("seqid2taxid.map")
+        and os.path.getmtime("seqid2taxid.map") > prelim_map_mtime
+    ):
         LOG.info(
             "A seqid2taxid.map already present and newer"
             " than any of the prelim_map.txt files, skipping\n"
@@ -2821,9 +2716,7 @@ def build_kraken2_db(args):
                     shutil.copyfileobj(in_file, out_file)
         if os.path.getsize("prelim_map.txt") == 0:
             os.remove("prelim_map.txt")
-            LOG.error(
-                "No preliminary seqid/taxid mapping files found, aborting\n"
-            )
+            LOG.error("No preliminary seqid/taxid mapping files found, aborting\n")
             sys.exit(1)
         LOG.info("Finished concatenating prelim_map.txt files\n")
         LOG.info("Creating sequence ID to taxonomy ID map\n")
@@ -2843,18 +2736,14 @@ def build_kraken2_db(args):
             accession2taxid_filenames = glob.glob("taxonomy/*.accession2taxid")
             if accession2taxid_filenames:
                 lookup_accession_numbers(
-                    "accmap.tmp",
-                    "seqid2taxid.map.tmp",
-                    *accession2taxid_filenames
+                    "accmap.tmp", "seqid2taxid.map.tmp", *accession2taxid_filenames
                 )
             else:
                 LOG.error(
                     "Accession to taxid map files are required to"
                     " build this database.\n"
                 )
-                LOG.error(
-                    "Run k2 download-taxonomy --db {:s} again".format(args.db)
-                )
+                LOG.error("Run k2 download-taxonomy --db {:s} again".format(args.db))
                 sys.exit(1)
         os.remove("accmap.tmp")
         move("seqid2taxid.map.tmp", "seqid2taxid.map")
@@ -2869,14 +2758,12 @@ def build_kraken2_db(args):
         args, argv, get_binary_options(estimate_capacity_binary)
     )
     fasta_filenames = glob.glob(
-        os.path.join("library", os.path.join("*", "*.f[an]a")),
-        recursive=False
+        os.path.join("library", os.path.join("*", "*.f[an]a")), recursive=False
     )
     estimate = ""
     total_sequences = 0
     if os.path.exists("estimated_capacity"):
-        estimated_capacity_mtime = \
-            os.path.getmtime("estimated_capacity")
+        estimated_capacity_mtime = os.path.getmtime("estimated_capacity")
         seqid_to_taxid_map_mtime = os.path.getmtime("seqid2taxid.map")
         if estimated_capacity_mtime > seqid_to_taxid_map_mtime:
             LOG.info(
@@ -2902,14 +2789,12 @@ def build_kraken2_db(args):
         if not dwk2():
             argv.extend(fasta_filenames)
         LOG.info("Running: " + " ".join(argv) + "\n")
-        proc = subprocess.Popen(
-            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         if dwk2():
             for filename in fasta_filenames:
                 with open(filename, "rb") as in_file:
                     for line in in_file:
-                        if line.startswith(b'>'):
+                        if line.startswith(b">"):
                             sequence_name = line.split()[0]
                             if sequence_name[1:] in mapped_sequences:
                                 total_sequences += 1
@@ -2922,19 +2807,19 @@ def build_kraken2_db(args):
     required_capacity = (int(estimate.strip()) + 8192) / args.load_factor
     LOG.info(
         "Estimated hash table requirement: {:s}\n".format(
-            format_bytes(required_capacity * 4)
+            format_bytes(required_capacity * (args.cht_cell_size / 8))
         )
     )
     if args.max_db_size:
         args.max_db_size = parse_db_size(args.max_db_size)
-        if args.max_db_size < required_capacity * 4:
-            args.max_db_size = int(args.max_db_size / 4)
+        if args.max_db_size < required_capacity * (args.cht_cell_size / 8):
+            args.max_db_size = int(args.max_db_size / (args.cht_cell_size / 8))
             LOG.info(
                 "Maximum hash table size of {}, specified and is"
-                " lower than the calculated estimated capacity of {}\n"
-                .format(
-                    format_bytes(args.max_db_size * 4),
-                    format_bytes(required_capacity * 4))
+                " lower than the calculated estimated capacity of {}\n".format(
+                    format_bytes(args.max_db_size * (args.cht_cell_size / 8)),
+                    format_bytes(required_capacity * (args.cht_cell_size / 8)),
+                )
             )
     if os.path.isfile("hash.k2d"):
         LOG.info("Hash table already present, skipping build\n")
@@ -2960,31 +2845,29 @@ def build_kraken2_db(args):
         ]
         if args.protein:
             argv.append("-X")
-        wrapper_args_to_binary_args(
-            args, argv, get_binary_options(build_db_bin)
-        )
+        wrapper_args_to_binary_args(args, argv, get_binary_options(build_db_bin))
 
         LOG.info("Running: " + " ".join(argv) + "\n")
         if total_sequences > 0:
             m_err, s_err = pty.openpty()
             cat_proc = subprocess.Popen(
-                ["cat"] + fasta_filenames,
-                stdout=subprocess.PIPE
+                ["cat"] + fasta_filenames, stdout=subprocess.PIPE
             )
             build_proc = subprocess.Popen(
-                argv, stdin=cat_proc.stdout,
+                argv,
+                stdin=cat_proc.stdout,
                 stdout=s_err,
                 stderr=s_err,
             )
 
             thread = threading.Thread(
-                target=read_from_stderr,
-                args=(m_err, total_sequences)
+                target=read_from_stderr, args=(m_err, total_sequences)
             )
             thread.start()
         else:
             build_proc = subprocess.Popen(
-                argv, stdin=subprocess.PIPE,
+                argv,
+                stdin=subprocess.PIPE,
             )
 
         build_proc.communicate()
@@ -3034,14 +2917,14 @@ def read_from_stderr(fd, total_sequences):
                 buffer = b""
                 progress = int(fields[1])
                 pb.progress(progress)
-                eol = '\r'
+                eol = "\r"
                 if pb.current == total_sequences:
                     processing = False
-                    eol = '\n'
+                    eol = "\n"
                 LOG.debug(
-                    "Processed:" +
-                    pb.get_bar() + " {}/{}{}"
-                    .format(progress, total_sequences, eol)
+                    "Processed:"
+                    + pb.get_bar()
+                    + " {}/{}{}".format(progress, total_sequences, eol)
                 )
             elif line.endswith(b"\n"):
                 LOG.debug(line.decode())
@@ -3096,8 +2979,9 @@ def build_rdp_taxonomy(f):
                 match = re.search("([^;]+);([^;]+)$", node)
                 if match is None:
                     LOG.error(
-                        'BFS processing encountered formatting eror, "{:s}"\n'
-                        .format(node)
+                        'BFS processing encountered formatting eror, "{:s}"\n'.format(
+                            node
+                        )
                     )
                     sys.exit(1)
                 display_name, rank = match.group(1), match.group(2)
@@ -3111,9 +2995,7 @@ def build_rdp_taxonomy(f):
                     )
                 )
                 nodes_file.write(
-                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(
-                        node_id, parent_id, rank
-                    )
+                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(node_id, parent_id, rank)
                 )
                 children = (
                     sorted([key for key in child_data[node]])
@@ -3147,6 +3029,23 @@ def build_standard_database(args):
         args.library = library
         download_genomic_library(args)
     build_kraken2_db(args)
+
+
+def build_db_by_parts(args):
+    args.db = os.path.abspath(args.db)
+    os.chdir(args.db)
+    db_name = os.path.basename(args.db)
+    part_dirs = glob.glob(db_name + "_part_*")
+    dir_format = db_name + "_part_"
+    if len(args.parts) > len(part_dirs):
+        args.parts = args.parts.intersection(range(1, len(part_dirs) + 1))
+    parts_to_build = map(lambda n: dir_format + str(n), args.parts)
+    for dir_name in parts_to_build:
+        db = args.db
+        db_pathname = os.path.join(args.db, dir_name)
+        args.db = db_pathname
+        build_kraken2_db(args)
+        args.db = db
 
 
 # Parses Silva taxonomy file to create Kraken taxonomy
@@ -3200,9 +3099,7 @@ def build_16S_silva(args):
     taxonomy_prefix = "tax_slv_ssu_138.2"
     ftp = FTP(SILVA_SERVER)
     ftp.download(remote_directory, fasta_filename)
-    ftp.download(
-        remote_directory + "/taxonomy", taxonomy_prefix + ".acc_taxid.gz"
-    )
+    ftp.download(remote_directory + "/taxonomy", taxonomy_prefix + ".acc_taxid.gz")
     decompress_files([taxonomy_prefix + ".acc_taxid.gz"])
     ftp.download(remote_directory + "/taxonomy", taxonomy_prefix + ".txt.gz")
     with gzip.open(taxonomy_prefix + ".txt.gz", "rt") as f:
@@ -3210,9 +3107,7 @@ def build_16S_silva(args):
     os.chdir(os.path.pardir)
     move(os.path.join("data", "names.dmp"), "taxonomy")
     move(os.path.join("data", "nodes.dmp"), "taxonomy")
-    move(
-        os.path.join("data", taxonomy_prefix + ".acc_taxid"), "seqid2taxid.map"
-    )
+    move(os.path.join("data", taxonomy_prefix + ".acc_taxid"), "seqid2taxid.map")
     with gzip.open(os.path.join("data", fasta_filename), "rt") as in_file:
         os.chdir("library")
         os.makedirs("silva", exist_ok=True)
@@ -3224,9 +3119,7 @@ def build_16S_silva(args):
                 out_file.write(line)
     if not args.no_masking:
         filename = "library.fna"
-        mask_files(
-            [filename], filename + ".masked", args.threads
-        )
+        mask_files([filename], filename + ".masked", args.threads)
         shutil.move(filename + ".masked", filename)
 
     os.chdir(args.db)
@@ -3306,9 +3199,7 @@ def build_gg_taxonomy(in_file):
                     )
                 )
                 nodes_file.write(
-                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(
-                        node_id, parent_id, rank
-                    )
+                    "{:d}\t|\t{:d}\t|\t{:s}\t|\t-\t|\n".format(node_id, parent_id, rank)
                 )
                 children = (
                     sorted([key for key in child_data[node]])
@@ -3386,9 +3277,7 @@ def build_16S_rdp(args):
         shutil.move(filename, os.path.join("library", new_filename))
         if not args.no_masking:
             new_filename = os.path.join("library", new_filename)
-            mask_files(
-                [new_filename], new_filename + ".masked", args.threads
-            )
+            mask_files([new_filename], new_filename + ".masked", args.threads)
             shutil.move(new_filename + ".masked", new_filename)
 
     build_kraken2_db(args)
@@ -3455,9 +3344,7 @@ def make_seqid_to_taxid_map(
                 target_lists[capture].insert(0, seqid)
         else:
             LOG.error(
-                "Unable to determine taxonomy ID for sequence {:s}\n".format(
-                    seqid
-                )
+                "Unable to determine taxonomy ID for sequence {:s}\n".format(seqid)
             )
             sys.exit(1)
         if output and not quiet:
@@ -3469,9 +3356,7 @@ def make_seqid_to_taxid_map(
     if len(target_lists) == 0:
         sys.exit(0)
     if not accession_map_filenames and library_map_filename is None:
-        LOG.error(
-            "Found sequence ID without explicit taxonomy ID, but no map used\n"
-        )
+        LOG.error("Found sequence ID without explicit taxonomy ID, but no map used\n")
         sys.exit(1)
     # Remove targets where we've already handled the mapping
     if library_map_filename:
@@ -3532,9 +3417,7 @@ def check_daemon():
     with open("/tmp/classify.pid", "r") as in_file:
         pid = in_file.readline().strip()
         null = os.open(os.devnull, os.O_WRONLY)
-        alive = subprocess.call(
-            ["ps", pid], stdout=null, stderr=null
-        )
+        alive = subprocess.call(["ps", pid], stdout=null, stderr=null)
         os.close(null)
 
     return alive == 0
@@ -3574,20 +3457,15 @@ def classify_using_daemon(args, argv):
         LOG.info("Starting backgroud classifier process\n")
         subprocess.call(argv)
         wait_for_files(
-            "/tmp/classify.pid",
-            "/tmp/classify_stdin",
-            "/tmp/classify_stdout"
+            "/tmp/classify.pid", "/tmp/classify_stdin", "/tmp/classify_stdout"
         )
         with open("/tmp/classify.pid", "r") as in_file:
             pid = in_file.readline().strip()
-            LOG.info(
-                "Started background classifier process with PID: {}\n"
-                .format(pid)
-            )
+            LOG.info("Started background classifier process with PID: {}\n".format(pid))
             LOG.info("Run k2 clean --stop-daemon to stop it.\n")
     else:
         fd = os.open("/tmp/classify_stdin", os.O_RDWR)
-        with os.fdopen(fd, 'w') as out_file:
+        with os.fdopen(fd, "w") as out_file:
             out_file.write(" ".join(argv) + "\n")
             # the daemon will return the pid of the subprocess
             # doing the work
@@ -3605,9 +3483,7 @@ def classify_using_daemon(args, argv):
     thread = None
     proc_fd = open(proc_in, "w")
     if len(args.filenames) == 0:
-        thread = threading.Thread(
-            target=copy_file_obj, args=(proc_fd,)
-        )
+        thread = threading.Thread(target=copy_file_obj, args=(proc_fd,))
         thread.start()
     if "output" not in args:
         with open(proc_out, "r") as in_file:
@@ -3636,7 +3512,7 @@ def classify_using_daemon(args, argv):
 def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
     fastq = False
     lines_printed = 0
-    if chr(header[0]) == '@':
+    if chr(header[0]) == "@":
         fastq = True
     if taxid:
         header = header.strip() + (" kraken:taxid|" + str(taxid) + "\n").encode()
@@ -3649,7 +3525,7 @@ def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
             break
         if len(in_file.peek()) == 0:
             break
-        if not fastq and chr(in_file.peek()[0]) == '>':
+        if not fastq and chr(in_file.peek()[0]) == ">":
             break
         line = in_file.readline()
         if out_file:
@@ -3657,8 +3533,12 @@ def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
         lines_printed += 1
 
 
-def process_unpaired(input_filenames, classified_out_filename,
-                     unclassified_out_filename, classified_headers):
+def process_unpaired(
+    input_filenames,
+    classified_out_filename,
+    unclassified_out_filename,
+    classified_headers,
+):
     if classified_out_filename:
         classified_out_file = open(classified_out_filename, "wb")
     if unclassified_out_filename:
@@ -3667,7 +3547,7 @@ def process_unpaired(input_filenames, classified_out_filename,
     for filename in input_filenames:
         with open(filename, "rb") as in_file:
             for line in in_file:
-                read_name = line.split(b' ', 1)[0]
+                read_name = line.split(b" ", 1)[0]
                 read_name = read_name[1:].strip()
                 classified = read_name.decode() in classified_headers
                 if classified and classified_out_filename:
@@ -3676,9 +3556,7 @@ def process_unpaired(input_filenames, classified_out_filename,
                         in_file, classified_out_file, line, taxid
                     )
                 elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(
-                        in_file, unclassified_out_file, line
-                    )
+                    write_raw_sequence_to_file(in_file, unclassified_out_file, line)
                 else:
                     write_raw_sequence_to_file(in_file, None, line)
 
@@ -3688,26 +3566,26 @@ def process_unpaired(input_filenames, classified_out_filename,
         unclassified_out_file.close()
 
 
-def process_paired(input_filenames, classified_out_filename,
-                   unclassified_out_filename, classified_headers):
+def process_paired(
+    input_filenames,
+    classified_out_filename,
+    unclassified_out_filename,
+    classified_headers,
+):
     if classified_out_filename:
-        classified_out_filename1 =\
-            classified_out_filename.replace('#', "_1")
+        classified_out_filename1 = classified_out_filename.replace("#", "_1")
         classified_out_file1 = open(classified_out_filename1, "wb")
-        classified_out_filename2 =\
-            classified_out_filename.replace('#', "_2")
+        classified_out_filename2 = classified_out_filename.replace("#", "_2")
         classified_out_file2 = open(classified_out_filename2, "wb")
     if unclassified_out_filename:
-        unclassified_out_filename1 =\
-            unclassified_out_filename.replace('#', "_1")
+        unclassified_out_filename1 = unclassified_out_filename.replace("#", "_1")
         unclassified_out_file1 = open(unclassified_out_filename1, "wb")
-        unclassified_out_filename2 =\
-            unclassified_out_filename.replace('#', "_2")
+        unclassified_out_filename2 = unclassified_out_filename.replace("#", "_2")
         unclassified_out_file2 = open(unclassified_out_filename2, "wb")
     for filename1, filename2 in zip(input_filenames[::1], input_filenames[::2]):
         with open(filename1, "rb") as in_file1, open(filename2, "rb") as in_file2:
             for line1, line2 in zip(in_file1, in_file2):
-                read_name = line1.split(b' ', 1)[0]
+                read_name = line1.split(b" ", 1)[0]
                 read_name = read_name[1:].strip()
                 classified = read_name.decode() in classified_headers
                 if classified and classified_out_filename:
@@ -3719,19 +3597,11 @@ def process_paired(input_filenames, classified_out_filename,
                         in_file2, classified_out_file2, line2, taxid
                     )
                 elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(
-                        in_file1, unclassified_out_file1, line1
-                    )
-                    write_raw_sequence_to_file(
-                        in_file2, unclassified_out_file2, line2
-                    )
+                    write_raw_sequence_to_file(in_file1, unclassified_out_file1, line1)
+                    write_raw_sequence_to_file(in_file2, unclassified_out_file2, line2)
                 else:
-                    write_raw_sequence_to_file(
-                        in_file1, None, line1
-                    )
-                    write_raw_sequence_to_file(
-                        in_file2, None, line2
-                    )
+                    write_raw_sequence_to_file(in_file1, None, line1)
+                    write_raw_sequence_to_file(in_file2, None, line2)
 
     if classified_out_filename:
         classified_out_file1.close()
@@ -3742,8 +3612,11 @@ def process_paired(input_filenames, classified_out_filename,
 
 
 def process_interleaved(
-        input_filenames, classified_out_filename,
-        unclassified_out_filename, classified_headers):
+    input_filenames,
+    classified_out_filename,
+    unclassified_out_filename,
+    classified_headers,
+):
     if classified_out_filename:
         classified_out_file = open(classified_out_filename, "wb")
     if unclassified_out_filename:
@@ -3753,7 +3626,7 @@ def process_interleaved(
         with open(filename, "rb") as in_file:
             for line in in_file:
                 line2 = in_file.readline()
-                read_name = line.split(b' ', 1)[0]
+                read_name = line.split(b" ", 1)[0]
                 read_name = read_name[1:].strip()
                 classified = read_name.decode() in classified_headers
                 if classified and classified_out_filename:
@@ -3765,12 +3638,8 @@ def process_interleaved(
                         in_file, classified_out_file, line2, taxid
                     )
                 elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(
-                        in_file, unclassified_out_file, line
-                    )
-                    write_raw_sequence_to_file(
-                        in_file, unclassified_out_file, line2
-                    )
+                    write_raw_sequence_to_file(in_file, unclassified_out_file, line)
+                    write_raw_sequence_to_file(in_file, unclassified_out_file, line2)
                 else:
                     write_raw_sequence_to_file(in_file, None, line)
                     write_raw_sequence_to_file(in_file, None, line2)
@@ -3782,23 +3651,33 @@ def process_interleaved(
 
 
 def write_fasta_sequences(
-        args, input_filenames, classified_out_filename,
-        unclassified_out_filename, classified_headers):
+    args,
+    input_filenames,
+    classified_out_filename,
+    unclassified_out_filename,
+    classified_headers,
+):
 
     if "paired" in args:
         process_paired(
-            input_filenames, classified_out_filename,
-            unclassified_out_filename, classified_headers
+            input_filenames,
+            classified_out_filename,
+            unclassified_out_filename,
+            classified_headers,
         )
     elif "interleaved" in args:
         process_interleaved(
-            input_filenames, classified_out_filename,
-            unclassified_out_filename, classified_headers
+            input_filenames,
+            classified_out_filename,
+            unclassified_out_filename,
+            classified_headers,
         )
     else:
         process_unpaired(
-            input_filenames, classified_out_filename,
-            unclassified_out_filename, classified_headers
+            input_filenames,
+            classified_out_filename,
+            unclassified_out_filename,
+            classified_headers,
         )
 
 
@@ -3823,9 +3702,7 @@ class Taxonomy:
         nodes = ctypes.c_char_p(nodes.encode())
         seqid2taxid = ctypes.c_char_p(seqid2taxid.encode())
         taxonomy_pathname = ctypes.c_char_p(taxonomy_pathname.encode())
-        self.dll.generate_taxonomy(
-            names, nodes, seqid2taxid, taxonomy_pathname
-        )
+        self.dll.generate_taxonomy(names, nodes, seqid2taxid, taxonomy_pathname)
 
     def load_taxonomy(self, taxonomy_pathname):
         tax_file = ctypes.c_char_p(taxonomy_pathname.encode())
@@ -3918,22 +3795,50 @@ def get_clade_counters(taxonomy, call_counters):
     return clade_counters
 
 
-def print_kraken_style_report(out_file, report_kmer_data,
-                              total_seqs, clade_counter, taxon_counter,
-                              rank_string, taxid, scientific_name, depth):
+def print_kraken_style_report(
+    out_file,
+    report_kmer_data,
+    total_seqs,
+    clade_counter,
+    taxon_counter,
+    rank_string,
+    taxid,
+    scientific_name,
+    depth,
+):
     read_count = clade_counter.get_read_count()
     percentage = 100.0 * read_count / total_seqs
-    out_string = "{:6.2f}".format(percentage) +\
-        "\t" + str(clade_counter.get_read_count()) +\
-        "\t" + str(taxon_counter.get_read_count()) +\
-        "\t" + rank_string + "\t" + str(taxid) +\
-        "\t" + " " * depth + scientific_name + "\n"
+    out_string = (
+        "{:6.2f}".format(percentage)
+        + "\t"
+        + str(clade_counter.get_read_count())
+        + "\t"
+        + str(taxon_counter.get_read_count())
+        + "\t"
+        + rank_string
+        + "\t"
+        + str(taxid)
+        + "\t"
+        + " " * depth
+        + scientific_name
+        + "\n"
+    )
     out_file.write(out_string)
 
 
-def kraken_report_dfs(out_file, taxid, report_zeros, report_kmer_data,
-                      taxonomy, clade_counters, call_counters, total_seqs,
-                      rank_code, rank_depth, depth):
+def kraken_report_dfs(
+    out_file,
+    taxid,
+    report_zeros,
+    report_kmer_data,
+    taxonomy,
+    clade_counters,
+    call_counters,
+    total_seqs,
+    rank_code,
+    rank_depth,
+    depth,
+):
     clade_counter = clade_counters[taxid]
     call_counter = call_counters[taxid]
     if not report_zeros and clade_counter.get_read_count() == 0:
@@ -3941,28 +3846,28 @@ def kraken_report_dfs(out_file, taxid, report_zeros, report_kmer_data,
 
     rank = taxonomy.get_rank(taxid).decode()
     if rank == "superkingdom":
-        rank_code = 'D'
+        rank_code = "D"
         rank_depth = 0
     elif rank == "kingdom":
-        rank_code = 'K'
+        rank_code = "K"
         rank_depth = 0
     elif rank == "phylum":
-        rank_code = 'P'
+        rank_code = "P"
         rank_depth = 0
     elif rank == "class":
-        rank_code = 'C'
+        rank_code = "C"
         rank_depth = 0
     elif rank == "order":
-        rank_code = 'O'
+        rank_code = "O"
         rank_depth = 0
     elif rank == "family":
-        rank_code = 'F'
+        rank_code = "F"
         rank_depth = 0
     elif rank == "genus":
-        rank_code = 'G'
+        rank_code = "G"
         rank_depth = 0
     elif rank == "species":
-        rank_code = 'S'
+        rank_code = "S"
         rank_depth = 0
     else:
         rank_depth += 1
@@ -3972,25 +3877,39 @@ def kraken_report_dfs(out_file, taxid, report_zeros, report_kmer_data,
         rank_string += str(rank_depth)
     scientific_name = taxonomy.taxid_to_name(taxid).decode()
     print_kraken_style_report(
-        out_file, False, total_seqs, clade_counter,
-        call_counter, rank_string, taxid, scientific_name,
-        depth
+        out_file,
+        False,
+        total_seqs,
+        clade_counter,
+        call_counter,
+        rank_string,
+        taxid,
+        scientific_name,
+        depth,
     )
     children = sorted(
         taxonomy.get_child_taxids(taxid),
-        key=lambda t: clade_counters[t].get_read_count()
+        key=lambda t: clade_counters[t].get_read_count(),
     )
     for child_taxid in children:
         kraken_report_dfs(
-            out_file, child_taxid, report_zeros,
-            report_kmer_data, taxonomy, clade_counters,
-            call_counters, total_seqs, rank_code, rank_depth,
-            depth + 1
+            out_file,
+            child_taxid,
+            report_zeros,
+            report_kmer_data,
+            taxonomy,
+            clade_counters,
+            call_counters,
+            total_seqs,
+            rank_code,
+            rank_depth,
+            depth + 1,
         )
 
 
-def report_kraken_style(filename, report_zeros, report_kmer_data,
-                        taxonomy, call_counters, total_seqs):
+def report_kraken_style(
+    filename, report_zeros, report_kmer_data, taxonomy, call_counters, total_seqs
+):
     clade_counters = get_clade_counters(taxonomy, call_counters)
     total_unclassified = call_counters[0].get_read_count()
     rank_code = "R"
@@ -3998,12 +3917,28 @@ def report_kraken_style(filename, report_zeros, report_kmer_data,
     with open(filename, "w") as out_file:
         if total_unclassified > 0:
             print_kraken_style_report(
-                out_file, False, total_seqs, call_counters[0],
-                call_counters[0], "U", 0, "unclassified", 0
+                out_file,
+                False,
+                total_seqs,
+                call_counters[0],
+                call_counters[0],
+                "U",
+                0,
+                "unclassified",
+                0,
             )
         kraken_report_dfs(
-            out_file, 1, report_zeros, False, taxonomy, clade_counters,
-            call_counters, total_seqs, rank_code, 0, 0
+            out_file,
+            1,
+            report_zeros,
+            False,
+            taxonomy,
+            clade_counters,
+            call_counters,
+            total_seqs,
+            rank_code,
+            0,
+            0,
         )
 
 
@@ -4039,20 +3974,20 @@ def resolve_taxa_tree(hit_counts, taxonomy, total_kmers, args):
 
 def parse_taxid_counts(string, counts):
     index = 0
-    counts_len = string.count(':') * 2
+    counts_len = string.count(":") * 2
     if counts is None:
-        counts = array.array('I', range(0, counts_len))
+        counts = array.array("I", range(0, counts_len))
     _, counts_capacity = counts.buffer_info()
     if counts_capacity < counts_len:
         counts.extend(range(0, counts_len - counts_capacity))
 
     for entry in string.split():
-        taxid, count = entry.split(':')
-        if taxid == 'A':
+        taxid, count = entry.split(":")
+        if taxid == "A":
             taxid, count = AMBIGUOUS_TAXID, int(count)
         # separator for paired reads, set the taxid and count
         # to an invalid value
-        elif taxid == '|':
+        elif taxid == "|":
             taxid, count = 0, 0
         else:
             taxid, count = int(taxid), int(count)
@@ -4071,8 +4006,7 @@ def get_lca(taxonomy, cache, taxid1, taxid2):
     return cache[(taxid1, taxid2)]
 
 
-def merge_counts(
-        taxonomy, lca_cache, counts1, counts1_len, counts2, counts2_len):
+def merge_counts(taxonomy, lca_cache, counts1, counts1_len, counts2, counts2_len):
     index1 = 0
     index2 = 0
     total_minimizers = 0
@@ -4157,8 +4091,8 @@ def merge_counts(
 
 
 def merge_classification_output(
-        taxonomy, in_filename1, in_filename2,
-        out_filename, use_names, args, final=False):
+    taxonomy, in_filename1, in_filename2, out_filename, use_names, args, final=False
+):
     call_counters = TaxonCounters()
     total_seqs = 0
     counts_array1 = None
@@ -4166,22 +4100,25 @@ def merge_classification_output(
     lca_cache = {}
     with open(in_filename1) as file1, open(in_filename2) as file2:
         with open(out_filename, "w") as out_file:
-            for (line1, line2) in zip(file1, file2):
-                (status1, name1, taxid1, len1, counts1) =\
-                    line1.strip().split('\t', 5)
-                (status2, name2, taxid2, len2, counts2) =\
-                    line2.strip().split('\t', 5)
+            for line1, line2 in zip(file1, file2):
+                (status1, name1, taxid1, len1, counts1) = line1.strip().split("\t", 5)
+                (status2, name2, taxid2, len2, counts2) = line2.strip().split("\t", 5)
                 if status1 == "C" and status2 == "C":
                     status = "C"
-                    counts_array1, counts_len1 =\
-                        parse_taxid_counts(counts1, counts_array1)
-                    counts_array2, counts_len2 =\
-                        parse_taxid_counts(counts2, counts_array2)
-                    counts, counts_map, total_minimizers =\
-                        merge_counts(
-                            taxonomy, lca_cache, counts_array1,
-                            counts_len1, counts_array2, counts_len2
-                        )
+                    counts_array1, counts_len1 = parse_taxid_counts(
+                        counts1, counts_array1
+                    )
+                    counts_array2, counts_len2 = parse_taxid_counts(
+                        counts2, counts_array2
+                    )
+                    counts, counts_map, total_minimizers = merge_counts(
+                        taxonomy,
+                        lca_cache,
+                        counts_array1,
+                        counts_len1,
+                        counts_array2,
+                        counts_len2,
+                    )
                     taxid = resolve_taxa_tree(
                         counts_map, taxonomy, total_minimizers, args
                     )
@@ -4204,14 +4141,17 @@ def merge_classification_output(
                 if use_names:
                     scientific_name = taxonomy.taxid_to_name(int(taxid))
                     records = "\t".join(
-                        [status, name1, scientific_name.decode(),
-                         "(taxid " + str(taxid) + ")", len1]
+                        [
+                            status,
+                            name1,
+                            scientific_name.decode(),
+                            "(taxid " + str(taxid) + ")",
+                            len1,
+                        ]
                     )
 
                 else:
-                    records = "\t".join(
-                        [status, name1, str(taxid), len1]
-                    )
+                    records = "\t".join([status, name1, str(taxid), len1])
                 out_file.write(records)
                 out_file.write("\t")
                 out_file.write(counts)
@@ -4220,8 +4160,8 @@ def merge_classification_output(
 
 
 def merge_classification_output2(
-        taxonomy_pathname, lines, job_number, use_names, args,
-        save_seq_names, final):
+    taxonomy_pathname, lines, job_number, use_names, args, save_seq_names, final
+):
     taxonomy_dll_pathname = find_kraken2_binary("libtax.so")
     taxonomy = Taxonomy(taxonomy_dll_pathname)
     taxonomy.load_taxonomy(taxonomy_pathname)
@@ -4232,16 +4172,12 @@ def merge_classification_output2(
     classified_headers = {}
     counts_array2 = None
     lca_cache = {}
-    out_filename = tempfile.mktemp(
-        prefix="k2_job_" + str(job_number) + "_"
-    )
+    out_filename = tempfile.mktemp(prefix="k2_job_" + str(job_number) + "_")
 
     with open(out_filename, "w") as out_file:
-        for (left, right) in lines:
-            (status1, seq_name1, taxid1, len1, counts1) =\
-                left.strip().split('\t', 5)
-            (status2, seq_name2, taxid2, len2, counts2) =\
-                right.strip().split('\t', 5)
+        for left, right in lines:
+            (status1, seq_name1, taxid1, len1, counts1) = left.strip().split("\t", 5)
+            (status2, seq_name2, taxid2, len2, counts2) = right.strip().split("\t", 5)
             if status1 == "C" and status2 == "C":
                 status = "C"
                 if args.merge_policy == "first-classified":
@@ -4251,15 +4187,20 @@ def merge_classification_output2(
                     taxid = taxid2
                     counts = counts2
                 else:
-                    counts_array1, counts_len1 =\
-                        parse_taxid_counts(counts1, counts_array1)
-                    counts_array2, counts_len2 =\
-                        parse_taxid_counts(counts2, counts_array2)
-                    counts, counts_map, total_minimizers =\
-                        merge_counts(
-                            taxonomy, lca_cache, counts_array1,
-                            counts_len1, counts_array2, counts_len2
-                        )
+                    counts_array1, counts_len1 = parse_taxid_counts(
+                        counts1, counts_array1
+                    )
+                    counts_array2, counts_len2 = parse_taxid_counts(
+                        counts2, counts_array2
+                    )
+                    counts, counts_map, total_minimizers = merge_counts(
+                        taxonomy,
+                        lca_cache,
+                        counts_array1,
+                        counts_len1,
+                        counts_array2,
+                        counts_len2,
+                    )
                     taxid = resolve_taxa_tree(
                         counts_map, taxonomy, total_minimizers, args
                     )
@@ -4274,15 +4215,16 @@ def merge_classification_output2(
             else:
                 status = "U"
                 taxid = 0
-                counts_array1, counts_len1 =\
-                    parse_taxid_counts(counts1, counts_array1)
-                counts_array2, counts_len2 =\
-                    parse_taxid_counts(counts2, counts_array2)
-                counts, counts_map, total_minimizers =\
-                    merge_counts(
-                        taxonomy, lca_cache, counts_array1,
-                        counts_len1, counts_array2, counts_len2
-                    )
+                counts_array1, counts_len1 = parse_taxid_counts(counts1, counts_array1)
+                counts_array2, counts_len2 = parse_taxid_counts(counts2, counts_array2)
+                counts, counts_map, total_minimizers = merge_counts(
+                    taxonomy,
+                    lca_cache,
+                    counts_array1,
+                    counts_len1,
+                    counts_array2,
+                    counts_len2,
+                )
             if final:
                 call_counters[int(taxid)].increment_read_count()
                 if save_seq_names:
@@ -4292,33 +4234,41 @@ def merge_classification_output2(
             if use_names:
                 scientific_name = taxonomy.taxid_to_name(int(taxid))
                 records = "\t".join(
-                    [status, seq_name1,
-                     scientific_name.decode() + " " + "(taxid " + str(taxid) + ")", len1]
+                    [
+                        status,
+                        seq_name1,
+                        scientific_name.decode() + " " + "(taxid " + str(taxid) + ")",
+                        len1,
+                    ]
                 )
             else:
-                records = "\t".join(
-                    [status, seq_name1, str(taxid), len1]
-                )
+                records = "\t".join([status, seq_name1, str(taxid), len1])
             out_file.write(records)
             out_file.write("\t")
             out_file.write(counts)
             out_file.write("\n")
     if final:
-        return (
-            out_filename, call_counters, total_seqs, classified_headers
-        )
+        return (out_filename, call_counters, total_seqs, classified_headers)
     else:
         return (out_filename, None, None, None)
 
 
 def extract_job_number(filename):
-    job_no = re.search("k2_job_(\d+)_.*", filename).group(1)
+    job_no = re.search(r"k2_job_(\d+)_.*", filename).group(1)
     return int(job_no)
 
 
 def merge_classification_output_parallel(
-        pool, taxonomy_pathname, in_filename1, in_filename2,
-        out_filename, use_names, args, save_seq_names, final):
+    pool,
+    taxonomy_pathname,
+    in_filename1,
+    in_filename2,
+    out_filename,
+    use_names,
+    args,
+    save_seq_names,
+    final,
+):
     filenames = []
     call_counters = TaxonCounters()
     total_seqs = 0
@@ -4330,15 +4280,22 @@ def merge_classification_output_parallel(
     job_number = 0
     futures = []
     wrapped_func = functools.partial(
-        wrap_with_globals, merge_classification_output2,
-        LOG.get_queue(), LOG.get_level(),
-        SCRIPT_PATHNAME
+        wrap_with_globals,
+        merge_classification_output2,
+        LOG.get_queue(),
+        LOG.get_level(),
+        SCRIPT_PATHNAME,
     )
     for start, end in zip(partition_ranges, partition_ranges[1:]):
         future = pool.submit(
-            wrapped_func, taxonomy_pathname,
-            input[start:end], job_number, use_names, args,
-            save_seq_names, final
+            wrapped_func,
+            taxonomy_pathname,
+            input[start:end],
+            job_number,
+            use_names,
+            args,
+            save_seq_names,
+            final,
         )
         futures.append(future)
         job_number += 1
@@ -4346,8 +4303,7 @@ def merge_classification_output_parallel(
 
     classified_headers = []
     for future in done:
-        filename, counters, total, classified_set =\
-            future.result()
+        filename, counters, total, classified_set = future.result()
         filenames.append(filename)
         if final:
             classified_headers.append(classified_set)
@@ -4373,7 +4329,9 @@ def sanity_check_taxonomies(db_pathnames):
     nodes = {}
     for db_pathname in db_pathnames:
         nodes_pathname = os.path.join(db_pathname, "nodes.dmp")
-        nodes_pathname2 = os.path.join(db_pathname, os.path.join("taxonomy", "nodes.dmp"))
+        nodes_pathname2 = os.path.join(
+            db_pathname, os.path.join("taxonomy", "nodes.dmp")
+        )
         if os.path.exists(nodes_pathname):
             pass
         elif os.path.exists(nodes_pathname2):
@@ -4384,7 +4342,7 @@ def sanity_check_taxonomies(db_pathnames):
         with open(nodes_pathname, "r") as in_file:
             for line in in_file:
                 line = line.strip()
-                taxid, parent_taxid = line.split('|')[0:2]
+                taxid, parent_taxid = line.split("|")[0:2]
                 parent_taxid = parent_taxid.strip()
                 taxid = taxid.strip()
                 if taxid in nodes and nodes[taxid] != parent_taxid:
@@ -4405,15 +4363,10 @@ def classify_multi_dbs(args, filenames=[]):
     classified_out_filename = None
     unclassified_out_filename = None
     if "use_mpa_style" in args:
-        LOG.error(
-            "--use-mpa-style not supported when using multiple dbs\n"
-        )
+        LOG.error("--use-mpa-style not supported when using multiple dbs\n")
         sys.exit(1)
     if "report_minimizer_data" in args:
-        LOG.error(
-            "--report-minimizer-data not supported when using "
-            "multiple dbs\n"
-        )
+        LOG.error("--report-minimizer-data not supported when using " "multiple dbs\n")
         sys.exit(1)
     if "report" in args:
         report_filename, args.report = (args.report, None)
@@ -4437,9 +4390,7 @@ def classify_multi_dbs(args, filenames=[]):
     for db in dbs:
         seqid2taxid_map = os.path.join(db, "seqid2taxid.map")
         if not os.path.exists(seqid2taxid_map):
-            LOG.error(
-                "Unable to find seqid2taxid.map for database {}\n".format(db)
-            )
+            LOG.error("Unable to find seqid2taxid.map for database {}\n".format(db))
             LOG.error(
                 "seqid2taxid.map files are needed to create a merged taxonomy"
                 " for mulit-database classification\n"
@@ -4447,7 +4398,8 @@ def classify_multi_dbs(args, filenames=[]):
         seqid2taxid_maps.append(seqid2taxid_map)
     seqid2taxid_maps = sorted(seqid2taxid_maps)
     with tempfile.NamedTemporaryFile(
-            prefix="k2_seqid2taxid", suffix=".map", delete=False) as out_file:
+        prefix="k2_seqid2taxid", suffix=".map", delete=False
+    ) as out_file:
         seqid2taxid_map_pathname = out_file.name
         for seqid2taxid_map in seqid2taxid_maps:
             with open(seqid2taxid_map, "rb") as in_file:
@@ -4464,8 +4416,7 @@ def classify_multi_dbs(args, filenames=[]):
     taxonomy = Taxonomy(taxonomy_dll_pathname)
     taxonomy_pathname = tempfile.mktemp(prefix="k2_taxo", suffix=".k2d")
     taxonomy.generate_taxonomy(
-        names_pathname, nodes_pathname, seqid2taxid_map_pathname,
-        taxonomy_pathname
+        names_pathname, nodes_pathname, seqid2taxid_map_pathname, taxonomy_pathname
     )
     LOG.info("Finished creating and loading merged taxonomy\n")
 
@@ -4476,13 +4427,9 @@ def classify_multi_dbs(args, filenames=[]):
             tmp_filenames.append(pathname)
             args.output = pathname
 
-            LOG.info(
-                "Running classification job for database {}\n".format(db)
-            )
+            LOG.info("Running classification job for database {}\n".format(db))
             classify(args)
-            LOG.info(
-                "Finished running classification job for database {}\n".format(db)
-            )
+            LOG.info("Finished running classification job for database {}\n".format(db))
 
     LOG.info("Merging output files\n")
     merge_filename = tempfile.mktemp(prefix="k2_")
@@ -4505,11 +4452,19 @@ def classify_multi_dbs(args, filenames=[]):
         # save_seq_names = final and (classified_out_filename is not None
         #                             or unclassified_out_filename is not None)
         save_seq_names = True
-        call_counters, total_seqs, classified_headers =\
+        call_counters, total_seqs, classified_headers = (
             merge_classification_output_parallel(
-                pool, taxonomy_pathname, filename1, filename2, out_filename,
-                use_names and final, args, save_seq_names, final
+                pool,
+                taxonomy_pathname,
+                filename1,
+                filename2,
+                out_filename,
+                use_names and final,
+                args,
+                save_seq_names,
+                final,
             )
+        )
         progress.progress(1, relative=True)
         # LOG.info("finished merging classification output\n")
         LOG.debug("{}\r".format(progress.get_bar()))
@@ -4540,23 +4495,31 @@ def classify_multi_dbs(args, filenames=[]):
     percentage_classified = (num_classified_sequences / total_seqs) * 100
     percentage_unclassified = (num_unclassified_sequences / total_seqs) * 100
     LOG.info("{:d} sequences processed\n".format(total_seqs))
-    LOG.info("  {:d} sequences classified ({:.2f}%)\n"
-          .format(num_classified_sequences, percentage_classified))
-    LOG.info("  {:d} sequences unclassified ({:.2f}%)\n"
-          .format(num_unclassified_sequences, percentage_unclassified))
+    LOG.info(
+        "  {:d} sequences classified ({:.2f}%)\n".format(
+            num_classified_sequences, percentage_classified
+        )
+    )
+    LOG.info(
+        "  {:d} sequences unclassified ({:.2f}%)\n".format(
+            num_unclassified_sequences, percentage_unclassified
+        )
+    )
     if classified_out_filename or unclassified_out_filename:
         LOG.info("Writing (un)classified sequences to file\n")
         write_fasta_sequences(
-            args, args.filenames, classified_out_filename,
-            unclassified_out_filename, classified_headers
+            args,
+            args.filenames,
+            classified_out_filename,
+            unclassified_out_filename,
+            classified_headers,
         )
         LOG.info("Finished writing (un)classified sequences to file\n")
     if report_filename is not None:
         LOG.info("Generating report file\n")
         taxonomy.load_taxonomy(taxonomy_pathname)
         report_kraken_style(
-            report_filename, report_zeros, False,
-            taxonomy, call_counters, total_seqs
+            report_filename, report_zeros, False, taxonomy, call_counters, total_seqs
         )
         LOG.info("Finished generating report file\n")
     os.remove(taxonomy_pathname)
@@ -4596,18 +4559,14 @@ def classify(args):
             try:
                 os.mkfifo(fifo1_pathname, 0o600)
             except OSError:
-                LOG.error(
-                    "Unable to create FIFO for processing compressed files\n"
-                )
+                LOG.error("Unable to create FIFO for processing compressed files\n")
                 sys.exit(1)
             if "-P" in argv:
                 fifo2_pathname = os.path.join(temp_dir_name, "fifo2")
                 try:
                     os.mkfifo(fifo2_pathname, 0o600)
                 except OSError:
-                    LOG.error(
-                        "Unable to create FIFO for processing compressed files\n"
-                    )
+                    LOG.error("Unable to create FIFO for processing compressed files\n")
                     sys.exit(1)
                 argv.extend([fifo1_pathname, fifo2_pathname])
             else:
@@ -4621,12 +4580,10 @@ def classify(args):
             thread.start()
             if "-P" in argv:
                 writer_thread1 = threading.Thread(
-                    target=write_to_fifo,
-                    args=(args.filenames[0::2], fifo1_pathname)
+                    target=write_to_fifo, args=(args.filenames[0::2], fifo1_pathname)
                 )
                 writer_thread2 = threading.Thread(
-                    target=write_to_fifo,
-                    args=(args.filenames[1::2], fifo2_pathname)
+                    target=write_to_fifo, args=(args.filenames[1::2], fifo2_pathname)
                 )
                 writer_thread1.start()
                 writer_thread2.start()
@@ -4668,9 +4625,7 @@ def inspect_db(args):
     # the entire output.
     output_filename, args.output = args.output, None
     wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
-    process = subprocess.Popen(
-        argv, stdout=subprocess.PIPE
-    )
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE)
 
     if output_filename == "-":
         shutil.copyfileobj(process.stdout, sys.stdout.buffer)
@@ -4696,9 +4651,7 @@ def clean_up(filenames):
     # walk the directory tree to get the size of the individual files
     # sum them up to get the usage stat
     space_freed = format_bytes(remove_files(filenames))
-    LOG.info(
-        "Cleaned up {} of space\n".format(space_freed)
-    )
+    LOG.info("Cleaned up {} of space\n".format(space_freed))
 
 
 def range_parser(input):
@@ -4706,7 +4659,7 @@ def range_parser(input):
         input = ".."
     volumes = []
     regex = re.compile(r"(\d+)?(?:\.{2,3}|\-|:)(\d+)?")
-    for volume in input.replace(' ', '').split(','):
+    for volume in input.replace(" ", "").split(","):
         if volume.isdecimal():
             volumes.append(int(volume))
         else:
@@ -4746,6 +4699,99 @@ def clean_db(args):
             )
 
 
+def get_library_and_prelim_map_filepaths(db_pathname):
+    library_filepaths = glob.glob(
+        os.path.join(db_pathname, "library", os.path.join("*", "*.f[an]a")),
+        recursive=False,
+    )
+
+    prelim_map_filepaths = glob.glob(
+        os.path.join(db_pathname, "library", os.path.join("*", "prelim_map.txt")),
+        recursive=False,
+    )
+
+    return (library_filepaths, prelim_map_filepaths)
+
+
+def spawn_estimate_capacity_proc(args):
+    estimate_capacity_binary = find_kraken2_binary("estimate_capacity")
+    argv = [estimate_capacity_binary, "-S", construct_seed_template(args)]
+    if args.protein:
+        argv.append("-X")
+    wrapper_args_to_binary_args(
+        args, argv, get_binary_options(estimate_capacity_binary)
+    )
+
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    return proc
+
+
+def split(args, db):
+    # find all library.f[na]a files
+    protein = False
+    split_size = parse_db_size("250MiB")
+    library_pathnames, prelim_map_pathnames = get_library_and_prelim_map_filepaths(db)
+    print(library_pathnames)
+    split_count = 1
+    taxonomy_pathname = os.path.join(db, "taxonomy")
+    db_name = os.path.basename(db)
+    split_db_name = db_name + "_part_" + str(split_count)
+    dir_name = os.path.join(db, split_db_name)
+    print(dir_name)
+    os.makedirs(dir_name, exist_ok=True)
+    os.chdir(dir_name)
+    if os.path.exists("taxonomy"):
+        os.remove("taxonomy")
+    os.symlink(taxonomy_pathname, "taxonomy", target_is_directory=True)
+    print(os.path.abspath(os.curdir))
+    if protein:
+        library_filename = "library.faa"
+    else:
+        library_filename = "library.fna"
+    os.makedirs(os.path.join("library", split_db_name), exist_ok=True)
+    library_pathname = os.path.join("library", split_db_name, library_filename)
+    prelim_map_pathname = os.path.join("library", split_db_name, "prelim_map.txt")
+    lib_out = open(library_pathname, "w")
+    prelim_out = open(prelim_map_pathname, "w")
+    estimate_capacity_proc = spawn_estimate_capacity_proc(args)
+
+    for lib_pathname, prelim_pathname in zip(library_pathnames, prelim_map_pathnames):
+        with open(lib_pathname, "r") as lib_in, open(prelim_pathname, "r") as prelim_in:
+            # discard header comment
+            prelim_in.readline()
+            in_sequence = False
+            for line in lib_in:
+                if line.startswith(">"):
+                    in_sequence = False
+                    prelim_out.write(prelim_in.readline())
+                else:
+                    in_sequence = True
+                if not in_sequence and estimate_capacity_proc.poll():
+                    lib_out.close()
+                    prelim_out.close()
+                    os.chdir(db)
+                    split_count += 1
+                    split_db_name = db_name + "_part_" + str(split_count)
+                    dir_name = os.path.join(db, split_db_name)
+                    os.makedirs(dir_name, exist_ok=True)
+                    os.chdir(dir_name)
+                    if os.path.exists("taxonomy"):
+                        os.remove("taxonomy")
+                    os.symlink(taxonomy_pathname, "taxonomy", target_is_directory=True)
+                    os.makedirs(os.path.join("library", split_db_name), exist_ok=True)
+                    library_pathname = os.path.join(
+                        "library", split_db_name, library_filename
+                    )
+                    prelim_map_pathname = os.path.join(
+                        "library", split_db_name, "prelim_map.txt"
+                    )
+                    lib_out = open(library_pathname, "w")
+                    prelim_out = open(prelim_map_pathname, "w")
+                    estimate_capacity_proc = spawn_estimate_capacity_proc(args)
+                estimate_capacity_proc.stdin.write(line)
+                lib_out.write(line)
+
+
 def make_build_parser(subparsers):
     parser = subparsers.add_parser(
         "build",
@@ -4755,6 +4801,7 @@ def make_build_parser(subparsers):
               which can be added via the download-library or\
               add-to-library subcommands).",
     )
+    parser.register("type", "range", range_parser)
     parser.add_argument(
         "--db",
         type=str,
@@ -4768,7 +4815,7 @@ def make_build_parser(subparsers):
         "--standard",
         action="store_true",
         help="Make standard database which includes: archaea,\
-               bacteria, human, plasmid, UniVec_Core, and viral."
+               bacteria, human, plasmid, UniVec_Core, and viral.",
     )
     mutex_group.add_argument(
         "--special",
@@ -4782,18 +4829,24 @@ def make_build_parser(subparsers):
         type=str,
         nargs="+",
         help="A list of files or regex matching the files needed to build\
-              the special database."
+              the special database.",
+    )
+    group.add_argument(
+        "--parts",
+        "--part",
+        type="range",
+        help="build db which has been split into parts",
     )
     group.add_argument(
         "--gtdb-use-ncbi-taxonomy",
         action="store_true",
-        help="Use NCBI tax IDs and taxonomy tree when building GTDB database"
+        help="Use NCBI tax IDs and taxonomy tree when building GTDB database",
     )
     group.add_argument(
         "--gtdb-server",
         type=str,
         default=GTDB_SERVER,
-        help="The GTDB server to use (default: {})".format(GTDB_SERVER)
+        help="The GTDB server to use (default: {})".format(GTDB_SERVER),
     )
     group.add_argument(
         "--no-masking",
@@ -4807,7 +4860,7 @@ def make_build_parser(subparsers):
         default=4,
         metavar="K2MASK_THREADS",
         help="Number of threads used by k2mask during masking\
-              process (default: 4)"
+              process (default: 4)",
     )
     parser.add_argument(
         "--kmer-len", type=int, metavar="INT", help="K-mer length in bp/aa"
@@ -4879,6 +4932,14 @@ def make_build_parser(subparsers):
         help="Read subblock size",
     )
     parser.add_argument(
+        "--cht-cell-size",
+        type=int,
+        metavar="INT",
+        choices=[32, 40],
+        default=32,
+        help="Number of bits used by Compact Hash Table cells (default: 32)",
+    )
+    parser.add_argument(
         "--minimum-bits-for-taxid",
         type=int,
         metavar="INT",
@@ -4936,8 +4997,9 @@ def make_download_taxonomy_parser(subparsers):
 
 def make_download_library_parser(subparsers):
     parser = subparsers.add_parser(
-        "download-library", aliases=["download"],
-        help="Download and build a special database"
+        "download-library",
+        aliases=["download"],
+        help="Download and build a special database",
     )
     parser.register("type", "range", range_parser)
     parser.add_argument(
@@ -4998,12 +5060,12 @@ def make_download_library_parser(subparsers):
         choices=["chromosome", "complete_genome", "scaffold", "contig"],
         default=["chromosome", "complete_genome"],
         help="Only return genome assemblies that have one of the specified\
-              assembly levels (default chromosome and complete genome)"
+              assembly levels (default chromosome and complete genome)",
     )
     parser.add_argument(
         "--has-annotation",
         action="store_true",
-        help="Return only annotated genome assemblies (default: false)"
+        help="Return only annotated genome assemblies (default: false)",
     )
     parser.add_argument(
         "--blast-volumes",
@@ -5011,7 +5073,7 @@ def make_download_library_parser(subparsers):
         default="all",
         help="A comma separated list of the blast volume numbers to download.\
         Ranges are also accepted in the forms start..end, start-end, start:end,\
-        ranges are inclusive (default: all volumes)"
+        ranges are inclusive (default: all volumes)",
     )
     parser.add_argument(
         "--protein",
@@ -5047,14 +5109,12 @@ def make_download_library_parser(subparsers):
         default=4,
         metavar="K2MASK_THREADS",
         help="Number of threads used by k2mask during masking\
-              process (default: 4)"
+              process (default: 4)",
     )
 
 
 def make_add_to_library_parser(subparsers):
-    parser = subparsers.add_parser(
-        "add-to-library", help="Add file(s) to library"
-    )
+    parser = subparsers.add_parser("add-to-library", help="Add file(s) to library")
     parser.add_argument(
         "--db",
         type=str,
@@ -5068,7 +5128,7 @@ def make_add_to_library_parser(subparsers):
         metavar="THREADS",
         default=1,
         help="The number of threads/processes k2 uses when\
-              adding library files."
+              adding library files.",
     )
     parser.add_argument(
         "--file",
@@ -5122,14 +5182,12 @@ def make_add_to_library_parser(subparsers):
         metavar="K2MASK_THREADS",
         default=4,
         help="Number of threads used by k2mask during masking process\
-              (default: 4)"
+              (default: 4)",
     )
 
 
 def make_classify_parser(subparsers):
-    parser = subparsers.add_parser(
-        "classify", help="Classify a set of sequences"
-    )
+    parser = subparsers.add_parser("classify", help="Classify a set of sequences")
     parser.add_argument(
         "--db",
         type=lambda x: x.split(","),
@@ -5150,7 +5208,7 @@ def make_classify_parser(subparsers):
         ID will be chosen from the database where the read was last classified.\
         resolve-lca (default) - The assigned tax ID will be the result of\
         finding the Lowest Common Ancestor, LCA, of all the tax IDs\
-        assigned to this read."
+        assigned to this read.",
     )
     parser.add_argument(
         "--threads",
@@ -5166,7 +5224,7 @@ def make_classify_parser(subparsers):
         in memory. Subsequent invokations of classify with this option will\
         skip the index loading process and immediately start classifying\
         reads. If a new index is specified that index will also be persisted.\
-        Use k2 clean --stop-daemon to stop the background process."
+        Use k2 clean --stop-daemon to stop the background process.",
     )
     parser.add_argument(
         "--quick",
@@ -5323,11 +5381,12 @@ def make_inspect_parser(subparsers):
         help="Specify a log filename (default: stderr)",
     )
     parser.add_argument(
-        "--output", "--out",
+        "--output",
+        "--out",
         type=str,
         metavar="FILENAME",
         default="-",
-        help="Write inspect output to FILENAME (default: stdout)"
+        help="Write inspect output to FILENAME (default: stdout)",
     )
     parser.add_argument(
         "--memory-mapping",
@@ -5338,13 +5397,9 @@ def make_inspect_parser(subparsers):
 
 
 def make_clean_parser(subparsers):
-    parser = subparsers.add_parser(
-        "clean", help="Removes unwanted files from database"
-    )
+    parser = subparsers.add_parser("clean", help="Removes unwanted files from database")
 
-    actions = parser.add_argument_group(
-        "required", "Arguments required by the cleaner"
-    )
+    actions = parser.add_argument_group("required", "Arguments required by the cleaner")
     mg = actions.add_mutually_exclusive_group(required=True)
     mg.add_argument(
         "--stop-daemon",
@@ -5383,13 +5438,14 @@ def make_clean_parser(subparsers):
                   expression.
              ** - will match any files and zero or more directories,
                   subdirectories and symbolic links to directories.
-        """
+        """,
     )
+
 
 def make_merge_parser(subparsers):
     parser = subparsers.add_parser(
         "merge-classifications",
-        help="Merge classification results for different databases"
+        help="Merge classification results for different databases",
     )
     parser.add_argument(
         "--db",
@@ -5411,7 +5467,7 @@ def make_merge_parser(subparsers):
         ID will be chosen from the database where the read was last classified.\
         resolve-lca (default) - the assigned tax ID will be the result of\
         finding the Lowest Common Ancestor, LCA, of all the tax IDs\
-        assigned to this read."
+        assigned to this read.",
     )
     parser.add_argument(
         "--log",
@@ -5428,11 +5484,12 @@ def make_merge_parser(subparsers):
         help="Number of threads",
     )
     parser.add_argument(
-        "--output", "--out",
+        "--output",
+        "--out",
         type=str,
         metavar="FILENAME",
         default=None,
-        help="Write inspect output to FILENAME (default: stdout)"
+        help="Write inspect output to FILENAME (default: stdout)",
     )
     parser.add_argument(
         "filenames",
@@ -5460,9 +5517,7 @@ class HelpAction(argparse._HelpAction):
 def make_cmdline_parser():
     parser = argparse.ArgumentParser("k2", add_help=False)
     parser.add_argument("-h", "--help", action=HelpAction)
-    parser.add_argument(
-        "-v", "--version", action="version", version=SCRIPT_VERSION
-    )
+    parser.add_argument("-v", "--version", action="version", version=SCRIPT_VERSION)
     subparsers = parser.add_subparsers()
     make_add_to_library_parser(subparsers)
     make_download_library_parser(subparsers)
@@ -5486,23 +5541,18 @@ class Logger:
         if filename:
             self.logger.setLevel(logging.INFO)
             handler = logging.FileHandler(filename)
-            formatter = logging.Formatter(
-                "[%(levelname)s - %(asctime)s]: %(message)s"
-            )
+            formatter = logging.Formatter("[%(levelname)s - %(asctime)s]: %(message)s")
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
         else:
             self.logger.setLevel(logging.DEBUG)
             handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                "[%(levelname)s - %(asctime)s]: %(message)s"
-            )
+            formatter = logging.Formatter("[%(levelname)s - %(asctime)s]: %(message)s")
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
 
         self.thread = threading.Thread(
-            target=Logger.process_thread, args=(self,),
-            daemon=True
+            target=Logger.process_thread, args=(self,), daemon=True
         )
         self.thread.start()
 
@@ -5520,6 +5570,7 @@ class Logger:
 
     def process_thread(self):
         import queue
+
         while True:
             try:
                 record = self.queue.get()
@@ -5612,9 +5663,7 @@ def k2_main():
             args.sub_block_size = math.ceil(args.block_size / args.threads)
         if not args.kmer_len:
             args.kmer_len = (
-                default_aa_kmer_length
-                if args.protein
-                else default_nt_kmer_length
+                default_aa_kmer_length if args.protein else default_nt_kmer_length
             )
         if not args.minimizer_len:
             args.minimizer_len = (
@@ -5635,17 +5684,16 @@ def k2_main():
             )
             sys.exit(1)
         if args.load_factor <= 0 or args.load_factor > 1:
-            LOG.error(
-                "Load factor must be greater than 0 but no more than 1\n"
-            )
+            LOG.error("Load factor must be greater than 0 but no more than 1\n")
             sys.exit(1)
         if args.minimizer_len <= 0 or args.minimizer_len > 31:
             LOG.error(
-                "Minimizer length must be a positive integer "
-                "and cannot exceed 31.\n"
+                "Minimizer length must be a positive integer " "and cannot exceed 31.\n"
             )
             sys.exit(1)
-        if args.standard:
+        if args.parts:
+            build_db_by_parts(args)
+        elif args.standard:
             build_standard_database(args)
         elif args.special:
             if args.special == "greengenes":
@@ -5654,8 +5702,10 @@ def k2_main():
                 build_16S_silva(args)
             elif args.special == "gtdb":
                 if not args.gtdb_files:
-                    LOG.error("Please specify a list of files or pattern of\
-                    the files needed to build a GTDB database.\n")
+                    LOG.error(
+                        "Please specify a list of files or pattern of\
+                    the files needed to build a GTDB database.\n"
+                    )
                     sys.exit(1)
                 build_gtdb_database(args)
             else:
