@@ -2208,7 +2208,7 @@ def split_gtdb_database(
 
         for scientific_name in split_criteria[i].keys():
             os.makedirs(os.path.join(scientific_name, "library"), exist_ok=True)
-            os.chdir(os.path.join(scientific_name, "library")
+            os.chdir(os.path.join(scientific_name, "library"))
             accession_to_filepath = split_criteria[i][scientific_name]
             for accession, filepath in accession_to_filepath.items():
                 if args.gtdb_representatives_only and accession not in metadata:
