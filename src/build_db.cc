@@ -86,6 +86,7 @@ int main(int argc, char **argv) {
   if (opts.cht_cell_size == 32) {
     build<CompactHashCell40>(taxonomy, ID_to_taxon_map, opts, actual_capacity, bits_for_taxid);
   } else if (opts.cht_cell_size == 40) {
+    std::cerr << "Using 40 bits" << std::endl;
     build<CompactHashCell40>(taxonomy, ID_to_taxon_map, opts, actual_capacity, bits_for_taxid);
   } else {
     errx(EX_DATAERR, "Unsupported CHT cell size");
@@ -179,7 +180,7 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
   long long sig;
 
-  while ((opt = getopt(argc, argv, "?hB:b:c:FH:m:n:o:t:k:l:M:p:r:s:S:T:X")) != -1) {
+  while ((opt = getopt(argc, argv, "?hB:b:c:FH:m:n:o:t:k:l:M:p:r:s:S:T:XC:")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -264,6 +265,12 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'X' :
         opts.input_is_protein = true;
         break;
+      case 'C':
+        sig = atoll(optarg);
+        if (sig != 32 && sig != 40)
+          errx(EX_USAGE, "CHT cell size should be either 32 or 40 bits");
+        opts.cht_cell_size = sig;
+        break;
     }
   }
 
@@ -317,6 +324,7 @@ void usage(int exit_code) {
        << "  -F            Use fast, nondeterministic building method\n"
        << "  -B INT        Read block size\n"
        << "  -b INT        Read subblock size\n"
-       << "  -r INT        Bit storage requested for taxid" << endl;
+       << "  -r INT        Bit storage requested for taxid\n"
+       << "  -C INT        CHT cell size (default: 32)" << endl;
   exit(exit_code);
 }
