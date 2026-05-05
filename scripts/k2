@@ -83,6 +83,7 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "use_mpa_style": "-m",
     "use_names": "-n",
     "use_daemon": "-D",
+    "cht_cell_size": "-C",
 }
 
 
@@ -1991,9 +1992,14 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
     ext = ".faa" if args.protein else ".fna"
     library = ""
     if filename.endswith(".tar.gz"):
+        filepath, _ = os.path.splitext(filepath)
+        print(filepath)
         with tarfile.open(filepath, "r:gz") as tar:
-            library = tar.getnames()[0]
-            for member in tar.getmembers():
+            library = tar.next().name
+            while True:
+                member = tar.next()
+                if member is None:
+                    break
                 if member.isfile() and re.search(ext, member.name):
                     if re.search("GC[AF]", member.name):
                         filename = os.path.basename(member.name)
@@ -2051,14 +2057,42 @@ def remap_secondary_taxids(taxids):
     return new_taxids
 
 
-def read_gtdb_metadata(filenames):
+def gtdb_get_name_from_taxon(taxonomy_string, level):
+    rank_codes = {
+        "d": "domain",
+        "p": "phylum",
+        "c": "class",
+        "o": "order",
+        "f": "family",
+        "g": "genus",
+        "s": "species",
+    }
+
+    taxonomy = taxonomy_string.strip().split(";")
+    table = {}
+    for t in taxonomy:
+        rank_code, name = t.split("__")
+        if rank_codes[rank_code] == level:
+            return name
+
+    return ""
+
+
+# TODO: change this function
+def read_gtdb_metadata(filenames, rep_only=True):
     metadata = {}
     for filename in filenames:
         LOG.info("Reading NCBI tax IDs from {}\n".format(filename))
         with gzip.open(filename, "rt") as in_file:
             reader = csv.DictReader(in_file, delimiter="\t")
             for row in reader:
-                metadata[row["accession"]] = row["ncbi_taxid"]
+                if rep_only and row["gtdb_representative"] != "t":
+                    continue
+                metadata[row["accession"][3:]] = {
+                    "ncbi_taxid": row["ncbi_taxid"],
+                    "gtdb_taxonomy": row["gtdb_taxonomy"],
+                    "ncbi_taxonomy": row["ncbi_taxonomy"],
+                }
         LOG.info("Finished reading NCBI tax IDs from {}\n".format(filename))
 
     return metadata
@@ -2076,7 +2110,8 @@ def find_and_remap_secondary_taxids(metadata):
 
     taxids = list(gtdb_assigned_taxids.difference(ncbi_taxids))
     LOG.info(
-        "The following tax IDs were not found in nodes.dmp" " and need to be remapped\n"
+        "The following tax IDs were not found in nodes.dmp"
+        " and need to be remapped\n"
     )
     remapped_taxids = remap_secondary_taxids(taxids)
     for accession, taxid in metadata.items():
@@ -2085,6 +2120,118 @@ def find_and_remap_secondary_taxids(metadata):
             metadata[accession] = remapped_taxids[taxid]
 
     return metadata
+
+
+def split_gtdb_database(
+    args, library, metadata, accession_to_filepath, accession_to_taxid, filepath_to_url
+):
+    os.chdir(args.db)
+    split_criteria = [
+        {
+            "Archaea": {},
+        },
+        {
+            "Bacillota": {},
+        },
+        {
+            "Pseudomonadota": {},
+        },
+        {
+            "Patescibacteriota": {},
+            "Bacteroidota": {},
+        },
+        {
+            "Actinomycetota": {},
+            "Chloroflexota": {},
+            "Planctomycetota": {},
+        },
+        {
+            "Acidobacteriota": {},
+            "Verrucomicrobiota": {},
+            "Desulfobacterota": {},
+            "Myxococcota": {},
+            "Spirochaetota": {},
+            "Bdellovibrionota": {},
+        },
+    ]
+
+    threads = []
+
+    def callback(index):
+        regex = re.compile(r"|".join(split_criteria[index].keys()))
+
+        for accession, filepath in accession_to_filepath.items():
+            taxonomy = metadata[accession]["gtdb_taxonomy"]
+            match = re.search(regex, taxonomy)
+            if match:
+                split_criteria[index][match.group(0)][accession] = filepath
+
+    for i in range(0, len(split_criteria)):
+        t = threading.Thread(target=callback, args=(i,))
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
+    # store the remaining items
+    for i in range(0, len(split_criteria)):
+        for name in split_criteria[i].keys():
+            for accession in split_criteria[i][name].keys():
+                del accession_to_filepath[accession]
+
+    others = collections.defaultdict(dict)
+    for accession, filepath in accession_to_filepath.items():
+        taxonomy = metadata[accession]["gtdb_taxonomy"]
+        name = gtdb_get_name_from_taxon(taxonomy, "phylum")
+        others[name][accession] = filepath
+
+    split_criteria.append(others)
+
+    for i in range(0, len(split_criteria)):
+        dir_name = library + "_part_" + str(i + 1)
+        old_pwd = os.path.abspath(os.curdir)
+        os.makedirs(dir_name, exist_ok=True)
+        os.chdir(dir_name)
+        try:
+            os.symlink(
+                os.path.join(old_pwd, "taxonomy"), "taxonomy", target_is_directory=True
+            )
+        except FileExistsError:
+            pass
+
+        # create library directory followed by sub-directories based on above split.
+        # e.g. gtdb_genome_reps/gtdb_genome_reps_part_1/library/Bacteroidota/library.fna
+        os.makedirs("library", exist_ok=True)
+        os.chdir("library")
+        filepath_to_taxid_table = {}
+
+        for scientific_name in split_criteria[i].keys():
+            os.makedirs(os.path.join(scientific_name, "library"), exist_ok=True)
+            os.chdir(os.path.join(scientific_name, "library")
+            accession_to_filepath = split_criteria[i][scientific_name]
+            for accession, filepath in accession_to_filepath.items():
+                if args.gtdb_representatives_only and accession not in metadata:
+                    continue
+                filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
+            # os.chdir(os.path.abspath(os.path.pardir))
+            sequence_to_url = assign_taxid_to_sequences(
+                args, filepath_to_taxid_table, accession_to_taxid, filepath_to_url
+            )
+
+            with open("library.fna", "r") as in_file:
+                with open("prelim_map.txt", "w") as out_file:
+                    out_file.write("# prelim_map for {:s}\n".format(dir_name))
+                    scan_fasta_file(
+                        in_file,
+                        out_file,
+                        sequence_to_url=sequence_to_url,
+                    )
+
+        os.chdir(old_pwd)
+        args.db = os.path.abspath(os.path.abspath(dir_name))
+        if len(filepath_to_taxid_table) > 0:
+            build_kraken2_db(args)
 
 
 def get_gtdb_latest_md5sums(path_prefix):
@@ -2110,7 +2257,7 @@ def get_needed_files(args, path_prefix):
 
     with open("MD5SUM.txt", "r") as in_file:
         # filename_regex = r"genomes|genes|fna"
-        filename_regex = "|".join(args.gtdb_files)
+        filename_regex = args.gtdb_files
         pattern = re.compile(filename_regex)
         candidate_files = []
         if args.protein:
@@ -2132,9 +2279,9 @@ def get_needed_files(args, path_prefix):
             filepath = os.path.basename(filepath)
             md5s[filepath] = md5sum
 
-    if len(files_needed["fasta"]) != len(args.gtdb_files):
+    if len(files_needed["fasta"]) == 0:
         LOG.error(
-            "At least one of the files did not match: {}\n".format(
+            "No matches found for {}\n".format(
                 ", ".join(args.gtdb_files)
             )
         )
@@ -2169,23 +2316,26 @@ def build_gtdb_database(args):
                 shutil.copyfileobj(file_in, file_out)
     LOG.info("Finished merging Archaea and Bacteria taxonomies\n")
     accession_to_taxid = {}
+
+    for metadata in files_needed["metadata"]:
+        # url = url_join(GTDB_SERVER, path=metadata)
+        http_download_file2(
+            GTDB_SERVER, [metadata], save_to=os.path.abspath(os.curdir), md5sums=md5s
+        )
+    metadata_filenames = map(os.path.basename, files_needed["metadata"])
+    metadata = read_gtdb_metadata(metadata_filenames, args.gtdb_representatives_only)
+
     if not args.gtdb_use_ncbi_taxonomy:
         with open("merged_taxonomy.tsv", "r") as in_file:
             build_gtdb_taxonomy(in_file)
     else:
-        for metadata in files_needed["metadata"]:
-            url = url_join(GTDB_SERVER, path=metadata)
-            http_download_file(url)
-        metadata_filenames = map(os.path.basename, files_needed["metadata"])
-        metadata = read_gtdb_metadata(metadata_filenames)
         args.skip_maps = True
         download_taxonomy(args)
         metadata = find_and_remap_secondary_taxids(metadata)
         for accession, taxid in metadata.items():
             accession_to_taxid[accession[3:]] = taxid
 
-    workers = len(files_needed["fasta"])
-    futures = []
+    remote_filepath = files_needed["fasta"][0]
     accession_to_filepath = {}
     # These files are not tied to a single accession, but
     # instead each sequence in the FASTA has its own accession.
@@ -2197,55 +2347,61 @@ def build_gtdb_database(args):
                 base_accession, accession, taxid, gi = line.split("\t")
                 accession_to_taxid[accession] = taxid
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        for remote_filepath in files_needed["fasta"]:
-            os.chdir(db_pathname)
-            f = functools.partial(
-                wrap_with_globals,
-                download_gtdb_genomes,
-                LOG.get_queue(),
-                LOG.get_level(),
-                SCRIPT_PATHNAME,
-            )
-            futures.append(pool.submit(f, args, remote_filepath, md5s))
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            library = result[0]
-            filepaths_without_accessions = []
-            filepath_to_url = {}
+    os.chdir(args.db)
+    result = download_gtdb_genomes(args, remote_filepath, md5s)
+    library = result[0]
+    filepaths_without_accessions = []
+    filepath_to_url = {}
 
-            for accession, filepath in result[1].items():
-                accession_to_filepath[accession] = filepath
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
-            for filepath in result[2]:
-                filepaths_without_accessions.append(filepath)
-                filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
+    for accession, filepath in result[1].items():
+        accession_to_filepath[accession] = filepath
+        filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
+    for filepath in result[2]:
+        filepaths_without_accessions.append(filepath)
+        filepath_to_url[filepath] = url_join(GTDB_SERVER, path=remote_filepath)
 
-            filepath_to_taxid_table = {}
-            library_pathname = os.path.join(
-                db_pathname, os.path.join("library", library)
-            )
-            os.makedirs(library_pathname, exist_ok=True)
-            os.chdir(library_pathname)
-            for accession, filepath in accession_to_filepath.items():
-                filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
-            for filepath in filepaths_without_accessions:
-                filepath_to_taxid_table[filepath] = ""
+    filepath_to_taxid_table = {}
 
-            sequence_to_url = assign_taxid_to_sequences(
-                args, filepath_to_taxid_table, accession_to_taxid, filepath_to_url
-            )
-            with open("library.fna", "r") as in_file:
-                with open("prelim_map.txt", "w") as out_file:
-                    out_file.write("# prelim_map for {:s}\n".format(library))
-                    scan_fasta_file(
-                        in_file,
-                        out_file,
-                        sequence_to_url=sequence_to_url,
-                    )
+    filename = os.path.basename(files_needed["fasta"][0])
+    if args.gtdb_split_database \
+       and filename.startswith(("gtdb_genomes", "gtdb_proteins")):
+        split_gtdb_database(
+            args,
+            library,
+            metadata,
+            accession_to_filepath,
+            accession_to_taxid,
+            filepath_to_url,
+        )
+    else:
+        library_pathname = os.path.join(
+            db_pathname, os.path.join("library", library)
+        )
+        os.makedirs(library_pathname, exist_ok=True)
+        os.chdir(library_pathname)
 
-    os.chdir(db_pathname)
-    build_kraken2_db(args)
+        for accession, filepath in accession_to_filepath.items():
+            if args.gtdb_representatives_only and accession not in metadata:
+                continue
+            filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
+        for filepath in filepaths_without_accessions:
+            filepath_to_taxid_table[filepath] = ""
+
+        sequence_to_url = assign_taxid_to_sequences(
+            args, filepath_to_taxid_table, accession_to_taxid, filepath_to_url
+        )
+
+        with open("library.fna", "r") as in_file:
+            with open("prelim_map.txt", "w") as out_file:
+                out_file.write("# prelim_map for {:s}\n".format(library))
+                scan_fasta_file(
+                    in_file,
+                    out_file,
+                    sequence_to_url=sequence_to_url,
+                )
+
+        os.chdir(db_pathname)
+        build_kraken2_db(args)
 
 
 def download_genomic_library(args):
@@ -2591,10 +2747,11 @@ def check_seqidmap():
             taxid, parent_taxid = entry.split("\t|")[:2]
             taxonomy_nodes[taxid.strip()] = parent_taxid.strip()
 
-    with open(os.path.join("taxonomy", "merged.dmp"), "r") as fin:
-        for entry in fin:
-            old_taxid, new_taxid = entry.split("\t|")[:2]
-            merged_nodes[old_taxid.strip()] = new_taxid.strip()
+    if os.path.exists(os.path.join("taxonomy", "merged.dmp")):
+        with open(os.path.join("taxonomy", "merged.dmp"), "r") as fin:
+            for entry in fin:
+                old_taxid, new_taxid = entry.split("\t|")[:2]
+                merged_nodes[old_taxid.strip()] = new_taxid.strip()
 
     with open("seqid2taxid.map.new", "w") as fout:
         with open("seqid2taxid.map", "r") as fin:
@@ -4827,9 +4984,8 @@ def make_build_parser(subparsers):
     group.add_argument(
         "--gtdb-files",
         type=str,
-        nargs="+",
-        help="A list of files or regex matching the files needed to build\
-              the special database.",
+        help="The name of the file or regex matching the file needed to build\
+              the GTDB database.",
     )
     group.add_argument(
         "--parts",
@@ -4841,6 +4997,17 @@ def make_build_parser(subparsers):
         "--gtdb-use-ncbi-taxonomy",
         action="store_true",
         help="Use NCBI tax IDs and taxonomy tree when building GTDB database",
+    )
+    group.add_argument(
+        "--gtdb-representatives-only",
+        default=True,
+        action="store_true",
+        help='Use only genomes flagged as "GTDB Representatives"',
+    )
+    group.add_argument(
+        "--gtdb-split-database",
+        action="store_true",
+        help="Split GTDB database into parts. The current split",
     )
     group.add_argument(
         "--gtdb-server",
