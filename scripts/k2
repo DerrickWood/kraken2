@@ -1012,11 +1012,12 @@ def assign_taxids(
     os.makedirs(os.path.dirname(absolute_filepath), exist_ok=True)
     with open(out_filepath, "w") as out_file:
         if not args.no_masking:
-            masker = spawn_masking_subprocess(out_file, args.masker_threads, False)
+            masker = spawn_masking_subprocess(out_file, args.masker_threads, args.protein)
         opener = open
         if absolute_filepath.endswith(".gz"):
             opener = gzip.open
         with opener(absolute_filepath, "rt") as in_file:
+            accession_re = re.compile(r"GC[AF]_[0-9]{9}\.\d+")
             while True:
                 line = in_file.readline()
                 if line == "":
@@ -1024,7 +1025,7 @@ def assign_taxids(
                 if line.startswith(">"):
                     taxid = manifest_to_taxid[filepath]
                     if not taxid:
-                        match = re.search(r"GC[AF]_[0-9]{9}\.\d+", line)
+                        match = re.search(accession_re, line)
                         if not match or match.group(0) not in accession_to_taxid:
                             LOG.error(
                                 "Unable to assign taxid to sequence {} in file {}\n".format(
@@ -1033,7 +1034,8 @@ def assign_taxids(
                             )
                             sys.exit(1)
                         taxid = accession_to_taxid[match.group(0)]
-                    line = line.replace(">", ">kraken:taxid|" + taxid + "|", 1)
+                    # line = line.replace(">", ">kraken:taxid|" + taxid + "|", 1)
+                    line = ">kraken:taxid|" + taxid + "|" + line[1:]
                     sequence_to_url[line] = filepath_to_url[filepath]
                     sequences_added += 1
                 else:
@@ -1420,19 +1422,19 @@ def assign_taxid_to_sequences(
 
     LOG.debug("{:s}\r".format(out_line))
     filepaths = sorted(manifest_to_taxid)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         futures = []
         max_out_line_len = 0
         for filepath in filepaths:
-            f = functools.partial(
-                wrap_with_globals,
-                assign_taxids,
-                LOG.get_queue(),
-                LOG.get_level(),
-                SCRIPT_PATHNAME,
-            )
+            # f = functools.partial(
+            #     wrap_with_globals,
+            #     assign_taxids,
+            #     LOG.get_queue(),
+            #     LOG.get_level(),
+            #     SCRIPT_PATHNAME,
+            # )
             future = pool.submit(
-                f,
+                assign_taxids,
                 args,
                 filepath,
                 manifest_to_taxid,
@@ -1495,34 +1497,6 @@ def progress_line(projects, total_projects, seqs, chars, ch):
     return line
 
 
-# The following three functions have dummy return values. This is
-# so that we can check whether a future stopped running as a
-# result of an exception, so that we can stop the main process
-# early.
-# def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
-#     if isinstance(compressed_filenames, str):
-#         compressed_filenames = [compressed_filenames]
-#     if out_filename:
-#         if os.path.exists(out_filename + ".tmp"):
-#             os.remove(out_filename + ".tmp")
-#         with open(out_filename + ".tmp", "ab") as out_file:
-#             for filename in compressed_filenames:
-#                 with gzip.open(filename) as gz:
-#                     decompress_file(gz, out_file)
-#             os.rename(out_filename + ".tmp", out_filename)
-#     else:
-#         for filename in compressed_filenames:
-#             out_filename, ext = os.path.splitext(filename)
-#             if os.path.exists(out_filename + ".tmp"):
-#                 os.remove(out_filename + ".tmp")
-#             with gzip.open(filename) as gz:
-#                 with open(out_filename + ".tmp", "wb") as out:
-#                     decompress_file(gz, out, buf_size)
-#             os.rename(out_filename + ".tmp", out_filename)
-
-#     return True
-
-
 def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
     if isinstance(compressed_filenames, str):
         compressed_filenames = [compressed_filenames]
@@ -1549,13 +1523,18 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
 
 def decompress_file(in_file, out_file, buf_size=8129):
     LOG.info("Decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name)))
-    inflator = zlib.decompressobj(15 + 32)
-    while True:
-        data = in_file.read(buf_size)
-        if not data:
-            break
-        inflated_data = inflator.decompress(data)
-        out_file.write(inflated_data)
+    gzip_exe = shutil.which("gzip")
+    if gzip_exe:
+        sub_proc = subprocess.Popen([gzip_exe, "-d", "-c"], stdin=in_file, stdout=out_file)
+        sub_proc.wait()
+    else:
+        inflator = zlib.decompressobj(15 + 32)
+        while True:
+            data = in_file.read(buf_size)
+            if not data:
+                break
+            inflated_data = inflator.decompress(data)
+            out_file.write(inflated_data)
     # shutil.copyfileobj(in_file, out_file, buf_size)
     LOG.info(
         "Finished decompressing {:s}\n".format(os.path.join(os.getcwd(), in_file.name))
@@ -1992,8 +1971,6 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
     ext = ".faa" if args.protein else ".fna"
     library = ""
     if filename.endswith(".tar.gz"):
-        filepath, _ = os.path.splitext(filepath)
-        print(filepath)
         with tarfile.open(filepath, "r:gz") as tar:
             library = tar.next().name
             while True:
@@ -2207,8 +2184,8 @@ def split_gtdb_database(
         filepath_to_taxid_table = {}
 
         for scientific_name in split_criteria[i].keys():
-            os.makedirs(os.path.join(scientific_name, "library"), exist_ok=True)
-            os.chdir(os.path.join(scientific_name, "library"))
+            os.makedirs(scientific_name, exist_ok=True)
+            os.chdir(scientific_name)
             accession_to_filepath = split_criteria[i][scientific_name]
             for accession, filepath in accession_to_filepath.items():
                 if args.gtdb_representatives_only and accession not in metadata:
@@ -2228,10 +2205,10 @@ def split_gtdb_database(
                         sequence_to_url=sequence_to_url,
                     )
 
-        os.chdir(old_pwd)
         args.db = os.path.abspath(os.path.abspath(dir_name))
         if len(filepath_to_taxid_table) > 0:
             build_kraken2_db(args)
+        os.chdir(old_pwd)
 
 
 def get_gtdb_latest_md5sums(path_prefix):
@@ -2281,9 +2258,7 @@ def get_needed_files(args, path_prefix):
 
     if len(files_needed["fasta"]) == 0:
         LOG.error(
-            "No matches found for {}\n".format(
-                ", ".join(args.gtdb_files)
-            )
+            "No matches found for {}\n".format(args.gtdb_files)
         )
         LOG.error(
             "Here is a list of candidates:\n{}\n".format("\n".join(candidate_files))
