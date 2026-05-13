@@ -4485,6 +4485,16 @@ def sanity_check_taxonomies(db_pathnames):
     LOG.info("Finished sanity checking taxonomies\n")
 
 
+def find_partitioned_databases(db):
+    databases = []
+    for entry in os.scandir(os.path.abspath(db)):
+        if entry.is_dir():
+            database = find_database(entry.path)
+            if database:
+                databases.append(database)
+    return databases
+
+
 def classify_multi_dbs(args, filenames=[]):
     dbs = args.db
     use_names = False
@@ -5774,6 +5784,9 @@ def k2_main():
     if task == "download-taxonomy":
         download_taxonomy(args)
     elif task == "classify":
+        if len(args.db) == 1 and not find_database(args.db[0]):
+            partitions = find_partitioned_databases(args.db[0])
+            args.db = partitions if partitions else args.db
         if len(args.db) > 1:
             classify_multi_dbs(args)
         else:
