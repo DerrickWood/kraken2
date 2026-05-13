@@ -2046,7 +2046,6 @@ def gtdb_get_name_from_taxon(taxonomy_string, level):
     }
 
     taxonomy = taxonomy_string.strip().split(";")
-    table = {}
     for t in taxonomy:
         rank_code, name = t.split("__")
         if rank_codes[rank_code] == level:
@@ -2056,7 +2055,7 @@ def gtdb_get_name_from_taxon(taxonomy_string, level):
 
 
 # TODO: change this function
-def read_gtdb_metadata(filenames, rep_only=True):
+def read_gtdb_metadata(filenames, rep_only):
     metadata = {}
     for filename in filenames:
         LOG.info("Reading NCBI tax IDs from {}\n".format(filename))
@@ -2166,7 +2165,7 @@ def split_gtdb_database(
     split_criteria.append(others)
 
     for i in range(0, len(split_criteria)):
-        dir_name = library + "_part_" + str(i + 1)
+        dir_name = os.path.abspath(library + "_part_" + str(i + 1))
         old_pwd = os.path.abspath(os.curdir)
         os.makedirs(dir_name, exist_ok=True)
         os.chdir(dir_name)
@@ -2179,26 +2178,25 @@ def split_gtdb_database(
 
         # create library directory followed by sub-directories based on above split.
         # e.g. gtdb_genome_reps/gtdb_genome_reps_part_1/library/Bacteroidota/library.fna
-        os.makedirs("library", exist_ok=True)
-        os.chdir("library")
         filepath_to_taxid_table = {}
 
         for scientific_name in split_criteria[i].keys():
-            os.makedirs(scientific_name, exist_ok=True)
-            os.chdir(scientific_name)
+            pathname = os.path.join(dir_name, "library", scientific_name)
+            os.makedirs(pathname, exist_ok=True)
+            os.chdir(pathname)
             accession_to_filepath = split_criteria[i][scientific_name]
             for accession, filepath in accession_to_filepath.items():
                 if args.gtdb_representatives_only and accession not in metadata:
                     continue
                 filepath_to_taxid_table[filepath] = accession_to_taxid[accession]
-            # os.chdir(os.path.abspath(os.path.pardir))
+             # os.chdir(os.path.abspath(os.path.pardir))
             sequence_to_url = assign_taxid_to_sequences(
                 args, filepath_to_taxid_table, accession_to_taxid, filepath_to_url
             )
 
             with open("library.fna", "r") as in_file:
                 with open("prelim_map.txt", "w") as out_file:
-                    out_file.write("# prelim_map for {:s}\n".format(dir_name))
+                    out_file.write("# prelim_map for {:s}\n".format(scientific_name))
                     scan_fasta_file(
                         in_file,
                         out_file,
