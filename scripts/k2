@@ -4629,7 +4629,10 @@ def classify_multi_dbs(args, filenames=[]):
             shutil.copyfileobj(out_file, sys.stdout)
     if not filenames:
         for tmp_filename in tmp_filenames:
-            os.remove(tmp_filename)
+            try:
+                os.remove(tmp_filename)
+            except FileNotFoundError:
+                pass
     num_classified_sequences = len(classified_headers)
     num_unclassified_sequences = total_seqs - num_classified_sequences
     percentage_classified = (num_classified_sequences / total_seqs) * 100
