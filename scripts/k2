@@ -2178,9 +2178,8 @@ def split_gtdb_database(
 
         # create library directory followed by sub-directories based on above split.
         # e.g. gtdb_genome_reps/gtdb_genome_reps_part_1/library/Bacteroidota/library.fna
-        filepath_to_taxid_table = {}
-
         for scientific_name in split_criteria[i].keys():
+            filepath_to_taxid_table = {}
             pathname = os.path.join(dir_name, "library", scientific_name)
             os.makedirs(pathname, exist_ok=True)
             os.chdir(pathname)
@@ -2204,8 +2203,7 @@ def split_gtdb_database(
                     )
 
         args.db = os.path.abspath(os.path.abspath(dir_name))
-        if len(filepath_to_taxid_table) > 0:
-            build_kraken2_db(args)
+        build_kraken2_db(args)
         os.chdir(old_pwd)
 
 
@@ -3975,7 +3973,7 @@ def kraken_report_dfs(
         return
 
     rank = taxonomy.get_rank(taxid).decode()
-    if rank == "superkingdom":
+    if rank == "superkingdom" or rank == "domain":
         rank_code = "D"
         rank_depth = 0
     elif rank == "kingdom":
@@ -4045,7 +4043,7 @@ def report_kraken_style(
     rank_code = "R"
 
     with open(filename, "w") as out_file:
-        if total_unclassified > 0:
+        if total_unclassified > 0 or report_zeros:
             print_kraken_style_report(
                 out_file,
                 False,
@@ -4986,7 +4984,7 @@ def make_build_parser(subparsers):
     )
     group.add_argument(
         "--gtdb-representatives-only",
-        default=True,
+        default=False,
         action="store_true",
         help='Use only genomes flagged as "GTDB Representatives"',
     )
