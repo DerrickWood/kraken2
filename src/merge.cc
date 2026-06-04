@@ -489,7 +489,7 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                                 fields1[header_field], taxid, fields1[len_field], hit_list);
                 }
 
-                if (counters) {
+                if (counters && status[0] == 'C') {
                         taxid_t t = nixmans_atou64_shift(taxid, strlen(taxid));
                         taxid_t internal_taxid = taxonomy.GetInternalID(t);
                         (*counters)[internal_taxid] += kraken2::READCOUNTER(1, 0);
@@ -563,7 +563,7 @@ int main(int argc, char **argv) {
 
         nflag = 0;
 
-        while ((ch = getopt(argc, argv, "hi:r:m:c:o:t:nz")) != -1) {
+        while ((ch = getopt(argc, argv, "hi:r:mc:o:t:nz")) != -1) {
                 switch (ch) {
                 case 'c':
                         classified_headers_filename = optarg;
@@ -581,7 +581,6 @@ int main(int argc, char **argv) {
                         report_filename = optarg;
                         break;
                 case 'm':
-                        report_filename = optarg;
                         mpa_style = true;
                         break;
                 case 't':
@@ -641,15 +640,15 @@ int main(int argc, char **argv) {
         }
 
         size_t total_seqs = 0;
-        size_t total_classified = 0;
-        std::tie(total_seqs, total_classified) = merge_classification_output(taxonomy, l, r, m, confidence_threshold, counters, classified_headers);
+        size_t total_unclassified = 0;
+        std::tie(total_seqs, total_unclassified) = merge_classification_output(taxonomy, l, r, m, confidence_threshold, counters, classified_headers);
 
         if (report_filename != nullptr) {
                 if (mpa_style) {
                         kraken2::ReportMpaStyle(report_filename, report_zeros, taxonomy, *counters);
                 } else {
                         kraken2::ReportKrakenStyle(report_filename, report_zeros, false, taxonomy,
-                                                   *counters, total_seqs, total_classified);
+                                                   *counters, total_seqs, total_unclassified);
                 }
         }
 
