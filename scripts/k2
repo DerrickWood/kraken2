@@ -1384,7 +1384,7 @@ def map_accessions_to_url_parallel(args, accessions):
 
 
 def get_download_path(resource_link, protein):
-    dir = os.path.basename(resource_link)
+    dir = os.path.basename(resource_link.rstrip("/"))
     filename = dir + "_genomic.fna.gz"
     resource_link += "/"
     if protein:
@@ -4386,6 +4386,32 @@ def extract_job_number(filename):
     return int(job_no)
 
 
+def merge_classification_output_parallel2(
+        taxonomy_pathname, in_filename1,
+        in_filename2, out_filename, use_names,
+        classified_headers_filename, report_filename
+):
+    merge_binary = find_kraken2_binary("merge")
+    argv = [merge_binary, "-o", out_filename, "-t", taxonomy_pathname]
+
+    if report_filename:
+        argv.extend(["-r", report_filename])
+    if use_names:
+        argv.append("-n")
+    if classified_headers_filename:
+        argv.extend(["-c", classified_headers_filename])
+
+    argv.extend([in_filename1, in_filename2])
+    subprocess.call(argv)
+
+    if "k2_" in in_filename1:
+        os.remove(in_filename1)
+    if "k2_" in in_filename2:
+        os.remove(in_filename2)
+
+    return out_filename
+
+
 def merge_classification_output_parallel(
     pool,
     taxonomy_pathname,
@@ -4521,7 +4547,7 @@ def classify_multi_dbs(args, filenames=[]):
     if "use_names" in args:
         use_names = True
         args.use_names = None
-    tmp_filenames = []
+    classified_filenames = []
 
     LOG.info("Creating merged taxonomy\n")
     seqid2taxid_maps = []
@@ -4562,55 +4588,71 @@ def classify_multi_dbs(args, filenames=[]):
         for db in dbs:
             args.db = db
             pathname = tempfile.mktemp(prefix="k2_")
-            tmp_filenames.append(pathname)
+            classified_filenames.append(pathname)
             args.output = pathname
 
             LOG.info("Running classification job for database {}\n".format(db))
             classify(args)
             LOG.info("Finished running classification job for database {}\n".format(db))
+    else:
+        classified_filenames = filenames
+
+    # We need these classified headers for outputting stats and
+    # also for saving classified and unclassified sequences.
+    classified_headers_filename = tempfile.mktemp(prefix="k2_")
 
     LOG.info("Merging output files\n")
-    merge_filename = tempfile.mktemp(prefix="k2_")
-    out_filename = tempfile.mktemp(prefix="k2_")
-    if filenames:
-        tmp_filenames_copy = filenames
-    else:
-        tmp_filenames_copy = tmp_filenames.copy()
-    tmp_filenames.append(merge_filename)
-    tmp_filenames.append(out_filename)
+    merged_classification_filenames = []
+    for _ in range(int(len(classified_filenames) / 2)):
+        merged_classification_filename = tempfile.mktemp(prefix="k2_")
+        merged_classification_filenames.append(merged_classification_filename)
+
     final = False
-    pool = concurrent.futures.ProcessPoolExecutor(max_workers=args.threads)
-    progress = ProgressBar(len(tmp_filenames) - 1, 0)
-    while True:
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.threads)
+    futures = []
+    progress = ProgressBar(len(classified_filenames) - 1, 0)
+
+    final = False
+    while not final:
         LOG.debug("{}\r".format(progress.get_bar()))
-        if len(tmp_filenames_copy) == 2:
+        if len(classified_filenames) == 1:
+            # wait for the merge jobs to complete,
+            # then add their output files to the list
+            # input files. Generate a new list of temporary files
+            # and repeat the process.
+            for future in concurrent.futures.as_completed(futures):
+                merged_filename = future.result()
+                classified_filenames.append(merged_filename)
+                progress.progress(1, relative=True)
+
+            running_futures = []
+            for future in futures:
+                if future.running():
+                    running_futures.append(future)
+            futures = running_futures
+            for _ in range(int(len(classified_filenames) / 2)):
+                merged_classification_filename = tempfile.mktemp(prefix="k2_")
+                merged_classification_filenames.append(merged_classification_filename)
+
+        filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
+        out_filename = merged_classification_filenames.pop()
+
+        if len(classified_filenames) == 0:
             final = True
-        filename1, filename2 = tmp_filenames_copy.pop(), tmp_filenames_copy.pop()
-        # LOG.info("merging classification output\n")
-        # save_seq_names = final and (classified_out_filename is not None
-        #                             or unclassified_out_filename is not None)
-        save_seq_names = True
-        call_counters, total_seqs, classified_headers = (
-            merge_classification_output_parallel(
-                pool,
-                taxonomy_pathname,
-                filename1,
-                filename2,
-                out_filename,
-                use_names and final,
-                args,
-                save_seq_names,
-                final,
-            )
+
+        future = pool.submit(
+            merge_classification_output_parallel2,
+            taxonomy_pathname,
+            filename1,
+            filename2,
+            out_filename,
+            use_names if final else None,
+            classified_headers_filename if final else None,
+            report_filename if final else None,
         )
-        progress.progress(1, relative=True)
+        futures.append(future)
         # LOG.info("finished merging classification output\n")
         LOG.debug("{}\r".format(progress.get_bar()))
-        if len(tmp_filenames_copy) == 0:
-            break
-        # tmp_filenames_copy.insert(0, out_filename)
-        out_filename, merge_filename = merge_filename, out_filename
-        tmp_filenames_copy.append(merge_filename)
 
     progress.progress(1, relative=True)
     # LOG.info("finished merging classification output\n")
@@ -4620,17 +4662,20 @@ def classify_multi_dbs(args, filenames=[]):
     LOG.info("Finished merging output files              \n")
     if output:
         shutil.move(out_filename, os.path.abspath(output))
-        if out_filename in tmp_filenames:
-            tmp_filenames.remove(out_filename)
     else:
         with open(out_filename, "r") as out_file:
             shutil.copyfileobj(out_file, sys.stdout)
-    if not filenames:
-        for tmp_filename in tmp_filenames:
-            try:
-                os.remove(tmp_filename)
-            except FileNotFoundError:
-                pass
+    # if not filenames:
+    #     for tmp_filename in tmp_input_filenames:
+    #         try:
+    #             os.remove(tmp_filename)
+    #         except FileNotFoundError:
+    #             pass
+    if classified_headers_filename:
+        with open(classified_headers_filename, "r") as in_file:
+            classified_headers = list(map(lambda line: line.strip(), in_file.readlines()))
+        total_seqs = int(classified_headers.pop())
+
     num_classified_sequences = len(classified_headers)
     num_unclassified_sequences = total_seqs - num_classified_sequences
     percentage_classified = (num_classified_sequences / total_seqs) * 100
@@ -4656,13 +4701,8 @@ def classify_multi_dbs(args, filenames=[]):
             classified_headers,
         )
         LOG.info("Finished writing (un)classified sequences to file\n")
-    if report_filename is not None:
-        LOG.info("Generating report file\n")
-        taxonomy.load_taxonomy(taxonomy_pathname)
-        report_kraken_style(
-            report_filename, report_zeros, False, taxonomy, call_counters, total_seqs
-        )
-        LOG.info("Finished generating report file\n")
+
+    os.remove(classified_headers_filename)
     os.remove(taxonomy_pathname)
     os.remove(seqid2taxid_map_pathname)
 
@@ -5621,6 +5661,26 @@ def make_merge_parser(subparsers):
         assigned to this read.",
     )
     parser.add_argument(
+        "--report",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Print a report with aggregate counts/clade to file",
+    )
+    parser.add_argument(
+        "--use-mpa-style",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="With --report, format report output like Kraken 1's\
+              kraken-mpa-report",
+    )
+    parser.add_argument(
+        "--report-zero-counts",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="With --report, report counts for ALL taxa, even if\
+              counts are zero",
+    )
+    parser.add_argument(
         "--log",
         type=str,
         metavar="FILENAME",
@@ -5801,7 +5861,7 @@ def k2_main():
         inspect_db(args)
     elif task == "clean":
         clean_db(args)
-    elif task == "merge":
+    elif task == "merge-classifications":
         classify_multi_dbs(args, args.filenames)
     elif task == "build":
         # Protein defaults

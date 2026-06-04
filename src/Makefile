@@ -6,7 +6,7 @@ CFLAGS = -Wall -std=c99 -O2 -g
 
 .PHONY: all clean install
 
-PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta libtax.so
+PROGS = estimate_capacity build_db classify dump_table lookup_accession_numbers k2mask blast_to_fasta merge libtax.so
 
 all: $(PROGS)
 
@@ -33,6 +33,7 @@ estimate_capacity.o: estimate_capacity.cc kv_store.h mmscanner.h seqreader.h uti
 build_db.o: build_db.cc build_db.h taxonomy.h mmscanner.h seqreader.h compact_hash.h kv_store.h kraken2_data.h utilities.h
 lookup_accession_numbers.o: lookup_accession_numbers.cc mmap_file.h utilities.h
 k2mask.o: k2mask.cc gzstream.h threadpool.h
+merge.o: merge.cc taxonomy.cc reports.cc mmap_file.cc utilities.cc hyperloglogplus.cc
 
 blast_defline.o: blast_defline.c
 blast_to_fasta.o: blast_to_fasta.c
@@ -55,6 +56,9 @@ lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o util
 
 k2mask: k2mask.o seqreader.o
 	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o $(LDFLAGS) -lz -pthread
+
+merge: merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o
+	$(CXX) $(CXXFLAGS) -o $@ merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o -lc
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
 	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o $(LDFLAGS) -lm -lc
