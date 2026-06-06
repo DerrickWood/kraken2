@@ -406,7 +406,7 @@ std::tuple<size_t, size_t>
 merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                             FILE *out, float confidence_threshold,
                             kraken2::taxon_counters_t *counters,
-                            FILE *classified_headers) {
+                            FILE *classified_headers, bool use_names) {
         char *line1 = NULL;
         char *line2 = NULL;
 
@@ -418,6 +418,7 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
 
         char *fields1[5];
         char *fields2[5];
+        char scientific_name[100];
 
         const char *status;
         // const char *header;
@@ -453,32 +454,47 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                 get_fields(line1, "\t", fields1, 5);
                 get_fields(line2, "\t", fields2, 5);
 
-                if (fields1[status_field][0] == 'C' && fields2[status_field][0] == 'C') {
-                        parse_hit_list(fields1[hit_list_field], strlen(fields1[hit_list_field]), hit_list1);
-                        parse_hit_list(fields2[hit_list_field], strlen(fields2[hit_list_field]), hit_list2);
+                parse_hit_list(fields1[hit_list_field], strlen(fields1[hit_list_field]), hit_list1);
+                parse_hit_list(fields2[hit_list_field], strlen(fields2[hit_list_field]), hit_list2);
 
-                        size_t total_minimizers =
-                                merge_hit_lists(taxonomy, hit_counts, hit_list1, hit_list2, merged_hit_list);
-                        int res = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
-                        taxid = int_to_string(res, itoa_buf);
+                size_t total_minimizers =
+                        merge_hit_lists(taxonomy, hit_counts, hit_list1, hit_list2, merged_hit_list);
+                int res = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                taxid = int_to_string(res, itoa_buf);
+
+
+                if (fields1[status_field][0] == 'C' || fields2[status_field][0] == 'C') {
                         status = "C";
-                } else if (*fields1[status_field] == 'C' &&
-                           *fields2[status_field] == 'U') {
-                        status = "C";
-                        taxid = fields1[taxid_field];
-                        hit_list = fields1[hit_list_field];
-                } else if (*fields1[status_field] == 'U' &&
-                           *fields2[status_field] == 'C') {
-                        status = "C";
-                        taxid = fields2[taxid_field];
-                        hit_list = fields2[hit_list_field];
+                // } else if (*fields1[status_field] == 'C' &&
+                //            *fields2[status_field] == 'U') {
+                //         status = "C";
+                //         taxid = fields1[taxid_field];
+                //         hit_list = fields1[hit_list_field];
+                // } else if (*fields1[status_field] == 'U' &&
+                //            *fields2[status_field] == 'C') {
+                //         status = "C";
+                //         taxid = fields2[taxid_field];
+                //         hit_list = fields2[hit_list_field];
                 } else {
                         status = "U";
-                        taxid = "0";
-                        hit_list = fields1[hit_list_field];
+                        // taxid = "0";
+                        // hit_list = fields1[hit_list_field];
                         total_unclassified += 1;
                 }
 
+                if (use_names) {
+                        taxid_t t = nixmans_atou64_shift(taxid, strlen(taxid));
+                        taxid_t internal_taxid = taxonomy.GetInternalID(t);
+
+                        const char *name =
+                            taxonomy.name_data() +
+                            taxonomy.nodes()[internal_taxid].name_offset;
+                        if (!name) {
+                                name = "unclassified";
+                        }
+                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
+                        taxid = scientific_name;
+                }
                 if (!merged_hit_list.empty()) {
                         fprintf(out, "%s\t%s\t%s\t%s\t", status,
                                 fields1[header_field], taxid, fields1[len_field]);
@@ -542,7 +558,7 @@ FILE *xfopen(const char *filename, const char *options) {
         FILE *f;
 
         if ((f = fopen(filename, options)) == nullptr) {
-                err(1, "Unable to open file");
+                err(1, "Unable to open file %s", filename);
         }
 
         return f;
@@ -550,7 +566,8 @@ FILE *xfopen(const char *filename, const char *options) {
 
 int main(int argc, char **argv) {
 
-        int nflag = 0, ch;
+        int ch;
+        bool use_names = false;
         bool report_zeros = false;
         bool mpa_style = false;
         float confidence_threshold;
@@ -561,8 +578,6 @@ int main(int argc, char **argv) {
         char *input1 = nullptr;
         char *input2 = nullptr;
 
-        nflag = 0;
-
         while ((ch = getopt(argc, argv, "hi:r:mc:o:t:nz")) != -1) {
                 switch (ch) {
                 case 'c':
@@ -572,7 +587,7 @@ int main(int argc, char **argv) {
                         confidence_threshold = strtof(optarg, (char **)nullptr);
                         break;
                 case 'n':
-                        nflag = 1;
+                        use_names = true;
                         break;
                 case 'o':
                         merged_output_filename = optarg;
@@ -641,7 +656,7 @@ int main(int argc, char **argv) {
 
         size_t total_seqs = 0;
         size_t total_unclassified = 0;
-        std::tie(total_seqs, total_unclassified) = merge_classification_output(taxonomy, l, r, m, confidence_threshold, counters, classified_headers);
+        std::tie(total_seqs, total_unclassified) = merge_classification_output(taxonomy, l, r, m, confidence_threshold, counters, classified_headers, use_names);
 
         if (report_filename != nullptr) {
                 if (mpa_style) {

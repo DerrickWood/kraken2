@@ -4038,10 +4038,9 @@ def classify_multi_dbs(args, filenames=[]):
         merged_classification_filenames.append(merged_classification_filename)
 
     final = False
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.threads)
+    pool = concurrent.futures.ProcessPoolExecutor(max_workers=len(classified_filenames))
     futures = []
     progress = ProgressBar(len(classified_filenames) - 1, 0)
-
     final = False
     while not final:
         LOG.debug("{}\r".format(progress.get_bar()))
@@ -4054,12 +4053,7 @@ def classify_multi_dbs(args, filenames=[]):
                 merged_filename = future.result()
                 classified_filenames.append(merged_filename)
                 progress.progress(1, relative=True)
-
-            running_futures = []
-            for future in futures:
-                if future.running():
-                    running_futures.append(future)
-            futures = running_futures
+            futures = []
             for _ in range(int(len(classified_filenames) / 2)):
                 merged_classification_filename = tempfile.mktemp(prefix="k2_")
                 merged_classification_filenames.append(merged_classification_filename)
@@ -4082,11 +4076,12 @@ def classify_multi_dbs(args, filenames=[]):
             mpa_style if final else None,
         )
         futures.append(future)
-        # LOG.info("finished merging classification output\n")
         LOG.debug("{}\r".format(progress.get_bar()))
 
+    if futures:
+        concurrent.futures.wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
+
     progress.progress(1, relative=True)
-    # LOG.info("finished merging classification output\n")
     LOG.debug("{}\r".format(progress.get_bar()))
     pool.shutdown()
     # Add space to overwrite progress bar
@@ -4096,12 +4091,6 @@ def classify_multi_dbs(args, filenames=[]):
     else:
         with open(out_filename, "r") as out_file:
             shutil.copyfileobj(out_file, sys.stdout)
-    # if not filenames:
-    #     for tmp_filename in tmp_input_filenames:
-    #         try:
-    #             os.remove(tmp_filename)
-    #         except FileNotFoundError:
-    #             pass
     if classified_headers_filename:
         with open(classified_headers_filename, "r") as in_file:
             classified_headers = list(map(lambda line: line.strip(), in_file.readlines()))
@@ -5078,6 +5067,12 @@ def make_merge_parser(subparsers):
         help="Pathname to Kraken2 database(s).\
         Multiple databases are specified as a comma-\
         separated list with no spaces.",
+    )
+    parser.add_argument(
+        "--use-names",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print scientific names instead of just taxids",
     )
     parser.add_argument(
         "--merge-policy",
