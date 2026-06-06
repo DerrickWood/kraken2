@@ -2099,20 +2099,18 @@ def find_and_remap_secondary_taxids(metadata):
 
 
 def split_gtdb_database_readme(split_critieria):
-    # with open("README.md", "w") as fout:
-    fout = sys.stdout
-    fout.write(
+    with open("README.md", "w") as fout:
+        fout.write(
 """GTDB Genome Reps has been split by Phylum due to the large size
 of the database when building as a monolith. These are the phylum
 contained in each part:
 
 """)
-
-    for i in range(len(split_criteria)):
-        print("* Part " + str(i + 1), file=fout)
-        for k in split_criteria[i].keys():
-            print("- " + k, file=fout)
-        fout.write("\n")
+        for i in range(len(split_criteria)):
+            print("* Part " + str(i + 1), file=fout)
+            for k in split_criteria[i].keys():
+                print("- " + k, file=fout)
+            fout.write("\n")
 
 
 def split_gtdb_database(
