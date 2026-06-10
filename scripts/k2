@@ -1072,6 +1072,7 @@ def download_and_process_accessions(args, endpoint, identifier):
     api = make_https_connection(NCBI_REST_API)
     identifier = urllib.parse.quote(identifier)
     accession_to_taxid = {}
+    accession_to_name = {}
     builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
     builder.set_filters_from_args(args)
     builder = builder.page_size(500)
@@ -1100,8 +1101,11 @@ def download_and_process_accessions(args, endpoint, identifier):
             )
             sys.exit(1)
 
+        if len(accession_to_taxid) == int(results["total_count"]):
+            break
         for report in results["reports"]:
             accession_to_taxid[report["accession"]] = report["organism"]["tax_id"]
+            accession_to_name[report["accession"]] = report["assembly_info"]["assembly_name"]
         if (
             "next_page_token" in results
             and results["next_page_token"] != old_page_token
@@ -1118,8 +1122,7 @@ def download_and_process_accessions(args, endpoint, identifier):
         )
     )
 
-    accessions = list(accession_to_taxid.keys())
-    accession_to_url = map_accessions_to_url_parallel(args, accessions)
+    accession_to_url = map_accessions_to_url(accession_to_name, args.protein)
 
     filepath_to_taxid = {}
     with open("manifest.txt", "w") as fout:
@@ -1324,64 +1327,63 @@ def partition_list(list, num_partitions):
     return partitions
 
 
-def map_accessions_to_url(accessions, protein=False):
-    api = make_https_connection(NCBI_REST_API)
+# def map_accessions_to_url(accessions, protein=False):
+#     api = make_https_connection(NCBI_REST_API)
 
-    size = len(accessions)
-    start = 0
-    step = 100
-    stop = min(size, step)
-    base_uri = "/datasets/v2/genome/accession/{}/links"
+#     size = len(accessions)
+#     start = 0
+#     step = 100
+#     stop = min(size, step)
+#     base_uri = "/datasets/v2/genome/accession/{}/links"
+#     accession_to_url = {}
+
+#     while True:
+#         query = ",".join(accessions[start:stop])
+#         query = urllib.parse.quote(query)
+#         headers = {"accept": "application/json"}
+#         api.request("GET", base_uri.format(query), headers=headers)
+#         res = api.getresponse()
+#         if res.status != 200:
+#             res.close()
+#             time.sleep(1)
+#             api.connect()
+#             continue
+
+#         results = res.readlines()[0]
+#         res.close()
+#         results = json.loads(results)
+
+#         for entry in results["assembly_links"]:
+#             if entry["assembly_link_type"] == "FTP_LINK":
+#                 filepath = get_download_path(entry["resource_link"], protein)
+#                 accession_to_url[entry["accession"]] = url_join(
+#                     NCBI_SERVER, path=filepath
+#                 )
+#         start, stop = stop, min(size, stop + step)
+#         if start == stop:
+#             break
+#     api.close()
+
+#     return accession_to_url
+
+
+def map_accessions_to_url(accession_to_name, protein):
     accession_to_url = {}
 
-    while True:
-        query = ",".join(accessions[start:stop])
-        query = urllib.parse.quote(query)
-        headers = {"accept": "application/json"}
-        api.request("GET", base_uri.format(query), headers=headers)
-        res = api.getresponse()
-        if res.status != 200:
-            res.close()
-            time.sleep(1)
-            api.connect()
-            continue
-
-        results = res.readlines()[0]
-        res.close()
-        results = json.loads(results)
-
-        for entry in results["assembly_links"]:
-            if entry["assembly_link_type"] == "FTP_LINK":
-                filepath = get_download_path(entry["resource_link"], protein)
-                accession_to_url[entry["accession"]] = url_join(
-                    NCBI_SERVER, path=filepath
-                )
-        start, stop = stop, min(size, stop + step)
-        if start == stop:
-            break
-    api.close()
-
+    for accession, name in accession_to_name.items():
+        name = name.replace(" ", "_").replace("#", "_")
+        url = "https://" + NCBI_SERVER + "/genomes/all/"
+        source, rest = accession.split("_")
+        assembly_name = "_".join([accession, name])
+        if protein:
+            filename = assembly_name + "_protein.faa.gz"
+        else:
+            filename = assembly_name + "_genomic.fna.gz"
+        url += "/".join(
+            [source, rest[0:3], rest[3:6], rest[6:9], assembly_name, filename]
+        )
+        accession_to_url[accession] = url
     return accession_to_url
-
-
-def map_accessions_to_url_parallel(args, accessions):
-    futures = []
-    accession_to_url = {}
-    LOG.info("Fetching download links for accessions\n")
-    # We are limited to 5 requests per second, so we limit the number of
-    # workers accordingly.
-    workers = min(args.threads, 5)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        for partition in partition_list(accessions, args.threads):
-            future = pool.submit(map_accessions_to_url, partition, args.protein)
-            futures.append(future)
-    for future in concurrent.futures.as_completed(futures):
-        accession_to_url.update(future.result())
-    # accession_to_url = map_accessions_to_url(accessions, args.protein)
-    LOG.info("Finished fetching download links for accessions\n")
-
-    return accession_to_url
-
 
 def get_download_path(resource_link, protein):
     dir = os.path.basename(resource_link.rstrip("/"))
