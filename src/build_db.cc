@@ -84,9 +84,8 @@ int main(int argc, char **argv) {
   }
 
   if (opts.cht_cell_size == 32) {
-    build<CompactHashCell40>(taxonomy, ID_to_taxon_map, opts, actual_capacity, bits_for_taxid);
+    build<CompactHashCell>(taxonomy, ID_to_taxon_map, opts, actual_capacity, bits_for_taxid);
   } else if (opts.cht_cell_size == 40) {
-    std::cerr << "Using 40 bits" << std::endl;
     build<CompactHashCell40>(taxonomy, ID_to_taxon_map, opts, actual_capacity, bits_for_taxid);
   } else {
     errx(EX_DATAERR, "Unsupported CHT cell size");

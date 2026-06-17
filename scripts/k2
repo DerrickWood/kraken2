@@ -2100,7 +2100,7 @@ def find_and_remap_secondary_taxids(metadata):
     return metadata
 
 
-def split_gtdb_database_readme(split_critieria):
+def split_gtdb_database_readme(split_criteria):
     with open("README.md", "w") as fout:
         fout.write(
 """GTDB Genome Reps has been split by Phylum due to the large size
