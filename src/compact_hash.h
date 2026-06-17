@@ -334,6 +334,8 @@ bool CompactHashTable<Cell>::CompareAndSet
       }
     }
     omp_unset_lock(&zone_locks_[zone]);
+    if (search_successful)
+      break;
     if (step == 0)
       step = second_hash(hc);
     idx += step;
