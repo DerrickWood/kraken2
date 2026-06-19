@@ -258,7 +258,7 @@ void OpenFifos(Options &opts, pid_t pid) {
   dup2(write_fd, 2);
 }
 
-IndexData load_index(Options &opts) {
+IndexData *load_index(Options &opts) {
   cerr << "Loading database information...";
 
   IndexOptions idx_opts = {0};
@@ -270,12 +270,9 @@ IndexData load_index(Options &opts) {
   idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
 
-  IndexData index_data{
-      .options = idx_opts,
-      .taxonomy = new Taxonomy(opts.taxonomy_filename, opts.use_memory_mapping),
-  };
-  // .cht =
-  //     new CompactHashTable<Cell>(opts.index_filename, opts.use_memory_mapping),
+  IndexData *index_data = new IndexData();
+  index_data->options = idx_opts;
+  index_data->taxonomy = new Taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
 
   KeyValueStore *cht;
   switch (GetKVStoreCellType(opts.index_filename)) {
@@ -289,18 +286,18 @@ IndexData load_index(Options &opts) {
     errx(1, "Unable to determine width of compact hash cell\n");
   }
 
-  index_data.cht = cht;
+  index_data->cht = cht;
 
   cerr << " done." << endl;
 
   return index_data;
 }
 
-void classify(Options &opts, IndexData& index_data) {
+void classify(Options &opts, IndexData *index_data) {
   taxon_counters_t taxon_counters; // stats per taxon
-  IndexOptions idx_opts = index_data.options;
-  Taxonomy &taxonomy = *(index_data.taxonomy);
-  KeyValueStore *hash_ptr = index_data.cht;
+  IndexOptions idx_opts = index_data->options;
+  Taxonomy &taxonomy = *(index_data->taxonomy);
+  KeyValueStore *hash_ptr = index_data->cht;
 
   omp_set_num_threads(opts.num_threads);
 
@@ -369,7 +366,7 @@ void ClassifyDaemon(Options opts) {
   daemonize();
 
   std::vector<char *> args;
-  std::map<std::string, IndexData> indexes;
+  std::map<std::string, IndexData*> indexes;
   std::stringstream ss;
   char *cmdline = NULL;
   size_t linecap = 0;
@@ -382,36 +379,12 @@ void ClassifyDaemon(Options opts) {
   ss.str("");
   close(pid_file);
 
-  auto index_data = load_index(opts);
-  indexes.emplace(opts.index_filename, std::move(index_data));
+  IndexData *index_data = load_index(opts);
+  indexes[opts.index_filename] = index_data;
 
   while (!stop) {
-    pid_t pid;
-    if ((pid = fork()) < 0) {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    }
-    if (pid == 0) {
-      OpenFifos(opts, getpid());
-      classify(opts, indexes[opts.index_filename]);
-      for (auto i = 0; i < args.size(); i++) {
-        delete[] args[i];
-      }
-      exit(EXIT_SUCCESS);
-    } else {
-      std::cout << "PID: " << pid << std::endl;
-      if (wait(NULL) != pid) {
-        perror("wait");
-        exit(EXIT_FAILURE);
-      }
-      std::cout << "DONE" << std::endl;
-      ss << "/tmp/classify_" << pid << "_stdin";
-      unlink(ss.str().c_str());
-      ss.str("");
-      ss << "/tmp/classify_" << pid << "_stdout";
-      unlink(ss.str().c_str());
-      ss.str("");
-    }
+    classify(opts, index_data);
+    std::cout << "DONE" << std::endl;
 
     while (true) {
       line_len = getline(&cmdline, &linecap, stdin);
@@ -432,21 +405,22 @@ void ClassifyDaemon(Options opts) {
     opts.reset();
     ParseCommandLine(args.size(), &args[0], opts);
     if (indexes.find(opts.index_filename) == indexes.end()) {
-      auto index_data = load_index(opts);
-      indexes.emplace(opts.index_filename, std::move(index_data));
+      index_data = load_index(opts);
+      indexes[opts.index_filename] = index_data;
     }
   }
 
-  // for (auto &entry : indexes) {
-  //   auto &index_data = entry.second;
-  //   delete index_data.taxonomy;
-  //   delete index_data.cht;
-  // }
   for (auto i = 0; i < 3; i++) {
     close(i);
   }
 
   free(cmdline);
+
+  for (auto kv : indexes) {
+    delete kv.second->cht;
+    delete kv.second->taxonomy;
+    delete kv.second;
+  }
 }
 
 int main(int argc, char **argv) {
@@ -456,8 +430,11 @@ int main(int argc, char **argv) {
   if (opts.daemon_mode) {
     ClassifyDaemon(opts);
   } else {
-    auto index_data = load_index(opts);
+    IndexData *index_data = load_index(opts);
     classify(opts, index_data);
+    delete index_data->cht;
+    delete index_data->taxonomy;
+    delete index_data;
   }
 
   return 0;

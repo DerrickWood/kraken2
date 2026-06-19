@@ -3613,32 +3613,6 @@ def classify_using_daemon(args, argv):
         fd = os.open("/tmp/classify_stdin", os.O_RDWR)
         with os.fdopen(fd, "w") as out_file:
             out_file.write(" ".join(argv) + "\n")
-            # the daemon will return the pid of the subprocess
-            # doing the work
-    with open("/tmp/classify_stdout", "r") as in_file:
-        for line in in_file:
-            line = line.strip()
-            if line.startswith("PID"):
-                pid = line.split(":")[1].strip()
-                break
-            else:
-                print(line)
-    proc_in = "/tmp/classify_{}_stdin".format(pid)
-    proc_out = "/tmp/classify_{}_stdout".format(pid)
-    wait_for_files(proc_in, proc_out)
-    thread = None
-    proc_fd = open(proc_in, "w")
-    if len(args.filenames) == 0:
-        thread = threading.Thread(target=copy_file_obj, args=(proc_fd,))
-        thread.start()
-    if "output" not in args:
-        with open(proc_out, "r") as in_file:
-            for line in in_file:
-                line = line.strip()
-                print(line)
-                # wait for the classification job to complete
-    if thread:
-        thread.join()
 
     with open("/tmp/classify_stdout", "r") as in_file:
         try:
@@ -3646,6 +3620,8 @@ def classify_using_daemon(args, argv):
                 line = line.strip()
                 if line == "DONE":
                     break
+                else:
+                    print(line)
         except KeyboardInterrupt:
             os.kill(int(pid), signal.SIGINT)
             for line in in_file:
@@ -4055,14 +4031,13 @@ def classify_multi_dbs(args, filenames=[]):
         merged_classification_filename = tempfile.mktemp(prefix="k2_")
         merged_classification_filenames.append(merged_classification_filename)
 
-    final = False
     pool = concurrent.futures.ProcessPoolExecutor(max_workers=len(classified_filenames))
     futures = []
     progress = ProgressBar(len(classified_filenames) - 1, 0)
     final = False
     while not final:
         LOG.debug("{}\r".format(progress.get_bar()))
-        if len(classified_filenames) == 1:
+        if len(classified_filenames) < 2:
             # wait for the merge jobs to complete,
             # then add their output files to the list
             # input files. Generate a new list of temporary files
@@ -4076,11 +4051,11 @@ def classify_multi_dbs(args, filenames=[]):
                 merged_classification_filename = tempfile.mktemp(prefix="k2_")
                 merged_classification_filenames.append(merged_classification_filename)
 
+        if len(classified_filenames) == 2 and not futures:
+            final = True
+
         filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
         out_filename = merged_classification_filenames.pop()
-
-        if len(classified_filenames) == 0:
-            final = True
 
         future = pool.submit(
             merge_classification_output,
