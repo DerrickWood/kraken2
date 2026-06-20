@@ -118,6 +118,7 @@ template<typename Cell> class CompactHashTable : public KeyValueStore {
   ~CompactHashTable();
 
   hvalue_t Get(hkey_t key) const;
+  void GetBatch(const hkey_t *keys, hvalue_t *out, size_t n) const;
   bool FindIndex(hkey_t key, size_t *idx) const;
 
   // How CompareAndSet works:
@@ -370,6 +371,24 @@ hvalue_t CompactHashTable<Cell>::Get(hkey_t key) const {
       break;  // search over, we've exhausted the table
   }
   return 0;
+}
+
+// Resolve a batch of keys, software-prefetching the initial probe cell of a key
+// PREFETCH_DIST iterations ahead so multiple cache-missing loads are in flight at
+// once (memory-level parallelism). One virtual dispatch per batch amortizes away.
+template<typename Cell>
+void CompactHashTable<Cell>::GetBatch(const hkey_t *keys, hvalue_t *out, size_t n) const {
+  static const size_t PREFETCH_DIST = [] {
+    const char *e = getenv("K2_PREFETCH_DIST");
+    return e ? (size_t) atoi(e) : (size_t) 8;
+  }();
+  for (size_t i = 0; i < n; i++) {
+    if (i + PREFETCH_DIST < n) {
+      uint64_t hc = MurmurHash3(keys[i + PREFETCH_DIST]);
+      __builtin_prefetch(&table_[hc % capacity_], 0, 1);
+    }
+    out[i] = Get(keys[i]);
+  }
 }
 
 template<typename Cell>

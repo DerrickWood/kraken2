@@ -34,6 +34,14 @@ static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
 
+// Token stream used to defer minimizer lookups in ClassifySequence so they can be
+// resolved in one prefetched batch. kind selects how replay rebuilds taxa[]/counts;
+// key_idx indexes the distinct-minimizer lookup arrays for TOK_LOOKUP. uint32_t is
+// ample: it counts distinct minimizers in a single read pair (far below 2^32).
+enum MinTokKind { TOK_LOOKUP, TOK_SKIP, TOK_REPEAT, TOK_AMBIG,
+                  TOK_BORDER_MATE, TOK_BORDER_FRAME };
+struct MinToken { uint8_t kind; uint32_t key_idx; };
+
 // template <typename Cell>
 // using IndexData = std::tuple<IndexOptions, Taxonomy, CompactHashTable<Cell> *>;
 
@@ -781,6 +789,15 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   auto frame_ct = opts.use_translated_search ? 6 : 1;
   int64_t minimizer_hit_groups = 0;
 
+  // Phase 1: scan minimizers for the read pair into a token stream, deferring the
+  // memory-latency-bound hash lookups. Lookup-vs-repeat-vs-ambiguous is decided
+  // purely from minimizer values (independent of taxon), exactly as the original
+  // consecutive-dedup did, so phase 3 reproduces identical taxa[]/counts.
+  static thread_local std::vector<uint64_t> lookup_keys;
+  static thread_local std::vector<MinToken> tok_stream;
+  lookup_keys.clear();
+  tok_stream.clear();
+
   for (int mate_num = 0; mate_num < 2; mate_num++) {
     if (mate_num == 1 && ! opts.paired_end_processing)
       break;
@@ -797,52 +814,81 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
         scanner.LoadSequence(mate_num == 0 ? dna.seq : dna2.seq);
       }
       uint64_t last_minimizer = UINT64_MAX;
-      taxid_t last_taxon = TAXID_MAX;
       while ((minimizer_ptr = scanner.NextMinimizer()) != nullptr) {
-        taxid_t taxon;
         if (scanner.is_ambiguous()) {
-          taxon = AMBIGUOUS_SPAN_TAXON;
+          tok_stream.push_back({TOK_AMBIG, 0});
         }
-        else {
-          if (*minimizer_ptr != last_minimizer) {
-            bool skip_lookup = false;
-            if (idx_opts.minimum_acceptable_hash_value) {
-              if (MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value)
-                skip_lookup = true;
-            }
-            taxon = 0;
-            if (! skip_lookup)
-              taxon = hash->Get(*minimizer_ptr);
-            last_taxon = taxon;
-            last_minimizer = *minimizer_ptr;
-            // Increment this only if (a) we have DB hit and
-            // (b) minimizer != last minimizer
-            if (taxon) {
-              minimizer_hit_groups++;
-              // New minimizer should trigger registering minimizer in RC/HLL
-              if (!opts.report_filename.empty()) {
-                curr_taxon_counts[taxon].add_kmer(scanner.last_minimizer());
-              }
-            }
+        else if (*minimizer_ptr != last_minimizer) {
+          last_minimizer = *minimizer_ptr;
+          bool skip_lookup = idx_opts.minimum_acceptable_hash_value &&
+              MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value;
+          if (skip_lookup) {
+            tok_stream.push_back({TOK_SKIP, 0});
           }
           else {
-            taxon = last_taxon;
-          }
-          if (taxon) {
-            if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
-              call = taxon;
-              goto finished_searching;  // need to break 3 loops here
-            }
-            hit_counts[taxon]++;
+            tok_stream.push_back({TOK_LOOKUP, (uint32_t) lookup_keys.size()});
+            lookup_keys.push_back(*minimizer_ptr);
           }
         }
-        taxa.push_back(taxon);
+        else {
+          tok_stream.push_back({TOK_REPEAT, 0});
+        }
       }
       if (opts.use_translated_search && frame_idx != 5)
-        taxa.push_back(READING_FRAME_BORDER_TAXON);
+        tok_stream.push_back({TOK_BORDER_FRAME, 0});
     }
     if (opts.paired_end_processing && mate_num == 0)
-      taxa.push_back(MATE_PAIR_BORDER_TAXON);
+      tok_stream.push_back({TOK_BORDER_MATE, 0});
+  }
+
+  // Phase 2: resolve all distinct minimizers in one prefetched batched pass.
+  static thread_local std::vector<hvalue_t> lookup_vals;
+  lookup_vals.resize(lookup_keys.size());
+  if (! lookup_keys.empty())
+    hash->GetBatch(lookup_keys.data(), lookup_vals.data(), lookup_keys.size());
+
+  // Phase 3: replay token stream, reproducing the original behavior exactly.
+  {
+    taxid_t last_taxon = 0;
+    for (size_t ti = 0; ti < tok_stream.size(); ti++) {
+      const MinToken &tok = tok_stream[ti];
+      taxid_t taxon = 0;
+      switch (tok.kind) {
+        case TOK_AMBIG:
+          taxa.push_back(AMBIGUOUS_SPAN_TAXON);
+          continue;
+        case TOK_BORDER_FRAME:
+          taxa.push_back(READING_FRAME_BORDER_TAXON);
+          continue;
+        case TOK_BORDER_MATE:
+          taxa.push_back(MATE_PAIR_BORDER_TAXON);
+          continue;
+        case TOK_SKIP:
+          taxon = 0;
+          last_taxon = 0;
+          break;
+        case TOK_LOOKUP:
+          taxon = lookup_vals[tok.key_idx];
+          last_taxon = taxon;
+          if (taxon) {
+            minimizer_hit_groups++;
+            if (!opts.report_filename.empty())
+              curr_taxon_counts[taxon].add_kmer(lookup_keys[tok.key_idx]);
+          }
+          break;
+        default:  // TOK_REPEAT
+          taxon = last_taxon;
+          break;
+      }
+      if (taxon) {
+        if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
+          call = taxon;
+          goto finished_searching;
+        }
+        hit_counts[taxon]++;
+      }
+      taxa.push_back(taxon);
+    }
   }
 
   finished_searching:
