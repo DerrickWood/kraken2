@@ -417,9 +417,7 @@ void ClassifyDaemon(Options opts) {
   free(cmdline);
 
   for (auto kv : indexes) {
-    delete kv.second->cht;
-    delete kv.second->taxonomy;
-    delete kv.second;
+    delete kv.second;  // ~IndexData() frees cht + taxonomy (was double-free)
   }
 }
 
@@ -432,9 +430,7 @@ int main(int argc, char **argv) {
   } else {
     IndexData *index_data = load_index(opts);
     classify(opts, index_data);
-    delete index_data->cht;
-    delete index_data->taxonomy;
-    delete index_data;
+    delete index_data;  // ~IndexData() frees cht + taxonomy (was double-free)
   }
 
   return 0;
