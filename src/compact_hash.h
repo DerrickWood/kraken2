@@ -11,6 +11,8 @@
 #include "mmap_file.h"
 #include "kraken2_headers.h"
 #include "kraken2_data.h"
+#include <sys/mman.h>
+#include <cstdlib>
 
 namespace kraken2 {
 
@@ -168,16 +170,20 @@ CompactHashTable<Cell>::CompactHashTable(size_t capacity, size_t key_bits, size_
     errx(EX_SOFTWARE, "value bits cannot be zero");
   for (size_t i = 0; i < LOCK_ZONES; i++)
     omp_init_lock(&zone_locks_[i]);
-  try {
-    table_ = new Cell[capacity_];
-  } catch (std::bad_alloc &ex) {
-    std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
-              << "you may not have enough free memory to build this database.\n"
-              << "Perhaps increasing the k-mer length, or reducing memory usage from\n"
-              << "other programs could help you build this database?" << std::endl;
-    errx(EX_OSERR, "unable to allocate hash table memory");
+  {
+    size_t table_bytes = capacity_ * sizeof(*table_);
+    if (posix_memalign((void **) &table_, (size_t) 1 << 21, table_bytes) != 0) {
+      std::cerr << "Failed attempt to allocate " << table_bytes << "bytes;\n"
+                << "you may not have enough free memory to build this database.\n"
+                << "Perhaps increasing the k-mer length, or reducing memory usage from\n"
+                << "other programs could help you build this database?" << std::endl;
+      errx(EX_OSERR, "unable to allocate hash table memory");
+    }
+#ifdef MADV_HUGEPAGE
+    madvise(table_, table_bytes, MADV_HUGEPAGE);
+#endif
+    memset(table_, 0, table_bytes);
   }
-  memset(table_, 0, capacity_ * sizeof(*table_));
 }
 
 template<typename Cell>
@@ -193,7 +199,7 @@ CompactHashTable<Cell>::CompactHashTable(const char *filename, bool memory_mappi
 template<typename Cell>
 CompactHashTable<Cell>::~CompactHashTable() {
   if (! file_backed_)
-    delete[] table_;
+    free(table_);
   if (locks_initialized_)
     for (size_t i = 0; i < LOCK_ZONES; i++)
       omp_destroy_lock(&zone_locks_[i]);
@@ -227,16 +233,24 @@ void CompactHashTable<Cell>::LoadTable(const char *filename, bool memory_mapping
     ifs.read((char *) &size_, sizeof(size_));
     ifs.read((char *) &key_bits_, sizeof(key_bits_));
     ifs.read((char *) &value_bits_, sizeof(value_bits_));
-    try {
-      table_ = new Cell[capacity_];
-    } catch (std::bad_alloc &ex) {
-      std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
-                << "you may not have enough free memory to load this database.\n"
-                << "If your computer has enough RAM, perhaps reducing memory usage from\n"
-                << "other programs could help you load this database?" << std::endl;
-      errx(EX_OSERR, "unable to allocate hash table memory");
+    {
+      size_t table_bytes = capacity_ * sizeof(*table_);
+      // 2MB-aligned so MADV_HUGEPAGE (where supported) can back the multi-GB
+      // table with huge pages, cutting TLB-miss page-walks on the random-access
+      // lookup path (large win on aarch64/Graviton). Cell is POD; free() pairs
+      // with this. On platforms without THP the madvise is simply compiled out.
+      if (posix_memalign((void **) &table_, (size_t) 1 << 21, table_bytes) != 0) {
+        std::cerr << "Failed attempt to allocate " << table_bytes << "bytes;\n"
+                  << "you may not have enough free memory to load this database.\n"
+                  << "If your computer has enough RAM, perhaps reducing memory usage from\n"
+                  << "other programs could help you load this database?" << std::endl;
+        errx(EX_OSERR, "unable to allocate hash table memory");
+      }
+#ifdef MADV_HUGEPAGE
+      madvise(table_, table_bytes, MADV_HUGEPAGE);
+#endif
+      ifs.read((char *) table_, table_bytes);
     }
-    ifs.read((char *) table_, capacity_ * sizeof(*table_));
     if (! ifs)
       errx(EX_OSERR, "Error reading in hash table");
     file_backed_ = false;
