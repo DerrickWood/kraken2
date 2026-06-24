@@ -11,7 +11,15 @@
 #include "kseq.h"
 #include <fcntl.h>
 
-KSEQ_INIT(int, read)
+// Expand KSEQ_INIT by hand so the kstream uses a 64KB read buffer instead of
+// klib's 16KB default, while keeping kseq.h verbatim-upstream. Input is read
+// through this buffer inside classify's serialized reader critical section; 64KB
+// matches the default Linux pipe capacity feeding us from the igzip decompressor,
+// so a single read() can drain a full pipe rather than taking ~4 syscalls.
+KSTREAM_INIT(int, read, 65536)
+__KSEQ_TYPE(int)
+__KSEQ_BASIC(static, int)
+__KSEQ_READ(static)
 
 namespace kraken2 {
 

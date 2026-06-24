@@ -11,6 +11,11 @@
 #include "mmap_file.h"
 #include "kraken2_headers.h"
 #include "kraken2_data.h"
+#include <sys/mman.h>
+#include <cstdlib>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cerrno>
 
 namespace kraken2 {
 
@@ -113,6 +118,7 @@ template<typename Cell> class CompactHashTable : public KeyValueStore {
   ~CompactHashTable();
 
   hvalue_t Get(hkey_t key) const;
+  void GetBatch(const hkey_t *keys, hvalue_t *out, size_t n) const;
   bool FindIndex(hkey_t key, size_t *idx) const;
 
   // How CompareAndSet works:
@@ -168,16 +174,20 @@ CompactHashTable<Cell>::CompactHashTable(size_t capacity, size_t key_bits, size_
     errx(EX_SOFTWARE, "value bits cannot be zero");
   for (size_t i = 0; i < LOCK_ZONES; i++)
     omp_init_lock(&zone_locks_[i]);
-  try {
-    table_ = new Cell[capacity_];
-  } catch (std::bad_alloc &ex) {
-    std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
-              << "you may not have enough free memory to build this database.\n"
-              << "Perhaps increasing the k-mer length, or reducing memory usage from\n"
-              << "other programs could help you build this database?" << std::endl;
-    errx(EX_OSERR, "unable to allocate hash table memory");
+  {
+    size_t table_bytes = capacity_ * sizeof(*table_);
+    if (posix_memalign((void **) &table_, (size_t) 1 << 21, table_bytes) != 0) {
+      std::cerr << "Failed attempt to allocate " << table_bytes << "bytes;\n"
+                << "you may not have enough free memory to build this database.\n"
+                << "Perhaps increasing the k-mer length, or reducing memory usage from\n"
+                << "other programs could help you build this database?" << std::endl;
+      errx(EX_OSERR, "unable to allocate hash table memory");
+    }
+#ifdef MADV_HUGEPAGE
+    madvise(table_, table_bytes, MADV_HUGEPAGE);
+#endif
+    memset(table_, 0, table_bytes);
   }
-  memset(table_, 0, capacity_ * sizeof(*table_));
 }
 
 template<typename Cell>
@@ -193,10 +203,76 @@ CompactHashTable<Cell>::CompactHashTable(const char *filename, bool memory_mappi
 template<typename Cell>
 CompactHashTable<Cell>::~CompactHashTable() {
   if (! file_backed_)
-    delete[] table_;
+    free(table_);
   if (locks_initialized_)
     for (size_t i = 0; i < LOCK_ZONES; i++)
       omp_destroy_lock(&zone_locks_[i]);
+}
+
+// Read exactly n bytes from fd into buf, looping over short reads (a single
+// read() is capped well below multi-GB sizes), retrying on EINTR. errx on
+// error or premature EOF.
+static inline void read_fully(int fd, void *buf, size_t n, const char *what) {
+  char *p = (char *) buf;
+  while (n > 0) {
+    ssize_t r = read(fd, p, n);
+    if (r < 0) {
+      if (errno == EINTR) continue;
+      errx(EX_OSERR, "error reading %s", what);
+    }
+    if (r == 0)
+      errx(EX_DATAERR, "unexpected end of file reading %s", what);
+    p += r;
+    n -= (size_t) r;
+  }
+}
+
+// Number of concurrent reader threads for loading the table; tunable via
+// K2_DB_READ_THREADS (default 8). More streams raise I/O queue depth, which is
+// what saturates the device — reading is I/O-bound, not CPU-bound, so this can
+// exceed core count.
+static inline int db_read_threads() {
+  const char *e = getenv("K2_DB_READ_THREADS");
+  int n = e ? atoi(e) : 8;
+  return n > 0 ? n : 1;
+}
+
+// Fill [buf, buf+n) from fd starting at file offset base_off using `threads`
+// concurrent pread() streams over disjoint chunks. Each pread carries its own
+// offset and is thread-safe. errx on error/EOF.
+static inline void pread_parallel(int fd, void *buf, size_t n, off_t base_off,
+                                  int threads, const char *what) {
+  if (threads < 1) threads = 1;
+  size_t chunk = (n + (size_t) threads - 1) / (size_t) threads;
+  // Set to 1 by any thread that hits a read error. Plain assignment is safe here:
+  // every writer stores the same value, and the read below runs after the parallel
+  // for's implicit barrier (no concurrent access), so no atomics are needed -- and
+  // it avoids OpenMP 3.1's `atomic write` for broader toolchain compatibility.
+  int failed = 0;
+  #pragma omp parallel for schedule(static) num_threads(threads)
+  for (int t = 0; t < threads; t++) {
+    size_t start = (size_t) t * chunk;
+    if (start >= n) continue;
+    size_t len = chunk < n - start ? chunk : n - start;
+    char *p = (char *) buf + start;
+    off_t off = base_off + (off_t) start;
+    size_t got = 0;
+    while (got < len) {
+      ssize_t r = pread(fd, p + got, len - got, off + (off_t) got);
+      if (r < 0) {
+        if (errno == EINTR) continue;
+        failed = 1;
+        break;
+      }
+      if (r == 0) {  // premature EOF
+        failed = 1;
+        break;
+      }
+      got += (size_t) r;
+    }
+  }
+  if (failed)
+    errx(EX_OSERR, "error reading %s", what);
 }
 
 template<typename Cell>
@@ -222,23 +298,44 @@ void CompactHashTable<Cell>::LoadTable(const char *filename, bool memory_mapping
     file_backed_ = true;
   }
   else {
-    std::ifstream ifs(filename);
-    ifs.read((char *) &capacity_, sizeof(capacity_));
-    ifs.read((char *) &size_, sizeof(size_));
-    ifs.read((char *) &key_bits_, sizeof(key_bits_));
-    ifs.read((char *) &value_bits_, sizeof(value_bits_));
-    try {
-      table_ = new Cell[capacity_];
-    } catch (std::bad_alloc &ex) {
-      std::cerr << "Failed attempt to allocate " << (sizeof(*table_) * capacity_) << "bytes;\n"
-                << "you may not have enough free memory to load this database.\n"
-                << "If your computer has enough RAM, perhaps reducing memory usage from\n"
-                << "other programs could help you load this database?" << std::endl;
-      errx(EX_OSERR, "unable to allocate hash table memory");
+    int fd = open(filename, O_RDONLY);
+    if (fd < 0)
+      errx(EX_OSERR, "unable to open %s", filename);
+    read_fully(fd, &capacity_, sizeof(capacity_), filename);
+    read_fully(fd, &size_, sizeof(size_), filename);
+    read_fully(fd, &key_bits_, sizeof(key_bits_), filename);
+    read_fully(fd, &value_bits_, sizeof(value_bits_), filename);
+    off_t table_off = lseek(fd, 0, SEEK_CUR);  // byte offset where the table begins
+    if (table_off < 0)
+      errx(EX_OSERR, "lseek failed on %s", filename);
+    {
+      size_t table_bytes = capacity_ * sizeof(*table_);
+      // 2MB-aligned so MADV_HUGEPAGE (where supported) can back the multi-GB
+      // table with huge pages, cutting TLB-miss page-walks on the random-access
+      // lookup path (large win on aarch64/Graviton). Cell is POD; free() pairs
+      // with this. On platforms without THP the madvise is simply compiled out.
+      if (posix_memalign((void **) &table_, (size_t) 1 << 21, table_bytes) != 0) {
+        std::cerr << "Failed attempt to allocate " << table_bytes << "bytes;\n"
+                  << "you may not have enough free memory to load this database.\n"
+                  << "If your computer has enough RAM, perhaps reducing memory usage from\n"
+                  << "other programs could help you load this database?" << std::endl;
+        errx(EX_OSERR, "unable to allocate hash table memory");
+      }
+#ifdef MADV_HUGEPAGE
+      madvise(table_, table_bytes, MADV_HUGEPAGE);
+#endif
+      // Read the multi-GB table with several concurrent pread() streams. A single
+      // sequential read keeps too few requests in flight (bounded by the small
+      // default readahead window) to saturate a fast block device such as EBS, so
+      // load is throttled well below device throughput. Splitting the table across
+      // N threads, each pread()-ing a disjoint region, raises the effective I/O
+      // queue depth and lets the device run at full speed. pread is thread-safe
+      // (it does not use or move the shared file offset). This is a pure userspace
+      // change: no privileges, no host/readahead tuning, identical in a container.
+      // Without OpenMP the pragma is ignored and this degrades to a serial read.
+      pread_parallel(fd, table_, table_bytes, table_off, db_read_threads(), filename);
     }
-    ifs.read((char *) table_, capacity_ * sizeof(*table_));
-    if (! ifs)
-      errx(EX_OSERR, "Error reading in hash table");
+    close(fd);
     file_backed_ = false;
   }
 }
@@ -274,6 +371,24 @@ hvalue_t CompactHashTable<Cell>::Get(hkey_t key) const {
       break;  // search over, we've exhausted the table
   }
   return 0;
+}
+
+// Resolve a batch of keys, software-prefetching the initial probe cell of a key
+// PREFETCH_DIST iterations ahead so multiple cache-missing loads are in flight at
+// once (memory-level parallelism). One virtual dispatch per batch amortizes away.
+template<typename Cell>
+void CompactHashTable<Cell>::GetBatch(const hkey_t *keys, hvalue_t *out, size_t n) const {
+  static const size_t PREFETCH_DIST = [] {
+    const char *e = getenv("K2_PREFETCH_DIST");
+    return e ? (size_t) atoi(e) : (size_t) 8;
+  }();
+  for (size_t i = 0; i < n; i++) {
+    if (i + PREFETCH_DIST < n) {
+      uint64_t hc = MurmurHash3(keys[i + PREFETCH_DIST]);
+      __builtin_prefetch(&table_[hc % capacity_], 0, 1);
+    }
+    out[i] = Get(keys[i]);
+  }
 }
 
 template<typename Cell>
