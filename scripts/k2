@@ -4197,36 +4197,86 @@ def classify(args):
 
 
 def inspect_db(args):
-    database_pathname = find_database(args.db)
-    if not database_pathname:
-        LOG.error("{:s} database does not exist\n".format(args.db))
-        sys.exit(1)
-    for database_file in ["taxo.k2d", "hash.k2d", "opts.k2d"]:
-        if not os.path.isfile(os.path.join(database_pathname, database_file)):
-            LOG.error("{:s} does not exist\n".format(database_file))
-    dump_table_bin = find_kraken2_binary("dump_table")
-    argv = [
-        dump_table_bin,
-        "-H",
-        os.path.join(database_pathname, "hash.k2d"),
-        "-t",
-        os.path.join(database_pathname, "taxo.k2d"),
-        "-o",
-        os.path.join(database_pathname, "opts.k2d"),
-    ]
-    # dump_table does not save the table header to file.
-    # This is a workaround helps enables us to capture
-    # the entire output.
-    output_filename, args.output = args.output, None
-    wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
-    process = subprocess.Popen(argv, stdout=subprocess.PIPE)
-
-    if output_filename == "-":
-        shutil.copyfileobj(process.stdout, sys.stdout.buffer)
+    if len(args.db) == 1 and not find_database(args.db[0]):
+        partitions = find_partitioned_databases(args.db[0])
+        database_pathnames = partitions if partitions else find_database(args.db[0])
     else:
-        with open(output_filename, "wb") as fout:
-            shutil.copyfileobj(process.stdout, fout)
-    process.wait()
+        database_pathnames = []
+        for database in args.db:
+            database_pathname = find_database(database)
+            database_pathnames.append(database_pathname)
+            if not database_pathname:
+                LOG.error("{:s} database does not exist\n".format(args.db))
+                sys.exit(1)
+
+    output_filename, args.output = args.output, None
+    if output_filename == "-":
+        if len(database_pathnames) > 1:
+            fout = tempfile.NamedTemporaryFile(delete=False)
+        else:
+            fout = sys.stdout.buffer
+    else:
+         fout = open(output_filename, "wb")
+
+    for database_pathname in database_pathnames:
+        header = "# Database: " + database_pathname + "\n"
+        dump_table_bin = find_kraken2_binary("dump_table")
+        argv = [
+            dump_table_bin,
+            "-H",
+            os.path.join(database_pathname, "hash.k2d"),
+            "-t",
+            os.path.join(database_pathname, "taxo.k2d"),
+            "-o",
+            os.path.join(database_pathname, "opts.k2d"),
+        ]
+        # dump_table does not save the table header to file.
+        # This is a workaround helps enables us to capture
+        # the entire output. The header is stripped out
+        # when inspecting multiple databases.
+        wrapper_args_to_binary_args(args, argv, get_binary_options(dump_table_bin))
+        process = subprocess.Popen(argv, stdout=subprocess.PIPE)
+
+        fout.write(header.encode())
+        shutil.copyfileobj(process.stdout, fout)
+        process.wait()
+
+    fout.close()
+    if len(database_pathnames) > 1:
+        adjust_percentages(fout.name)
+    if output_filename == "-":
+        with open(fout.name, "rb") as fin:
+            shutil.copyfileobj(fin, sys.stdout.buffer)
+        os.remove(fout.name)
+
+
+def adjust_percentages(output_filename):
+    total_minimizers = 0
+    root_minimizer_count = 0
+    with open(output_filename, "r") as fin:
+        for line in fin:
+            line = line.strip()
+            if line.startswith("100.00") and line.endswith("root"):
+                total_minimizers += int(line.split("\t")[1])
+                root_minimizer_count += int(line.split("\t")[2])
+        fin.seek(0)
+        root_entry = "\t".join([
+            "100.00", str(total_minimizers),
+            str(root_minimizer_count), "R", "1", "root", "\n"
+        ])
+        with open(output_filename + ".tmp", "w") as fout:
+            fout.write(root_entry)
+            for line in fin:
+                line = line.strip()
+                # skip comment lines and root statistics
+                if line.startswith("#") or\
+                   (line.startswith("100.00") and line.endswith("root")):
+                    continue
+                percentage, minimizers, rest = line.split("\t", 2)
+                minimizers = int(minimizers)
+                percentage = (minimizers / total_minimizers) * 100
+                print("{:.2f}\t{}\t{}".format(percentage, minimizers, rest), file=fout, end=None)
+    shutil.move(output_filename + ".tmp", output_filename)
 
 
 def format_bytes(size):
@@ -4948,14 +4998,24 @@ def make_classify_parser(subparsers):
 
 
 def make_inspect_parser(subparsers):
-    parser = subparsers.add_parser("inspect", help="Inspect Kraken 2 database")
+    parser = subparsers.add_parser("inspect", help="Inspect Kraken 2 database(s)")
     parser.add_argument(
         "--db",
-        type=str,
+        type=lambda x: x.split(","),
         metavar="PATHNAME",
+        # nargs="+",
         required=True,
-        help="Pathname to Kraken2 database",
+        help="Pathname to Kraken2 database(s).\
+        Multiple databases are specified as a comma-\
+        separated list with no spaces.",
     )
+    # parser.add_argument(
+    #     "--db",
+    #     type=str,
+    #     metavar="PATHNAME",
+    #     required=True,
+    #     help="Pathname to Kraken2 database",
+    # )
     # parser.add_argument(
     #     "--threads",
     #     type=int,
