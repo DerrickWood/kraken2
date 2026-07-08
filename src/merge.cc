@@ -421,9 +421,9 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
         char scientific_name[100];
 
         const char *status;
-        // const char *header;
         const char *taxid;
-        const char *hit_list;
+        // const char *header;
+        // const char *hit_list;
         // const char *seq_len;
 
         enum {
@@ -465,20 +465,9 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
 
                 if (fields1[status_field][0] == 'C' || fields2[status_field][0] == 'C') {
                         status = "C";
-                // } else if (*fields1[status_field] == 'C' &&
-                //            *fields2[status_field] == 'U') {
-                //         status = "C";
-                //         taxid = fields1[taxid_field];
-                //         hit_list = fields1[hit_list_field];
-                // } else if (*fields1[status_field] == 'U' &&
-                //            *fields2[status_field] == 'C') {
-                //         status = "C";
-                //         taxid = fields2[taxid_field];
-                //         hit_list = fields2[hit_list_field];
                 } else {
                         status = "U";
-                        // taxid = "0";
-                        // hit_list = fields1[hit_list_field];
+                        taxid = "0";
                         total_unclassified += 1;
                 }
 
@@ -500,9 +489,6 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                                 fields1[header_field], taxid, fields1[len_field]);
                         write_hit_list(merged_hit_list, "", out);
                         fputc('\n', out);
-                } else {
-                        fprintf(out, "%s\t%s\t%s\t%s\t%s", status,
-                                fields1[header_field], taxid, fields1[len_field], hit_list);
                 }
 
                 if (counters && status[0] == 'C') {
