@@ -1070,7 +1070,6 @@ def download_dataset_by_project(args, endpoint, identifiers):
 
 def download_and_process_accessions(args, endpoint, identifier):
     api = make_https_connection(NCBI_REST_API)
-    identifier = urllib.parse.quote(identifier)
     accession_to_taxid = {}
     accession_to_name = {}
     builder = NCBI_URI_Builder(endpoint, identifier, "dataset_report")
