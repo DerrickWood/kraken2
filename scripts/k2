@@ -2181,6 +2181,11 @@ def split_gtdb_database(
     split_criteria.append(others)
     split_gtdb_database_readme(split_criteria)
 
+    if os.path.exists("seqid2taxid.map"):
+        os.remove("seqid2taxid.map")
+    if os.path.exists("prelim_map.txt"):
+        os.remove("prelim_map.txt")
+
     for i in range(0, len(split_criteria)):
         dir_name = os.path.abspath(library + "_part_" + str(i + 1))
         old_pwd = os.path.abspath(os.curdir)
@@ -2221,7 +2226,20 @@ def split_gtdb_database(
 
         args.db = os.path.abspath(os.path.abspath(dir_name))
         build_kraken2_db(args)
+        append_file(
+            os.path.join(args.db, "seqid2taxid.map"),
+            os.path.join(old_pwd, "seqid2taxid.map")
+        )
+        append_file(
+            os.path.join(args.db, "prelim_map.txt"),
+            os.path.join(old_pwd, "prelim_map.txt")
+        )
         os.chdir(old_pwd)
+
+
+def append_file(src, dst):
+    with open(dst, "a") as fout open(src, "r") as fin:
+        shutil.copyfileobj(fin, fout)
 
 
 def get_gtdb_latest_md5sums(path_prefix):
