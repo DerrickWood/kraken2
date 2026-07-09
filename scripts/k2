@@ -2238,8 +2238,9 @@ def split_gtdb_database(
 
 
 def append_file(src, dst):
-    with open(dst, "a") as fout open(src, "r") as fin:
-        shutil.copyfileobj(fin, fout)
+    with open(dst, "a") as fout:
+        with open(src, "r") as fin:
+            shutil.copyfileobj(fin, fout)
 
 
 def get_gtdb_latest_md5sums(path_prefix):
