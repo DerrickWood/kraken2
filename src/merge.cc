@@ -556,7 +556,7 @@ int main(int argc, char **argv) {
         bool use_names = false;
         bool report_zeros = false;
         bool mpa_style = false;
-        float confidence_threshold;
+        float confidence_threshold = 0.0;
         char *report_filename = nullptr;
         char *classified_headers_filename = nullptr;
         char *merged_taxon_filename = nullptr;
