@@ -1,13 +1,24 @@
 #include "kraken2_data.h"
 #include "reports.h"
 #include "taxonomy.h"
+
+#include <algorithm>
+#include <assert.h>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <err.h>
+#include <functional>
+#include <limits>
+#include <sstream>
 #include <string.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 #include <stdint.h>
+
+
+FILE *xfopen(const char *filename, const char *options);
 
 enum merge_errors {
         no_error = 0,
@@ -24,6 +35,142 @@ typedef int taxid_t;
 struct taxid_and_count {
         int taxid;
         int count;
+};
+
+#define BUFFER_SIZE (8 * 1024 * 1024)
+
+class FileBuffer {
+public:
+        FileBuffer(const char *filename, size_t buffer_size = BUFFER_SIZE) {
+                f = xfopen(filename, "r");
+                if ((buffer = (char *)malloc(buffer_size)) == nullptr) {
+                        errx(1, "Unable to allocate space for read buffer");
+                }
+                eof = 0;
+                buffer_length = 0;
+                buffer_capacity = buffer_size;
+                buffer_position = 0;
+        }
+
+        int refill() {
+                if (buffer_position > buffer_capacity) {
+                        errx(1, "buffer_position (%zu) exceeds buffer_capacity (%zu)",
+                             buffer_position, buffer_capacity);
+                }
+
+                size_t nread = 0;
+                // we may have unread data in the buffer
+                // adjust the buffer pointer and length
+                // accordingly
+                char *b = buffer + buffer_position;
+                size_t length = buffer_capacity - buffer_position;
+
+                while (true) {
+                        size_t bytes_read = fread(b + nread, 1, length - nread, f);
+                        nread += bytes_read;
+                        if (nread == length || bytes_read == 0) {
+                                break;
+                        }
+                }
+
+                buffer_length = nread + buffer_position;
+                // buffer_position = 0;
+
+                return feof(f);
+        }
+
+        size_t copyfile(FILE *out) {
+                size_t written = 0;
+
+                do {
+                        buffer_position = 0;
+                        refill();
+                        size_t bytes_written = 0;
+                        while (true) {
+                                bytes_written += fwrite(buffer + bytes_written, 1, buffer_length - bytes_written, out);
+                                if (bytes_written == buffer_length) {
+                                        break;
+                                }
+                        }
+                        written += bytes_written;
+                } while (buffer_length != 0);
+
+                return written;
+        }
+
+
+        size_t readlines(std::vector<std::string> &lines) {
+                size_t i = 0;
+                size_t line_length = 0;
+
+                while (i < lines.size()) {
+                        if (buffer_position == buffer_length) {
+                                buffer_position = 0;
+                                eof = refill();
+                        }
+                        if (buffer_length == 0) {
+                                i += (line_length > 0);
+                                break;
+                        }
+                        char *newline_ptr =
+                                (char *)memchr(buffer + buffer_position, '\n',
+                                               buffer_length - buffer_position);
+                        if (!newline_ptr) {
+                                if (!eof) {
+                                        // move the residual data to the beginning of the buffer
+                                        memmove(
+                                                buffer, &buffer[buffer_position],
+                                                buffer_length - buffer_position);
+                                        buffer_position =
+                                            buffer_length - buffer_position;
+                                        // append new data to the buffer and
+                                        // reset the buffer position.
+                                        eof = refill();
+                                        newline_ptr = (char *)memchr(
+                                                buffer + buffer_position, '\n',
+                                                buffer_length - buffer_position);
+                                        buffer_position = 0;
+                                        if (!newline_ptr && eof) {
+                                                newline_ptr = &buffer[buffer_length - 1];
+                                        } else if (!newline_ptr) {
+                                                // we still have not found a newline,
+                                                // append the current buffer's contents
+                                                // into the string and try again in
+                                                // the next iteration.
+                                                lines[i].resize(line_length + buffer_length);
+                                                memcpy(&lines[i][line_length],
+                                                       buffer, buffer_length);
+                                                buffer_position = buffer_length;
+                                                line_length += buffer_length;
+                                                continue;
+                                        }
+                                } else {
+                                        newline_ptr = &buffer[buffer_length - 1];
+                                }
+                        }
+
+                        size_t new_length = (newline_ptr - &buffer[buffer_position]) + 1;
+                        lines[i].resize(line_length + new_length);
+                        memcpy(&lines[i][line_length], &buffer[buffer_position],
+                               new_length);
+                        buffer_position += new_length;
+                        line_length = 0;
+                        i += 1;
+                }
+                return i;
+        }
+
+        ~FileBuffer() {
+                fclose(f);
+        }
+
+private:
+        FILE *f;
+        int eof;
+        char *buffer;
+        size_t buffer_length;
+        size_t buffer_capacity;
+        size_t buffer_position;
 };
 
 static const int AMBIGUOUS_TAXID = INT32_MAX;
@@ -183,7 +330,7 @@ void write_hit_list(vector<taxid_and_count> &hit_list, const char *border, FILE 
                 return;
         }
 
-        char itoa_buffer[17] = { 0 };
+        char itoa_buffer[17] = {0};
         int previous_taxid = hit_list[0].taxid;
         int previous_count = hit_list[0].count;
 
@@ -297,13 +444,13 @@ void parse_hit_list(char *string, int len,
                 str_taxid = strsep(&string, ":");
                 len1 = string - str_taxid - 1;
                 str_count = strsep(&string, " ");
-                len2 = (string == NULL ? end_p : string) - str_count - 1;
+                len2 = (string == nullptr ? end_p : string) - str_count - 1;
 
                 if (!str_taxid || !str_count) {
                         break;
                 }
-                // count = strtol(str_count, NULL, 10);
-                // taxid = strtol(str_taxid, NULL, 10);
+                // count = strtol(str_count, nullptr, 10);
+                // taxid = strtol(str_taxid, nullptr, 10);
                 if (str_taxid[0] == 'A') {
                         taxid = AMBIGUOUS_TAXID;
                         count = nixmans_atou64_shift(str_count, len2);
@@ -316,22 +463,36 @@ void parse_hit_list(char *string, int len,
                 } else {
                         taxid = nixmans_atou64_shift(str_taxid, len1);
                         count = nixmans_atou64_shift(str_count, len2);
-
                 }
                 counts[i++] = {taxid, count};
         }
 }
 
-int get_lca(kraken2::Taxonomy &taxonomy, uint64_t taxid1, uint64_t taxid2) {
+taxid_t get_lca(kraken2::Taxonomy &taxonomy,
+                std::unordered_map<uint64_t, taxid_t> &lca_cache,
+                taxid_t taxid1, taxid_t taxid2) {
+        if (taxid1 > taxid2) {
+                taxid_t temp = taxid1;
+                taxid1 = taxid2;
+                taxid2 = temp;
+        }
+        uint64_t key = ((uint64_t)taxid1 << 32) | taxid2;
+        if (lca_cache.find(key) != lca_cache.end()) {
+                return lca_cache[key];
+        }
         taxid1 = taxonomy.GetInternalID(taxid1);
         taxid2 = taxonomy.GetInternalID(taxid2);
 
         uint64_t lca = taxonomy.LowestCommonAncestor(taxid1, taxid2);
 
-        return (int)taxonomy.nodes()[lca].external_id;
+        taxid_t value = (taxid_t)taxonomy.nodes()[lca].external_id;
+        lca_cache[key] = value;
+
+        return value;
 }
 
 size_t merge_hit_lists(kraken2::Taxonomy &taxonomy,
+                       std::unordered_map<uint64_t, taxid_t> &lca_cache,
                        kraken2::taxon_counts_t &hit_counts,
                        std::vector<taxid_and_count> &hit_list1,
                        std::vector<taxid_and_count> &hit_list2,
@@ -359,7 +520,7 @@ size_t merge_hit_lists(kraken2::Taxonomy &taxonomy,
                         final_taxid = tc1.taxid;
                         add_to_hit_counts = false;
                 } else {
-                        final_taxid = get_lca(taxonomy, tc1.taxid, tc2.taxid);
+                        final_taxid = get_lca(taxonomy, lca_cache, tc1.taxid, tc2.taxid);
                         add_to_hit_counts = true;
                 }
 
@@ -395,20 +556,260 @@ size_t merge_hit_lists(kraken2::Taxonomy &taxonomy,
 void get_fields(char *line, const char *delim, char *fields[], int fields_len) {
         char **fp;
 
-        for (fp = fields; (*fp = strsep(&line, delim)) != NULL;) {
+        for (fp = fields; (*fp = strsep(&line, delim)) != nullptr;) {
                 if (**fp != '\0' && ++fp >= &fields[fields_len]) {
                         break;
                 }
         }
 }
 
-std::tuple<size_t, size_t>
-merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
-                            FILE *out, float confidence_threshold,
-                            kraken2::taxon_counters_t *counters,
-                            FILE *classified_headers, bool use_names) {
-        char *line1 = NULL;
-        char *line2 = NULL;
+std::tuple<size_t, size_t> merge_classification_output_parallel(
+    const char *taxonomy_filename, const char *ifn1, const char *ifn2,
+    const char *ofn, const char *cfn, bool use_names,
+    kraken2::taxon_counters_t *counters, float confidence_threshold,
+    size_t batch_size) {
+
+        enum {
+                status_field = 0,
+                header_field,
+                taxid_field,
+                len_field,
+                hit_list_field,
+        };
+
+        FileBuffer *fr1 = new FileBuffer(ifn1);
+        FileBuffer *fr2 = new FileBuffer(ifn2);
+        // std::heap
+        std::vector<size_t> blocks_written{std::numeric_limits<size_t>::max()};
+        std::atomic<size_t> total_sequences{0};
+        std::atomic<size_t> total_unclassified{0};
+        std::atomic<size_t> block_count{0};
+        std::atomic<bool> finished{false};
+
+#pragma omp parallel
+        {
+                size_t block = 0;
+                kraken2::taxon_counters_t local_counters;
+                kraken2::Taxonomy taxonomy(taxonomy_filename);
+                taxonomy.GenerateExternalToInternalIDMap();
+                std::string out_filename = ofn;
+                std::vector<std::string> lines1(batch_size);
+                std::vector<std::string> lines2(batch_size);
+                std::unordered_map<uint64_t, taxid_t> lca_cache;
+                char *fields1[5];
+                char *fields2[5];
+                char scientific_name[500];
+
+                const char *status;
+                const char *taxid;
+
+                std::vector<taxid_and_count> hit_list1;
+                std::vector<taxid_and_count> hit_list2;
+                std::vector<taxid_and_count> merged_hit_list;
+                kraken2::taxon_counts_t hit_counts;
+                char itoa_buf[17];
+
+                size_t nlines1 = 0;
+                size_t nlines2 = 0;
+                ostringstream local_merge_filename;
+                ostringstream local_classified_filename;
+
+                #pragma omp single nowait
+                {
+                        size_t next_block = 0;
+                        bool block_ready = false;
+                        FILE *outfile = xfopen(ofn, "w");
+                        FILE *header_outfile = nullptr;
+                        if (cfn) {
+                                header_outfile = xfopen(cfn, "w");
+                        }
+                        while (true) {
+                                #pragma omp critical(heap_update)
+                                {
+                                        if (blocks_written.front() == next_block + 1) {
+                                                std::pop_heap(blocks_written.begin(), blocks_written.end(),
+                                                              std::greater<size_t>());
+                                                blocks_written.pop_back();
+                                                block_ready = true;
+                                        }
+                                }
+
+                                if (block_ready) {
+                                        next_block += 1;
+                                        local_merge_filename << out_filename
+                                                           << "_" << next_block;
+                                                FileBuffer fb(local_merge_filename.str().c_str(),
+                                                      8 * 1024);
+                                        fb.copyfile(outfile);
+                                        std::remove(local_merge_filename.str().c_str());
+                                        local_merge_filename.str("");
+
+                                        if (header_outfile) {
+                                                local_classified_filename << cfn << "_" << next_block;
+                                                FileBuffer fb2(
+                                                    local_classified_filename.str().c_str(),
+                                                    8 * 1024);
+                                                fb2.copyfile(header_outfile);
+                                                std::remove(local_classified_filename.str().c_str());
+                                                local_classified_filename.str("");
+                                        }
+
+                                        block_ready = false;
+                                }
+                                if (block_count == next_block && finished) {
+                                        break;
+                                }
+
+                        }
+
+                        fclose(outfile);
+                        if (header_outfile) {
+                                fprintf(header_outfile, "%zu\n", total_sequences.load(std::memory_order_acquire));
+                                fclose(header_outfile);
+                        }
+
+                }
+
+                while (true) {
+                        #pragma omp critical
+                        {
+                                block_count.fetch_add(1, std::memory_order_relaxed);
+                                nlines1 = fr1->readlines(lines1);
+                                nlines2 = fr2->readlines(lines2);
+                                block = block_count;
+                        }
+
+                        local_merge_filename << out_filename << "_" << block;
+
+                        assert(nlines1 == nlines2);
+
+                        if (nlines1 == 0) {
+                                // reduce the block count if there is no more
+                                // data to be read.
+                                block_count.fetch_sub(1, std::memory_order_relaxed);
+                                if (counters) {
+                                        #pragma omp critical(update_counters)
+                                        {
+                                                for (const auto &pair : local_counters) {
+                                                        if (counters->find(pair.first) == counters->end()) {
+                                                                (*counters)[pair.first] = pair.second;
+                                                        } else {
+                                                                (*counters)[pair.first] += pair.second;
+                                                        }
+                                                }
+                                        }
+                                }
+                                finished = true;
+                                break;
+                        }
+
+                        FILE *out = xfopen(local_merge_filename.str().c_str(), "w");
+                        FILE *lcfn = nullptr;
+                        if (cfn) {
+                                local_classified_filename << cfn << "_" << block;
+                                lcfn = xfopen(local_classified_filename.str().c_str(), "w");
+                        }
+
+                        for (size_t i = 0; i < nlines1; i++) {
+                                char *line1 = &lines1[i][0];
+                                char *line2 = &lines2[i][0];
+                                get_fields(line1, "\t", fields1, 5);
+                                get_fields(line2, "\t", fields2, 5);
+
+                                parse_hit_list(fields1[hit_list_field], strlen(fields1[hit_list_field]), hit_list1);
+                                parse_hit_list(fields2[hit_list_field], strlen(fields2[hit_list_field]), hit_list2);
+
+                                size_t total_minimizers =
+                                        merge_hit_lists(taxonomy, lca_cache, hit_counts, hit_list1, hit_list2, merged_hit_list);
+                                int res = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                                taxid = int_to_string(res, itoa_buf);
+
+
+                                if (fields1[status_field][0] == 'C' || fields2[status_field][0] == 'C') {
+                                        status = "C";
+                                } else {
+                                        status = "U";
+                                        taxid = "0";
+                                        total_unclassified += 1;
+                                }
+
+                                if (use_names) {
+                                        taxid_t t = nixmans_atou64_shift(taxid, strlen(taxid));
+                                        taxid_t internal_taxid = taxonomy.GetInternalID(t);
+
+                                        const char *name =
+                                                taxonomy.name_data() +
+                                                taxonomy.nodes()[internal_taxid].name_offset;
+                                        if (!name) {
+                                                name = "unclassified";
+                                        }
+                                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
+                                        taxid = scientific_name;
+                                }
+                                if (!merged_hit_list.empty()) {
+                                        fprintf(out, "%s\t%s\t%s\t%s\t", status,
+                                                fields1[header_field], taxid, fields1[len_field]);
+                                        write_hit_list(merged_hit_list, "", out);
+                                        fputc('\n', out);
+                                }
+
+                                if (counters && status[0] == 'C') {
+                                        taxid_t t = nixmans_atou64_shift(taxid, strlen(taxid));
+                                        taxid_t internal_taxid = taxonomy.GetInternalID(t);
+                                        local_counters[internal_taxid] += kraken2::READCOUNTER(1, 0);
+                                }
+
+                                if (lcfn && status[0] == 'C') {
+                                        fputc('>', lcfn);
+                                        fwrite(fields1[header_field], strlen(fields1[header_field]),
+                                               1, lcfn);
+                                        fputc('\n', lcfn);
+                                }
+
+                                hit_list1.clear();
+                                hit_list2.clear();
+                                hit_counts.clear();
+                                merged_hit_list.clear();
+                                total_sequences += 1;
+                        }
+                        fclose(out);
+                        if (lcfn) {
+                                fclose(lcfn);
+                        }
+#pragma omp critical(heap_update)
+                        {
+                                blocks_written.push_back(block);
+                                std::push_heap(blocks_written.begin(), blocks_written.end(), std::greater<size_t>());
+                        }
+                        local_merge_filename.str("");
+                        local_classified_filename.str("");
+                }
+        }
+
+        delete fr1;
+        delete fr2;
+
+        return std::make_tuple<size_t, size_t>(total_sequences, total_unclassified);
+}
+
+std::tuple<size_t, size_t> merge_classification_output(
+        const char *taxonomy_filename, const char *ifn1, const char *ifn2,
+        const char *ofn, float confidence_threshold,
+        kraken2::taxon_counters_t *counters,
+        const char *classified_headers_filename, bool use_names) {
+
+        kraken2::Taxonomy taxonomy(taxonomy_filename);
+        FILE *in1 = xfopen(ifn1, "r");
+        FILE *in2 = xfopen(ifn2, "r");
+        FILE *out = xfopen(ofn, "w");
+        FILE *classified_headers = nullptr;
+
+        if (classified_headers_filename) {
+                classified_headers = xfopen(classified_headers_filename, "w");
+        }
+
+        char *line1 = nullptr;
+        char *line2 = nullptr;
 
         size_t line1_cap = 0;
         size_t line2_cap = 0;
@@ -422,9 +823,8 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
 
         const char *status;
         const char *taxid;
-        // const char *header;
-        // const char *hit_list;
-        // const char *seq_len;
+
+        std::unordered_map<uint64_t, taxid_t> lca_cache;
 
         enum {
                 status_field = 0,
@@ -458,7 +858,7 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                 parse_hit_list(fields2[hit_list_field], strlen(fields2[hit_list_field]), hit_list2);
 
                 size_t total_minimizers =
-                        merge_hit_lists(taxonomy, hit_counts, hit_list1, hit_list2, merged_hit_list);
+                        merge_hit_lists(taxonomy, lca_cache, hit_counts, hit_list1, hit_list2, merged_hit_list);
                 int res = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
                 taxid = int_to_string(res, itoa_buf);
 
@@ -497,7 +897,7 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
                         (*counters)[internal_taxid] += kraken2::READCOUNTER(1, 0);
                 }
 
-                if (classified_headers && status[0] == 'C') {
+                if (classified_headers_filename && status[0] == 'C') {
                         fputc('>', classified_headers);
                         fwrite(fields1[header_field], strlen(fields1[header_field]),
                                1, classified_headers);
@@ -517,6 +917,14 @@ merge_classification_output(kraken2::Taxonomy &taxonomy, FILE *in1, FILE *in2,
 
         if (line2) {
                 free(line2);
+        }
+
+        fclose(in1);
+        fclose(in2);
+        fclose(out);
+
+        if (classified_headers_filename) {
+                fclose(classified_headers);
         }
 
         return std::tuple<size_t, size_t>(total_sequences, total_unclassified);
@@ -553,6 +961,8 @@ FILE *xfopen(const char *filename, const char *options) {
 int main(int argc, char **argv) {
 
         int ch;
+        int threads = 1;
+        int batch_size = 100;
         bool use_names = false;
         bool report_zeros = false;
         bool mpa_style = false;
@@ -564,8 +974,11 @@ int main(int argc, char **argv) {
         char *input1 = nullptr;
         char *input2 = nullptr;
 
-        while ((ch = getopt(argc, argv, "hi:r:mc:o:t:nz")) != -1) {
+        while ((ch = getopt(argc, argv, "b:hi:r:mc:o:t:T:nz")) != -1) {
                 switch (ch) {
+                case 'b':
+                        batch_size = strtod(optarg, (char **)nullptr);
+                        break;
                 case 'c':
                         classified_headers_filename = optarg;
                         break;
@@ -586,6 +999,9 @@ int main(int argc, char **argv) {
                         break;
                 case 't':
                         merged_taxon_filename = optarg;
+                        break;
+                case 'T':
+                        threads = strtod(optarg, (char **)nullptr);
                         break;
                 case 'z':
                         report_zeros = true;
@@ -624,27 +1040,35 @@ int main(int argc, char **argv) {
         input1 = *argv++;
         input2 = *argv++;
 
-        FILE *l = xfopen(input1, "r");
-        FILE *r = xfopen(input2, "r");
-        FILE *m = xfopen(merged_output_filename, "w");
-        FILE *classified_headers = nullptr;
-
         kraken2::taxon_counters_t *counters = nullptr;
-        kraken2::Taxonomy taxonomy(merged_taxon_filename);
-        taxonomy.GenerateExternalToInternalIDMap();
 
-        if (classified_headers_filename) {
-                classified_headers = xfopen(classified_headers_filename, "w");
-        }
         if (report_filename) {
                 counters = new kraken2::taxon_counters_t();
         }
 
         size_t total_seqs = 0;
         size_t total_unclassified = 0;
-        std::tie(total_seqs, total_unclassified) = merge_classification_output(taxonomy, l, r, m, confidence_threshold, counters, classified_headers, use_names);
+        omp_set_num_threads(threads);
+
+        if (threads == 1) {
+                std::tie(total_seqs, total_unclassified) =
+                        merge_classification_output(
+                                merged_taxon_filename, input1, input2, merged_output_filename,
+                                confidence_threshold, counters, classified_headers_filename,
+                                use_names);
+        } else {
+
+                std::tie(total_seqs, total_unclassified) =
+                        merge_classification_output_parallel(
+                                merged_taxon_filename, input1, input2, merged_output_filename,
+                                classified_headers_filename, use_names, counters,
+                                confidence_threshold, batch_size);
+        }
 
         if (report_filename != nullptr) {
+                kraken2::Taxonomy taxonomy(merged_taxon_filename);
+                taxonomy.GenerateExternalToInternalIDMap();
+
                 if (mpa_style) {
                         kraken2::ReportMpaStyle(report_filename, report_zeros, taxonomy, *counters);
                 } else {
@@ -653,16 +1077,8 @@ int main(int argc, char **argv) {
                 }
         }
 
-        delete counters;
-
-        fclose(l);
-        fclose(r);
-        fclose(m);
-
-        if (classified_headers) {
-                fprintf(classified_headers, "%zu\n", total_seqs);
-                fclose(classified_headers);
-        }
+        // printf("total sequences: %lu\n", total_seqs);
+        // printf("total_unclassified: %lu\n", total_unclassified);
 
         return 0;
 }

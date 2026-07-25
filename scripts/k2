@@ -3888,16 +3888,25 @@ class Taxonomy:
 
 
 def merge_classification_output(
+        threads, batch_size,
         taxonomy_pathname, in_filename1,
         in_filename2, out_filename, use_names,
         classified_headers_filename, report_filename,
-        mpa_style
+        report_zeroes, mpa_style
 ):
     merge_binary = find_kraken2_binary("merge")
-    argv = [merge_binary, "-o", out_filename, "-t", taxonomy_pathname]
+    argv = [
+        merge_binary,
+        "-o", out_filename,
+        "-t", taxonomy_pathname,
+        "-T", str(threads),
+        "-b", str(batch_size),
+    ]
 
     if report_filename:
         argv.extend(["-r", report_filename])
+    if report_zeroes:
+        argv.append("-z")
     if mpa_style:
         argv.append("-m")
     if use_names:
@@ -3907,11 +3916,6 @@ def merge_classification_output(
 
     argv.extend([in_filename1, in_filename2])
     subprocess.call(argv)
-
-    if "k2_" in in_filename1:
-        os.remove(in_filename1)
-    if "k2_" in in_filename2:
-        os.remove(in_filename2)
 
     return out_filename
 
@@ -3960,23 +3964,25 @@ def find_partitioned_databases(db):
 def classify_multi_dbs(args, filenames=[]):
     dbs = args.db
     use_names = False
+    report_zeroes = False
     report_filename = None
-    report_zeros = False
     classified_out_filename = None
     unclassified_out_filename = None
     mpa_style = False
-    # if "use_mpa_style" in args:
-    #     LOG.error("--use-mpa-style not supported when using multiple dbs\n")
-    #     sys.exit(1)
+
     if "report_minimizer_data" in args:
-        LOG.error("--report-minimizer-data not supported when using " "multiple dbs\n")
+        LOG.error(
+            "--report-minimizer-data not supported when using "
+            "multiple dbs\n"
+        )
         sys.exit(1)
     if "report" in args:
         report_filename, args.report = (args.report, None)
     output = args.output if "output" in args else None
-    if "report_zeros" in args:
-        report_zeros = True
-        args.report_zeros = None
+
+    if "report_zeroes" in args:
+        report_zeroes = True
+        args.report_zeroes = None
     if "use_mpa_style" in args:
         mpa_style = True
         args.use_mpa_style = None
@@ -4036,47 +4042,28 @@ def classify_multi_dbs(args, filenames=[]):
             LOG.info("Running classification job for database {}\n".format(db))
             classify(args)
             LOG.info("Finished running classification job for database {}\n".format(db))
+        delete_temps = True
     else:
         classified_filenames = filenames
+        delete_temps = False
 
     # We need these classified headers for outputting stats and
     # also for saving classified and unclassified sequences.
     classified_headers_filename = tempfile.mktemp(prefix="k2_")
 
     LOG.info("Merging output files\n")
-    merged_classification_filenames = []
-    for _ in range(int(len(classified_filenames) / 2)):
-        merged_classification_filename = tempfile.mktemp(prefix="k2_")
-        merged_classification_filenames.append(merged_classification_filename)
-
-    pool = concurrent.futures.ProcessPoolExecutor(max_workers=len(classified_filenames))
-    futures = []
     progress = ProgressBar(len(classified_filenames) - 1, 0)
     final = False
     while not final:
-        LOG.debug("{}\r".format(progress.get_bar()))
-        if len(classified_filenames) < 2:
-            # wait for the merge jobs to complete,
-            # then add their output files to the list
-            # input files. Generate a new list of temporary files
-            # and repeat the process.
-            for future in concurrent.futures.as_completed(futures):
-                merged_filename = future.result()
-                classified_filenames.append(merged_filename)
-                progress.progress(1, relative=True)
-            futures = []
-            for _ in range(int(len(classified_filenames) / 2)):
-                merged_classification_filename = tempfile.mktemp(prefix="k2_")
-                merged_classification_filenames.append(merged_classification_filename)
-
-        if len(classified_filenames) == 2 and not futures:
+        if len(classified_filenames) == 2:
             final = True
 
-        filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
-        out_filename = merged_classification_filenames.pop()
+        LOG.debug("{}\r".format(progress.get_bar()))
 
-        future = pool.submit(
-            merge_classification_output,
+        filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
+        out_filename = tempfile.mktemp(prefix="k2_")
+        merge_classification_output(
+            args.threads, 100,
             taxonomy_pathname,
             filename1,
             filename2,
@@ -4084,17 +4071,18 @@ def classify_multi_dbs(args, filenames=[]):
             use_names if final else None,
             classified_headers_filename if final else None,
             report_filename if final else None,
-            mpa_style if final else None,
+            report_zeroes if final else None,
+            mpa_style if final else None
         )
-        futures.append(future)
-        LOG.debug("{}\r".format(progress.get_bar()))
 
-    if futures:
-        concurrent.futures.wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
-
+        progress.progress(1, relative=True)
+        if delete_temps:
+            os.remove(filename1)
+            os.remove(filename2)
+        classified_filenames.append(out_filename)
     progress.progress(1, relative=True)
     LOG.debug("{}\r".format(progress.get_bar()))
-    pool.shutdown()
+
     # Add space to overwrite progress bar
     LOG.info("Finished merging output files              \n")
     if output:
@@ -5145,18 +5133,18 @@ def make_merge_parser(subparsers):
         default=argparse.SUPPRESS,
         help="Print scientific names instead of just taxids",
     )
-    parser.add_argument(
-        "--merge-policy",
-        choices=["first-classified", "last-classified", "resolve-lca"],
-        default="resolve-lca",
-        help="Policy for resolving classified reads across databases.\
-        first-classified - the assigned tax ID will be chosen from the database\
-        where the read was first classified. last-classified - the assigned tax\
-        ID will be chosen from the database where the read was last classified.\
-        resolve-lca (default) - the assigned tax ID will be the result of\
-        finding the Lowest Common Ancestor, LCA, of all the tax IDs\
-        assigned to this read.",
-    )
+    # parser.add_argument(
+    #     "--merge-policy",
+    #     choices=["first-classified", "last-classified", "resolve-lca"],
+    #     default="resolve-lca",
+    #     help="Policy for resolving classified reads across databases.\
+    #     first-classified - the assigned tax ID will be chosen from the database\
+    #     where the read was first classified. last-classified - the assigned tax\
+    #     ID will be chosen from the database where the read was last classified.\
+    #     resolve-lca (default) - the assigned tax ID will be the result of\
+    #     finding the Lowest Common Ancestor, LCA, of all the tax IDs\
+    #     assigned to this read.",
+    # )
     parser.add_argument(
         "--report",
         type=str,
@@ -5189,7 +5177,7 @@ def make_merge_parser(subparsers):
         type=int,
         metavar="INT",
         default=os.environ.get("KRAKEN2_NUM_THREADS") or 1,
-        help="Number of threads",
+        help="Number of threads that merge process uses",
     )
     parser.add_argument(
         "--output",
