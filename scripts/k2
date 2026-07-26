@@ -4250,7 +4250,7 @@ def inspect_db(args):
     fout.close()
     if len(database_pathnames) > 1:
         adjust_percentages(fout.name)
-    if output_filename == "-":
+    if output_filename == "-" and len(database_pathnames) > 1:
         with open(fout.name, "rb") as fin:
             shutil.copyfileobj(fin, sys.stdout.buffer)
         os.remove(fout.name)
