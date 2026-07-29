@@ -6,6 +6,8 @@ build:
   apt_packages:
     - gawk
     - pandoc
+  commands:
+    - make html
 
 # Build documentation in the docs/rtd directory with Sphinx
 sphinx:
