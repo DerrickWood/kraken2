@@ -4,6 +4,7 @@ build:
   tools:
     python: "3.14"
   apt_packages:
+    - awk
     - pandoc
 
 # Build documentation in the docs/rtd directory with Sphinx
