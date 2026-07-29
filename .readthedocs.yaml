@@ -7,7 +7,7 @@ build:
     - gawk
     - pandoc
   commands:
-    - cd docs/rtd && make html
+    - cd docs/rtd && cat ../MANUAL.markdown | awk -f splitmd.awk
 
 # Build documentation in the docs/rtd directory with Sphinx
 sphinx:
