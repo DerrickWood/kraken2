@@ -8,6 +8,7 @@ build:
     - pandoc
   commands:
     - cd docs/rtd && cat ../MANUAL.markdown | awk -f splitmd.awk
+    - sphinx-build -W -b dirhtml docs/rtd $READTHEDOCS_OUTPUT/html
 
 # Build documentation in the docs/rtd directory with Sphinx
 sphinx:

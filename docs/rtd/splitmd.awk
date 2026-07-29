@@ -28,6 +28,7 @@ function print_section(lines, n_lines, h, n_headers) {
     gsub(/'/, "", filename)
     h[n_headers] = filename
     filename = filename ".rst"
+    print "generating: " filename
     pipe = "pandoc -f markdown -t rst -o " filename
     for (i = 1; i < n_lines; i++) {
         print lines[i] | pipe
