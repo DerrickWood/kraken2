@@ -17,12 +17,17 @@ NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
 FTP_SERVER="ftp://$NCBI_SERVER"
 RSYNC_SERVER="rsync://$NCBI_SERVER"
 THIS_DIR=$PWD
+ncbi_source="refseq"
 
 library_name="$1"
 ftp_subdir=$library_name
 library_file="library.fna"
 if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
   library_file="library.faa"
+fi
+
+if [ -n "$KRAKEN2_NCBI_SOURCE" ]; then
+  ncbi_source="$KRAKEN2_NCBI_SOURCE"
 fi
 
 function download_file() {
@@ -44,12 +49,13 @@ case $library_name in
     if [ "$library_name" = "human" ]; then
       remote_dir_name="vertebrate_mammalian/Homo_sapiens"
     fi
-    if ! download_file "/genomes/refseq/$remote_dir_name/assembly_summary.txt"; then
+    if ! download_file "/genomes/$ncbi_source/$remote_dir_name/assembly_summary.txt"; then
       1>&2 echo "Error downloading assembly summary file for $library_name, exiting."
       exit 1
     fi
     if [ "$library_name" = "human" ]; then
       grep "Genome Reference Consortium" assembly_summary.txt > x
+      chmod +w assembly_summary.txt
       mv x assembly_summary.txt
     fi
     rm -rf all/ library.f* manifest.txt rsync.err
