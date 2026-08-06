@@ -15,6 +15,7 @@ set -e  # Stop on error
 LIBRARY_DIR="$KRAKEN2_DB_NAME/library"
 NCBI_SERVER="ftp.ncbi.nlm.nih.gov"
 FTP_SERVER="ftp://$NCBI_SERVER"
+HTTP_SERVER="https://$NCBI_SERVER"
 RSYNC_SERVER="rsync://$NCBI_SERVER"
 THIS_DIR=$PWD
 
@@ -61,15 +62,16 @@ case $library_name in
     cd $LIBRARY_DIR/plasmid
     rm -f library.f* plasmid.*
     ## This is staying FTP only D/L for now
-    1>&2 echo -n "Downloading plasmid files from FTP..."
-    wget -q --no-remove-listing --spider $FTP_SERVER/genomes/refseq/plasmid/
+    1>&2 echo -n "Downloading plasmid file manifest from FTP..."
+    wget -q --no-remove-listing --spider $FTP_SERVER/refseq/release/plasmid/
     if [ -n "$KRAKEN2_PROTEIN_DB" ]; then
       awk '{ print $NF }' .listing | perl -ple 'tr/\r//d' | grep '\.faa\.gz' > manifest.txt
     else
       awk '{ print $NF }' .listing | perl -ple 'tr/\r//d' | grep '\.fna\.gz' > manifest.txt
     fi
-    cat manifest.txt | xargs -n1 -I{} wget -q $FTP_SERVER/genomes/refseq/plasmid/{}
-    cat manifest.txt | xargs -n1 -I{} gunzip -c {} > $library_file
+    1>&2 echo -n "Downloading plasmid files from HTTP..."
+    cat manifest.txt | xargs -I{} wget -q $HTTP_SERVER/refseq/release/plasmid/{}
+    cat manifest.txt | xargs -I{} gunzip -c {} > $library_file
     rm -f plasmid.* .listing
     scan_fasta_file.pl $library_file > prelim_map.txt
     1>&2 echo " done."
