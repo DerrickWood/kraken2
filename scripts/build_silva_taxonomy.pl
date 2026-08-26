@@ -32,6 +32,7 @@ while (<>) {
     if (! defined $parent_id) {
       die "$PROG: orphan error, line $.\n";
     }
+    $rank = "major_clade" if $rank eq "superkingdom";
     $rank = "superkingdom" if $rank eq "domain";
     print NAMES "$node_id\t|\t$display_name\t|\t-\t|\tscientific name\t|\n";
     print NODES "$node_id\t|\t$parent_id\t|\t$rank\t|\t-\t|\n";
