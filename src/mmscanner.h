@@ -64,7 +64,7 @@ class MinimizerScanner {
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
   ssize_t loaded_ch_;
-  std::deque<MinimizerData> queue_;
+  std::vector<MinimizerData> queue_;
   ssize_t queue_pos_;
   uint64_t last_ambig_;
   uint8_t lookup_table_[UINT8_MAX + 1];
