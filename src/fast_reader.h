@@ -28,6 +28,24 @@
 
 namespace kraken2 {
 
+// A record as pointers into the reader's own buffer, valid until the next load.
+// Avoids the four std::string copies a Sequence costs per record; the bases are
+// also exactly the flat span the minimizer scanner and a device kernel want.
+struct SeqView {
+  const char *header;   // identifier, up to the first whitespace
+  const char *comment;  // remainder of the header line, may be null
+  const char *seq;
+  const char *quals;    // null for FASTA
+  uint32_t header_len;
+  uint32_t comment_len;
+  uint32_t seq_len;
+  uint32_t quals_len;
+  SequenceFormat format;
+
+  // Quality masking rewrites bases in place in the reader's buffer.
+  char *seq_mutable() const { return const_cast<char *>(seq); }
+};
+
 // Per-stream state: the tail of an incomplete record, carried to the next
 // block.  One per input file, shared by all threads, only ever touched with the
 // input lock held.
@@ -62,8 +80,8 @@ class FastReader {
   void Parse();
 
   size_t size() const { return records_.size(); }
-  const Sequence &operator[](size_t i) const { return records_[i]; }
-  Sequence &at(size_t i) { return records_[i]; }
+  const SeqView &operator[](size_t i) const { return records_[i]; }
+  SeqView &at(size_t i) { return records_[i]; }
   SequenceFormat file_format() const { return format_; }
 
   private:
@@ -74,7 +92,7 @@ class FastReader {
   std::vector<char> buf_;
   std::vector<uint32_t> nl_;   // offsets of newlines within buf_
   size_t scanned_;             // bytes of buf_ already covered by nl_
-  std::vector<Sequence> records_;
+  std::vector<SeqView> records_;
   size_t record_count_;
   SequenceFormat format_;
 };

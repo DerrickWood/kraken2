@@ -185,85 +185,87 @@ size_t FastReader::RecordCount() const {
 }
 
 void FastReader::Parse() {
+  records_.clear();
   char *base = buf_.data();
-  size_t out = 0;
 
-  auto trim = [](const char *s, const char *e) -> size_t {
+  auto trim = [](const char *s, const char *e) -> uint32_t {
     while (e > s && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t'))
       e--;
-    return (size_t) (e - s);
+    return (uint32_t) (e - s);
   };
   auto line_start = [&](size_t j) -> char * {
     return base + (j == 0 ? 0 : (size_t) nl_[j - 1] + 1);
   };
   auto line_stop = [&](size_t j) -> char * { return base + nl_[j]; };
 
-  // Splits a header line into the identifier and the comment that follows it,
-  // matching how kseq fills Sequence::header and Sequence::comment.
-  auto set_header = [&](Sequence &s, char *hs, char *he) {
+  // Splits a header line into identifier and comment the way kseq does.
+  auto set_header = [&](SeqView &v, char *hs, char *he) {
     char *p = hs;
     while (p < he && *p != ' ' && *p != '\t')
       p++;
-    s.header.assign(hs, trim(hs, p));
-    if (p < he) {
-      while (p < he && (*p == ' ' || *p == '\t'))
-        p++;
-      s.comment.assign(p, trim(p, he));
-    }
-    else {
-      s.comment.clear();
-    }
+    v.header = hs;
+    v.header_len = trim(hs, p);
+    while (p < he && (*p == ' ' || *p == '\t'))
+      p++;
+    v.comment = p;
+    v.comment_len = trim(p, he);
   };
 
   if (format_ == FORMAT_FASTQ) {
     size_t recs = nl_.size() / 4;
-    if (records_.size() < recs)
-      records_.resize(recs);
+    records_.resize(recs);
+    size_t out = 0;
     for (size_t i = 0; i < recs; i++) {
       size_t j = i * 4;
       char *hs = line_start(j), *he = line_stop(j);
       if (hs >= he || *hs != '@')
         break;
-      Sequence &s = records_[out];
-      s.format = FORMAT_FASTQ;
-      set_header(s, hs + 1, he);
+      SeqView &v = records_[out];
+      v.format = FORMAT_FASTQ;
+      set_header(v, hs + 1, he);
       char *q = line_start(j + 1);
-      s.seq.assign(q, trim(q, line_stop(j + 1)));
+      v.seq = q;
+      v.seq_len = trim(q, line_stop(j + 1));
       q = line_start(j + 3);
-      s.quals.assign(q, trim(q, line_stop(j + 3)));
+      v.quals = q;
+      v.quals_len = trim(q, line_stop(j + 3));
       out++;
     }
-    record_count_ = out;
     records_.resize(out);
+    record_count_ = out;
     return;
   }
 
-  // FASTA: a record's sequence spans every line up to the next header.
+  // FASTA: sequence spans every line up to the next header, spliced in place by
+  // shifting bytes down over the newlines.
   size_t nlines = nl_.size();
   size_t j = 0;
   while (j < nlines) {
     char *hs = line_start(j), *he = line_stop(j);
     if (hs >= he || *hs != '>')
       break;
-    if (records_.size() <= out)
-      records_.resize(out + 1);
-    Sequence &s = records_[out];
-    s.format = FORMAT_FASTA;
-    set_header(s, hs + 1, he);
-    s.seq.clear();
-    s.quals.clear();
+    SeqView v;
+    v.format = FORMAT_FASTA;
+    v.quals = nullptr;
+    v.quals_len = 0;
+    set_header(v, hs + 1, he);
     j++;
+    char *dst = (j < nlines) ? line_start(j) : base + buf_.size();
+    v.seq = dst;
     while (j < nlines) {
       char *ls = line_start(j);
       if (*ls == '>')
         break;
-      s.seq.append(ls, trim(ls, line_stop(j)));
+      uint32_t len = trim(ls, line_stop(j));
+      if (dst != ls)
+        memmove(dst, ls, len);
+      dst += len;
       j++;
     }
-    out++;
+    v.seq_len = (uint32_t) (dst - v.seq);
+    records_.push_back(v);
   }
-  record_count_ = out;
-  records_.resize(out);
+  record_count_ = records_.size();
 }
 
 }  // end namespace
