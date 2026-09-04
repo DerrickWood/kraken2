@@ -11,7 +11,9 @@ using std::string;
 namespace kraken2 {
 
 void StripString(string &str) {
-  while (isspace(str.back()))
+  // back() on an empty string is undefined, and an empty input line reaches
+  // here.  isspace also requires a value representable as unsigned char.
+  while (! str.empty() && isspace((unsigned char) str.back()))
     str.pop_back();
 }
 

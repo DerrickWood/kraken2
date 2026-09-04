@@ -160,7 +160,7 @@ void KrakenReportDFS(uint32_t taxid, ofstream &ofs, bool report_zeros,
   else if (rank == "species") { rank_code = 'S'; rank_depth = 0; }
   else { rank_depth++; }
 
-  string rank_str(&rank_code, 0, 1);
+  string rank_str(1, rank_code);
   if (rank_depth != 0)
     rank_str += std::to_string(rank_depth);
 
