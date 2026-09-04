@@ -12,6 +12,7 @@
 #include "kv_store.h"
 #include "taxonomy.h"
 #include "seqreader.h"
+#include "fast_reader.h"
 #include "mmscanner.h"
 #include "compact_hash.h"
 #include "kraken2_data.h"
@@ -31,6 +32,7 @@ using std::vector;
 using namespace kraken2;
 
 static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
+static const size_t INPUT_BLOCK_BYTES = 8 * 1024 * 1024;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
@@ -501,8 +503,15 @@ void ProcessFiles(const char *filename1, const char *filename2,
   uint64_t next_output_block_id = 0;
   omp_lock_t output_lock;
   omp_init_lock(&output_lock);
-  BatchSequenceReader r1(filename1);
-  BatchSequenceReader r2(filename2);
+  // The critical section reads raw bytes from these descriptors and cuts on a
+  // record boundary; parsing happens afterwards, outside the lock.
+  int fd1 = filename1 ? open(filename1, O_RDONLY) : fileno(stdin);
+  int fd2 = filename2 ? open(filename2, O_RDONLY) : -1;
+  if (fd1 < 0)
+    errx(EX_NOINPUT, "unable to open %s", filename1);
+  if (filename2 && fd2 < 0)
+    errx(EX_NOINPUT, "unable to open %s", filename2);
+  StreamCursor cursor1, cursor2;
   std::vector<OutputData> buffers(omp_get_max_threads() * 2);
 
   #pragma omp parallel
@@ -516,7 +525,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
     ClassificationStats thread_stats = {0, 0, 0};
     vector<string> translated_frames(6);
     Sequence *seq1 = nullptr, *seq2 = nullptr;
-    BatchSequenceReader reader1(r1), reader2(r2);
+    FastReader reader1, reader2;
+    size_t idx1 = 0, idx2 = 0;
     uint64_t block_id;
     OutputData out_data;
     taxon_counters_t thread_taxon_counters;
@@ -531,27 +541,31 @@ void ProcessFiles(const char *filename1, const char *filename2,
       #pragma omp critical(seqread)
       {  // Input processing block
         if (! opts.paired_end_processing) {
-          // Unpaired data?  Just read in a sized block
-          ok_read = reader1.LoadBlock((size_t)(3 * 1024 * 1024));
+          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
         }
         else if (! opts.single_file_pairs) {
-          // Paired data in 2 files?  Read a line-counted batch from each file.
-          ok_read = reader1.LoadBatch(NUM_FRAGMENTS_PER_THREAD);
-          if (ok_read && opts.paired_end_processing)
-            ok_read = reader2.LoadBatch(NUM_FRAGMENTS_PER_THREAD);
+          // Take a block from the first mate, then exactly as many records from
+          // the second, so the two files stay in step.
+          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+          if (ok_read)
+            ok_read = reader2.LoadRecords(fd2, cursor2, reader1.RecordCount());
         }
         else {
-          auto frags = NUM_FRAGMENTS_PER_THREAD * 2;
-          // Ensure frag count is even - just in case above line is changed
-          if (frags % 2 == 1)
-            frags++;
-          ok_read = reader1.LoadBatch(frags);
+          // Interleaved pairs: cut on an even record count so a pair is never
+          // split across blocks.
+          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES, 2);
         }
         block_id = next_input_block_id++;
       }
 
       if (! ok_read)
         break;
+
+      // Parsing is deliberately outside the critical section above.
+      reader1.Parse();
+      if (opts.paired_end_processing && ! opts.single_file_pairs)
+        reader2.Parse();
+      idx1 = idx2 = 0;
 
       // Reset all dynamically-growing things
       kraken_oss.str("");
@@ -561,17 +575,19 @@ void ProcessFiles(const char *filename1, const char *filename2,
       u2_oss.str("");
       thread_taxon_counters.clear();
 
-      while ((seq1 = reader1.NextSequence()) != NULL) {
+      while (idx1 < reader1.size()) {
+        seq1 = &reader1.at(idx1++);
         auto valid_fragment = true;
-        // auto valid_fragment = (seq1 = reader1.NextSequence()) != nullptr;
         if (opts.paired_end_processing && valid_fragment) {
           if (opts.single_file_pairs) {
-            seq2 = reader1.NextSequence();
-            valid_fragment = seq2 != nullptr;
+            valid_fragment = idx1 < reader1.size();
+            seq2 = valid_fragment ? &reader1.at(idx1++) : nullptr;
           } else {
-            seq2 = reader2.NextSequence();
-            valid_fragment = seq2 != nullptr;
+            valid_fragment = idx2 < reader2.size();
+            seq2 = valid_fragment ? &reader2.at(idx2++) : nullptr;
           }
+          if (! valid_fragment)
+            break;
           if (!seq1->compare_header(seq2->header)) {
             errx(1, "ERROR: Unmatched pairs.\n"
                  "Mate 1: %s\nMate 2: %s.\nPlease make sure that pairs are "
