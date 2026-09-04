@@ -115,6 +115,7 @@ struct Options {
   string taxon_counters_dump_filename;
   bool mpa_style_report;
   bool report_kmer_data;
+  bool need_kraken_output;
   bool quick_mode;
   bool report_zero_counts;
   bool use_translated_search;
@@ -936,8 +937,19 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
           last_taxon = taxon;
           if (taxon) {
             minimizer_hit_groups++;
-            if (!opts.report_filename.empty() || !opts.taxon_counters_dump_filename.empty())
-              curr_taxon_counts[taxon].add_kmer(lookup_keys[tok.key_idx]);
+            if (!opts.report_filename.empty() ||
+                !opts.taxon_counters_dump_filename.empty()) {
+              READCOUNTER &rc = curr_taxon_counts[taxon];
+              // Only --report-minimizer-data and a counters dump read
+              // kmerCount and distinctKmerCount back out; a plain report needs
+              // read counts, which incrementReadCount supplies.  The counter is
+              // still created either way, because KrakenReportDFS orders
+              // sibling taxa with a comparator that branches on whether a taxon
+              // is present in the map at all.
+              if (opts.report_kmer_data ||
+                  !opts.taxon_counters_dump_filename.empty())
+                rc.add_kmer(lookup_keys[tok.key_idx]);
+            }
           }
           break;
         default:  // TOK_REPEAT
@@ -973,6 +985,11 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
     if (!opts.report_filename.empty() || !opts.taxon_counters_dump_filename.empty())
       curr_taxon_counts[call].incrementReadCount();
   }
+
+  // With -O - there is nowhere for the per-read line to go, so neither it nor
+  // the hitlist string it contains needs building.
+  if (! opts.need_kraken_output)
+    return call;
 
   if (call)
     koss << "C\t";
@@ -1233,6 +1250,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
     warnx("mandatory filename missing");
     usage();
   }
+
+  // "-" silences per-read output, so the hitlist string it feeds is dead work.
+  opts.need_kraken_output = (opts.kraken_output_filename != "-");
 
   if (opts.mpa_style_report && opts.report_filename.empty()) {
     warnx("-m requires -R be used");
