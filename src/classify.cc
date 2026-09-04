@@ -866,9 +866,7 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
 
     const SeqView &mate = (mate_num == 0) ? dna : dna2;
     if (opts.use_translated_search) {
-      // The frame translator wants a real string; this path is the rare one.
-      std::string mate_seq(mate.seq, mate.seq_len);
-      TranslateToAllFrames(mate_seq, tx_frames);
+      TranslateToAllFrames(mate.seq, mate.seq_len, tx_frames);
     }
     // index of frame is 0 - 5 w/ tx search (or 0 if no tx search)
     for (int frame_idx = 0; frame_idx < frame_ct; frame_idx++) {

@@ -11,7 +11,11 @@
 
 namespace kraken2 {
 
-void TranslateToAllFrames(std::string &dna_seq, std::vector<std::string> &aa_seqs);
+// Translates a span of bases into all six reading frames.  Takes a pointer and
+// length rather than a string so callers holding a view into a read buffer do
+// not have to materialize one.
+void TranslateToAllFrames(const char *dna_seq, size_t len,
+                          std::vector<std::string> &aa_seqs);
 
 }
 
