@@ -20,7 +20,7 @@ void MinimizerScanner::set_lookup_table_character(char c, uint8_t val) {
 MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
     uint64_t spaced_seed_mask, bool dna_sequence, uint64_t toggle_mask,
     int revcom_version)
-    : str_(nullptr), k_(k), l_(l), str_pos_(0), start_(0), finish_(0),
+    : str_(nullptr), str_len_(0), k_(k), l_(l), str_pos_(0), start_(0), finish_(0),
       spaced_seed_mask_(spaced_seed_mask), dna_(dna_sequence),
       toggle_mask_(toggle_mask), loaded_ch_(0),
       last_ambig_(0), revcom_version_(revcom_version)
@@ -32,10 +32,10 @@ MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
   lmer_mask_ <<= (l_ * (dna_ ? BITS_PER_CHAR_DNA : BITS_PER_CHAR_PRO));
   lmer_mask_--;
   toggle_mask_ &= lmer_mask_;
-  if (finish_ == SIZE_MAX)
-    finish_ = str_->size();
-  if ((ssize_t) (finish_ - start_) + 1 < l_)  // Invalidate scanner if interval < 1 l-mer
-    str_pos_ = finish_;
+  // No sequence is loaded yet, so there is nothing to size here; LoadSequence
+  // sets the interval.  The old code dereferenced a null str_ on this path,
+  // reached only when finish_ was SIZE_MAX, which the member initializers made
+  // impossible; removing it drops the latent null dereference.
   for (int i = 0; i < UINT8_MAX + 1; i++)
     lookup_table_[i] = UINT8_MAX;
   if (dna_) {
@@ -96,12 +96,18 @@ MinimizerScanner::MinimizerScanner(ssize_t k, ssize_t l,
 }
 
 void MinimizerScanner::LoadSequence(const string &seq, size_t start, size_t finish) {
-  str_ = &seq;
+  LoadSequence(seq.data(), seq.size(), start, finish);
+}
+
+void MinimizerScanner::LoadSequence(const char *seq, size_t len, size_t start,
+                                    size_t finish) {
+  str_ = seq;
+  str_len_ = len;
   start_ = start;
   finish_ = finish;
   str_pos_ = start_;
-  if (finish_ > str_->size())
-    finish_ = str_->size();
+  if (finish_ > str_len_)
+    finish_ = str_len_;
   if ((ssize_t) (finish_ - start_) + 1 < l_)  // Invalidate scanner if interval < 1 l-mer
     str_pos_ = finish_;
   queue_.clear();
@@ -126,7 +132,7 @@ uint64_t *MinimizerScanner::NextMinimizer() {
       loaded_ch_++;
       lmer_ <<= bits_per_char;
       last_ambig_ <<= bits_per_char;
-      auto lookup_code = lookup_table_[ (int) (*str_)[str_pos_++] ];
+      auto lookup_code = lookup_table_[ (uint8_t) str_[str_pos_++] ];
       if (lookup_code == UINT8_MAX) {
         queue_.clear();
         queue_pos_ = 0;
