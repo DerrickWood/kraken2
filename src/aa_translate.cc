@@ -53,25 +53,26 @@ void initLookUpTables() {
   rev_lookup_table[(int) 'T'] = rev_lookup_table[(int) 't'] = 0x00;
 }
 
-void TranslateToAllFrames(string &dna_seq, vector<string> &aa_seqs) {
-  auto max_size = (dna_seq.size() / 3) + 1;
+void TranslateToAllFrames(const char *dna_seq, size_t len,
+                          vector<string> &aa_seqs) {
+  auto max_size = (len / 3) + 1;
   for (auto i = 0; i < 6; i++)
     aa_seqs[i].assign(max_size, ' ');
-  if (dna_seq.size() < 3)
+  if (len < 3)
     return;
 
   uint8_t fwd_codon = 0, rev_codon = 0;
   int ambig_nt_countdown = 0;  // if positive, bases to go until N leaves codon
   size_t frame_len[6] = {0};
-  for (auto i = 0u; i < dna_seq.size(); i++) {
+  for (size_t i = 0; i < len; i++) {
     auto frame = i % 3;
     fwd_codon <<= 2;
     fwd_codon &= 0x3f;
     rev_codon >>= 2;
     if (ambig_nt_countdown)
       ambig_nt_countdown--;
-    auto fwd_lookup_code = fwd_lookup_table[(int) dna_seq[i]];
-    auto rev_lookup_code = rev_lookup_table[(int) dna_seq[i]];
+    auto fwd_lookup_code = fwd_lookup_table[(uint8_t) dna_seq[i]];
+    auto rev_lookup_code = rev_lookup_table[(uint8_t) dna_seq[i]];
     if (fwd_lookup_code == UINT8_MAX)
       ambig_nt_countdown = 3;
     else {
