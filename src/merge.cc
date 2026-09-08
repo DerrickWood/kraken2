@@ -743,7 +743,8 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                         }
                                 }
 
-                                int call = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                                taxid_t call = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                                taxid_t internal_call = taxonomy.GetInternalID(call);
                                 taxid = int_to_string(call, itoa_buf);
 
 
@@ -756,12 +757,9 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                 }
 
                                 if (use_names) {
-                                        // taxid_t t = nixmans_atou64_shift(taxid, strlen(taxid));
-                                        taxid_t internal_taxid = taxonomy.GetInternalID(call);
-
                                         const char *name =
                                                 taxonomy.name_data() +
-                                                taxonomy.nodes()[internal_taxid].name_offset;
+                                                taxonomy.nodes()[internal_call].name_offset;
                                         if (!name) {
                                                 name = "unclassified";
                                         }
@@ -776,9 +774,6 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                 }
 
                                 if (accumulate_read_counts && call) {
-                                        taxid_t internal_call =
-                                            taxonomy.GetInternalID(call);
-                                        local_counters[internal_call];
                                         local_counters[internal_call].incrementReadCount();
                                 }
 
@@ -894,7 +889,8 @@ std::tuple<size_t, size_t> merge_classification_output(
                         }
                 }
 
-                int call = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                taxid_t call = resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                taxid_t internal_call = taxonomy.GetInternalID(call);
                 taxid = int_to_string(call, itoa_buf);
 
 
@@ -907,11 +903,9 @@ std::tuple<size_t, size_t> merge_classification_output(
                 }
 
                 if (use_names) {
-                        taxid_t internal_taxid = taxonomy.GetInternalID(call);
-
                         const char *name =
                             taxonomy.name_data() +
-                            taxonomy.nodes()[internal_taxid].name_offset;
+                            taxonomy.nodes()[internal_call].name_offset;
                         if (!name) {
                                 name = "unclassified";
                         }
@@ -926,9 +920,6 @@ std::tuple<size_t, size_t> merge_classification_output(
                 }
 
                 if (accumulate_read_counts && call) {
-                        taxid_t internal_call =
-                                taxonomy.GetInternalID(call);
-                        counters[internal_call];
                         counters[internal_call].incrementReadCount();
                 }
 
@@ -998,7 +989,7 @@ int main(int argc, char **argv) {
 
         int ch;
         int threads = 1;
-        int batch_size = 100;
+        int batch_size = 1000;
         bool use_names = false;
         bool report_zeros = false;
         bool load_read_counts = false;

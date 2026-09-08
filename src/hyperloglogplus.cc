@@ -539,7 +539,7 @@ void HyperLogLogPlusMinus<uint64_t>::insert(uint64_t item) {
 
     if (sparse && this->sparseList.size() + 1 > this->m/4) {
        switchToNormalRepresentation();
-     }
+    }
     if (sparse) {
       // sparse mode: put the encoded hash into sparse list
       uint32_t encoded_hash_value = encodeHashIn32Bit(hash_value, pPrime, p);
