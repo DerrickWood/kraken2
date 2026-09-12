@@ -68,6 +68,18 @@ static void DetectFormat(StreamCursor &cur, const std::vector<char> &buf) {
   else errx(EX_DATAERR, "sequence reader - unrecognized file format");
 }
 
+bool PrimeStream(int fd, StreamCursor &cur) {
+  char chunk[1 << 16];
+  ssize_t n = read(fd, chunk, sizeof(chunk));
+  if (n <= 0) {
+    cur.eof = true;
+    return false;
+  }
+  cur.carry.assign(chunk, chunk + n);
+  DetectFormat(cur, cur.carry);
+  return true;
+}
+
 void FastReader::Reset(StreamCursor &cur) {
   records_.clear();
   record_count_ = 0;
@@ -103,8 +115,6 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
   bool got = Fill(fd, cur, target_bytes);
   if (! got && buf_.empty())
     return false;
-  DetectFormat(cur, buf_);
-  format_ = cur.format;
 
   // Keep reading past the target until the block holds `record_multiple` whole
   // records or the input ends, so a record longer than the block is taken whole.
@@ -154,11 +164,6 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
     return false;
 
   bool live = true;
-  // The format decides how records are counted, so settle it before counting.
-  if (cur.format == FORMAT_AUTO_DETECT && buf_.empty())
-    live = Fill(fd, cur, REFILL_CHUNK);
-  DetectFormat(cur, buf_);
-  format_ = cur.format;
   ScanNewlines();
   size_t keep = 0, recs = 0;
   if (format_ == FORMAT_FASTQ) {

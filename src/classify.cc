@@ -195,20 +195,20 @@ void ParseCommandLine(int argc, char **argv, Options &opts);
 void usage(int exit_code=EX_USAGE);
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
-    IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
+    IndexOptions &idx_opts, const Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs, taxon_counters_t &total_taxon_counters);
 taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream &koss,
     KeyValueStore *hash, Taxonomy &tax, IndexOptions &idx_opts,
-    Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
+    const Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames, taxon_counters_t &my_taxon_counts);
 void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy);
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
-    Taxonomy &tax, size_t total_minimizers, Options &opts);
+    Taxonomy &tax, size_t total_minimizers, const Options &opts);
 void ReportStats(struct timeval time1, struct timeval time2,
     ClassificationStats &stats);
-void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat format);
+void InitializeOutputs(const Options &opts, OutputStreamData &outputs, SequenceFormat format);
 
 
 
@@ -535,7 +535,7 @@ void ReportStats(struct timeval time1, struct timeval time2,
 
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
-    IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
+    IndexOptions &idx_opts, const Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs,
     taxon_counters_t &total_taxon_counters)
 {
@@ -561,6 +561,22 @@ void ProcessFiles(const char *filename1, const char *filename2,
   StreamCursor cursor1, cursor2;
   std::vector<OutputData> buffers(omp_get_max_threads() * 2);
 
+  // The layout and the format are fixed for the whole file, so they are settled
+  // here once, outside the input lock.
+  enum class InputLayout { SINGLE, TWO_FILES, INTERLEAVED };
+  const InputLayout layout =
+      ! opts.paired_end_processing ? InputLayout::SINGLE
+      : opts.single_file_pairs ? InputLayout::INTERLEAVED
+      : InputLayout::TWO_FILES;
+  // Each file keeps its own format, so the mates of a pair may differ.
+  bool have_input = PrimeStream(fd1, cursor1);
+  if (layout == InputLayout::TWO_FILES)
+    PrimeStream(fd2, cursor2);
+  // printing_sequences gates whether records are emitted, so the outputs are
+  // opened before any block is classified.
+  if (have_input)
+    InitializeOutputs(opts, outputs, cursor1.format);
+
   #pragma omp parallel
   {
     MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.spaced_seed_mask,
@@ -585,24 +601,37 @@ void ProcessFiles(const char *filename1, const char *filename2,
 
       auto ok_read = false;
 
-      #pragma omp critical(seqread)
-      {  // Input processing block
-        if (! opts.paired_end_processing) {
-          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+      // Each case takes the same named lock; only the work inside it differs.
+      switch (layout) {
+        case InputLayout::SINGLE: {
+          #pragma omp critical(seqread)
+          {
+            ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+            block_id = next_input_block_id++;
+          }
+          break;
         }
-        else if (! opts.single_file_pairs) {
+        case InputLayout::TWO_FILES: {
           // Take a block from the first mate, then exactly as many records from
           // the second, so the two files stay in step.
-          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
-          if (ok_read)
-            ok_read = reader2.LoadRecords(fd2, cursor2, reader1.RecordCount());
+          #pragma omp critical(seqread)
+          {
+            ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+            if (ok_read)
+              ok_read = reader2.LoadRecords(fd2, cursor2, reader1.RecordCount());
+            block_id = next_input_block_id++;
+          }
+          break;
         }
-        else {
-          // Interleaved pairs: cut on an even record count so a pair is never
-          // split across blocks.
-          ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES, 2);
+        case InputLayout::INTERLEAVED: {
+          // Cut on an even record count so a pair is never split across blocks.
+          #pragma omp critical(seqread)
+          {
+            ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES, 2);
+            block_id = next_input_block_id++;
+          }
+          break;
         }
-        block_id = next_input_block_id++;
       }
 
       if (! ok_read)
@@ -610,14 +639,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
 
       // Parsing is deliberately outside the critical section above.
       reader1.Parse();
-      if (opts.paired_end_processing && ! opts.single_file_pairs)
+      if (layout == InputLayout::TWO_FILES)
         reader2.Parse();
       idx1 = idx2 = 0;
-
-      // printing_sequences gates whether records are emitted below, so the
-      // outputs must be opened before the first block is classified.
-      if (! outputs.initialized)
-        InitializeOutputs(opts, outputs, reader1.file_format());
 
       // Reset all dynamically-growing things
       kraken_oss.str("");
@@ -631,7 +655,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
         seq1 = &reader1.at(idx1++);
         auto valid_fragment = true;
         if (opts.paired_end_processing && valid_fragment) {
-          if (opts.single_file_pairs) {
+          if (layout == InputLayout::INTERLEAVED) {
             valid_fragment = idx1 < reader1.size();
             seq2 = valid_fragment ? &reader1.at(idx1++) : nullptr;
           } else {
@@ -779,7 +803,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
 }
 
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
-    Taxonomy &taxonomy, size_t total_minimizers, Options &opts)
+    Taxonomy &taxonomy, size_t total_minimizers, const Options &opts)
 {
   taxid_t max_taxon = 0;
   uint32_t max_score = 0;
@@ -843,7 +867,7 @@ std::string TrimPairInfo(std::string &id) {
 
 taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream &koss,
                          KeyValueStore *hash, Taxonomy &taxonomy,
-                         IndexOptions &idx_opts, Options &opts,
+                         IndexOptions &idx_opts, const Options &opts,
                          ClassificationStats &stats, MinimizerScanner &scanner,
                          vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
                          vector<string> &tx_frames,
@@ -1099,7 +1123,7 @@ ofstream *OpenOutputStream(const std::string &filename) {
   return out;
 }
 
-void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat format) {
+void InitializeOutputs(const Options &opts, OutputStreamData &outputs, SequenceFormat format) {
   #pragma omp critical(output_init)
   {
     if (! outputs.initialized) {

@@ -56,12 +56,19 @@ struct StreamCursor {
   StreamCursor() : format(FORMAT_AUTO_DETECT), eof(false) { }
 };
 
+// Reads the first bytes of a stream into the cursor's carry and settles the
+// stream's format from them, before any thread takes the input lock.  Nothing is
+// consumed, since the loaders start from the carry.  Returns false for an empty
+// stream, whose format stays FORMAT_AUTO_DETECT.
+bool PrimeStream(int fd, StreamCursor &cur);
+
 class FastReader {
   public:
   FastReader();
 
-  // Both loaders must be called with the input lock held, and both leave the
-  // reader holding a whole number of records.
+  // Both loaders must be called with the input lock held, on a cursor that has
+  // been through PrimeStream, and both leave the reader holding a whole number
+  // of records.
 
   // Pulls about `target_bytes`, then trims back to the last complete record.
   // `record_multiple` forces the kept record count to be a multiple of that
