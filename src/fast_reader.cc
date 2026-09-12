@@ -12,7 +12,8 @@ namespace kraken2 {
 static const size_t REFILL_CHUNK = 1 << 20;
 
 FastReader::FastReader()
-    : scanned_(0), record_count_(0), format_(FORMAT_AUTO_DETECT) {
+    : scanned_(0), record_count_(0), loaded_records_(0),
+      format_(FORMAT_AUTO_DETECT) {
   buf_.reserve(16 << 20);
   nl_.reserve(1 << 17);
   records_.reserve(1 << 15);
@@ -67,15 +68,37 @@ static void DetectFormat(StreamCursor &cur, const std::vector<char> &buf) {
   else errx(EX_DATAERR, "sequence reader - unrecognized file format");
 }
 
-bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
-                           size_t record_multiple) {
+void FastReader::Reset(StreamCursor &cur) {
   records_.clear();
   record_count_ = 0;
+  loaded_records_ = 0;
   buf_.clear();
   nl_.clear();
   scanned_ = 0;
   buf_.insert(buf_.end(), cur.carry.begin(), cur.carry.end());
   cur.carry.clear();
+  format_ = cur.format;
+}
+
+// Appends the offsets of line-initial '>' found since `next_line`, which is a
+// line index into the newline index and is advanced past what was examined.  A
+// line whose first byte has not been read yet is left for the next call.
+void FastReader::CollectHeaders(std::vector<size_t> &heads,
+                                size_t &next_line) const {
+  for (; next_line <= nl_.size(); next_line++) {
+    size_t start = next_line == 0 ? 0 : (size_t) nl_[next_line - 1] + 1;
+    if (start >= buf_.size())
+      break;
+    if (buf_[start] == '>')
+      heads.push_back(start);
+  }
+}
+
+bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
+                           size_t record_multiple) {
+  Reset(cur);
+  if (record_multiple < 1)
+    record_multiple = 1;
 
   bool got = Fill(fd, cur, target_bytes);
   if (! got && buf_.empty())
@@ -83,39 +106,102 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
   DetectFormat(cur, buf_);
   format_ = cur.format;
 
-  // At end of input a final record may lack its trailing newline.
-  if (! got && ! buf_.empty() && buf_.back() != '\n')
-    buf_.push_back('\n');
-
-  if (record_multiple < 1)
-    record_multiple = 1;
-  ScanNewlines();
-  while (record_multiple > 1 && got && nl_.size() / 4 < record_multiple) {
-    got = Fill(fd, cur, target_bytes);
+  // Keep reading past the target until the block holds `record_multiple` whole
+  // records or the input ends, so a record longer than the block is taken whole.
+  std::vector<size_t> heads;
+  size_t next_line = 0;
+  size_t keep = 0, recs = 0;
+  for (;;) {
+    // At end of input a final record may lack its trailing newline.
     if (! got && ! buf_.empty() && buf_.back() != '\n')
       buf_.push_back('\n');
     ScanNewlines();
+    if (format_ == FORMAT_FASTQ) {
+      recs = nl_.size() / 4;
+      recs -= recs % record_multiple;
+      keep = recs ? (size_t) nl_[recs * 4 - 1] + 1 : 0;
+    }
+    else {
+      CollectHeaders(heads, next_line);
+      if (got) {
+        // The record under the last header may continue past the buffer.
+        recs = heads.empty() ? 0 : heads.size() - 1;
+        recs -= recs % record_multiple;
+        keep = recs ? heads[recs] : 0;
+      }
+      else {
+        recs = heads.size();
+        keep = buf_.size();
+      }
+    }
+    if (keep > 0 || ! got)
+      break;
+    got = Fill(fd, cur, target_bytes);
   }
 
-  size_t keep;
+  if (keep < buf_.size()) {
+    cur.carry.assign(buf_.begin() + keep, buf_.end());
+    buf_.resize(keep);
+    TruncateIndex(keep);
+  }
+  loaded_records_ = buf_.empty() ? 0 : recs;
+  return ! buf_.empty();
+}
+
+bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
+  Reset(cur);
+  if (records == 0)
+    return false;
+
+  bool live = true;
+  // The format decides how records are counted, so settle it before counting.
+  if (cur.format == FORMAT_AUTO_DETECT && buf_.empty())
+    live = Fill(fd, cur, REFILL_CHUNK);
+  DetectFormat(cur, buf_);
+  format_ = cur.format;
+  ScanNewlines();
+  size_t keep = 0, recs = 0;
   if (format_ == FORMAT_FASTQ) {
-    size_t recs = nl_.size() / 4;
-    recs -= recs % record_multiple;
-    keep = recs ? (size_t) nl_[recs * 4 - 1] + 1 : 0;
+    const size_t want = records * 4;
+    while (nl_.size() < want && live) {
+      live = Fill(fd, cur, REFILL_CHUNK);
+      ScanNewlines();
+    }
+    if (buf_.empty())
+      return false;
+    if (! live && buf_.back() != '\n') {
+      buf_.push_back('\n');
+      ScanNewlines();
+    }
+    size_t lines = nl_.size() < want ? (nl_.size() / 4) * 4 : want;
+    keep = lines ? (size_t) nl_[lines - 1] + 1 : 0;
+    recs = lines / 4;
   }
   else {
-    // FASTA: cut before the last line-initial '>', whose record may continue
-    // into the next block.
-    keep = buf_.size();
-    if (got) {
-      size_t i = buf_.size();
-      while (i > 0) {
-        i--;
-        if (buf_[i] == '>' && (i == 0 || buf_[i - 1] == '\n')) {
-          keep = i;
-          break;
-        }
+    // A FASTA record ends only where the next header begins, and may span any
+    // number of lines, so read until the header after the last wanted record is
+    // in the buffer, then cut in front of it.
+    std::vector<size_t> heads;
+    size_t next_line = 0;
+    CollectHeaders(heads, next_line);
+    while (heads.size() <= records && live) {
+      live = Fill(fd, cur, REFILL_CHUNK);
+      ScanNewlines();
+      CollectHeaders(heads, next_line);
+    }
+    if (buf_.empty())
+      return false;
+    if (heads.size() > records) {
+      keep = heads[records];
+      recs = records;
+    }
+    else {
+      if (buf_.back() != '\n') {
+        buf_.push_back('\n');
+        ScanNewlines();
       }
+      keep = buf_.size();
+      recs = heads.size();
     }
   }
 
@@ -124,64 +210,8 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
     buf_.resize(keep);
     TruncateIndex(keep);
   }
+  loaded_records_ = recs;
   return ! buf_.empty();
-}
-
-bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
-  records_.clear();
-  record_count_ = 0;
-  buf_.clear();
-  nl_.clear();
-  scanned_ = 0;
-  buf_.insert(buf_.end(), cur.carry.begin(), cur.carry.end());
-  cur.carry.clear();
-  if (records == 0)
-    return false;
-
-  DetectFormat(cur, buf_);
-  bool live = true;
-  ScanNewlines();
-  const size_t want_lines =
-      (cur.format == FORMAT_FASTA) ? records * 2 : records * 4;
-  while (nl_.size() < want_lines && live) {
-    live = Fill(fd, cur, REFILL_CHUNK);
-    ScanNewlines();
-  }
-  if (buf_.empty())
-    return false;
-  DetectFormat(cur, buf_);
-  format_ = cur.format;
-
-  if (! live && ! buf_.empty() && buf_.back() != '\n') {
-    buf_.push_back('\n');
-    ScanNewlines();
-  }
-
-  size_t keep;
-  if (format_ == FORMAT_FASTQ) {
-    size_t want = records * 4;
-    size_t lines = nl_.size() < want ? (nl_.size() / 4) * 4 : want;
-    keep = lines ? (size_t) nl_[lines - 1] + 1 : 0;
-  }
-  else {
-    keep = buf_.size();
-  }
-  if (keep < buf_.size()) {
-    cur.carry.assign(buf_.begin() + keep, buf_.end());
-    buf_.resize(keep);
-    TruncateIndex(keep);
-  }
-  return ! buf_.empty();
-}
-
-size_t FastReader::RecordCount() const {
-  if (format_ == FORMAT_FASTQ)
-    return nl_.size() / 4;
-  size_t n = 0;
-  for (size_t i = 0; i < buf_.size(); i++)
-    if (buf_[i] == '>' && (i == 0 || buf_[i - 1] == '\n'))
-      n++;
-  return n;
 }
 
 void FastReader::Parse() {

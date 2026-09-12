@@ -65,7 +65,8 @@ class FastReader {
 
   // Pulls about `target_bytes`, then trims back to the last complete record.
   // `record_multiple` forces the kept record count to be a multiple of that
-  // value, so interleaved mate pairs are never split across blocks.
+  // value, so interleaved mate pairs are never split across blocks.  A record
+  // longer than `target_bytes` grows the block rather than ending the input.
   bool LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
                  size_t record_multiple = 1);
 
@@ -73,8 +74,8 @@ class FastReader {
   // files stay in step.
   bool LoadRecords(int fd, StreamCursor &cur, size_t records);
 
-  // Number of records held, without parsing them.
-  size_t RecordCount() const;
+  // Number of whole records the last load kept, without parsing them.
+  size_t RecordCount() const { return loaded_records_; }
 
   // Call outside the lock.  Splits the loaded bytes into records in place.
   void Parse();
@@ -88,12 +89,15 @@ class FastReader {
   void ScanNewlines();
   void TruncateIndex(size_t keep);
   bool Fill(int fd, StreamCursor &cur, size_t bytes);
+  void CollectHeaders(std::vector<size_t> &heads, size_t &next_line) const;
+  void Reset(StreamCursor &cur);
 
   std::vector<char> buf_;
   std::vector<uint32_t> nl_;   // offsets of newlines within buf_
   size_t scanned_;             // bytes of buf_ already covered by nl_
   std::vector<SeqView> records_;
   size_t record_count_;
+  size_t loaded_records_;      // whole records kept by the last load
   SequenceFormat format_;
 };
 
