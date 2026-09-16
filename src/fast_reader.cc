@@ -13,7 +13,7 @@ static const size_t REFILL_CHUNK = 1 << 20;
 
 FastReader::FastReader()
     : scanned_(0), record_count_(0), loaded_records_(0),
-      format_(FORMAT_AUTO_DETECT) {
+      format_(FORMAT_AUTO_DETECT), fault_count_(0) {
   buf_.reserve(16 << 20);
   nl_.reserve(1 << 17);
   records_.reserve(1 << 15);
@@ -60,12 +60,20 @@ bool FastReader::Fill(int fd, StreamCursor &cur, size_t bytes) {
   return true;
 }
 
+// The format is the first record marker in the stream.  Blank lines ahead of it
+// are skipped, as kseq skips them.
 static void DetectFormat(StreamCursor &cur, const std::vector<char> &buf) {
-  if (cur.format != FORMAT_AUTO_DETECT || buf.empty())
+  if (cur.format != FORMAT_AUTO_DETECT)
     return;
-  if (buf[0] == '@') cur.format = FORMAT_FASTQ;
-  else if (buf[0] == '>') cur.format = FORMAT_FASTA;
-  else errx(EX_DATAERR, "sequence reader - unrecognized file format");
+  for (size_t i = 0; i < buf.size(); i++) {
+    char c = buf[i];
+    if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
+      continue;
+    if (c == '@') cur.format = FORMAT_FASTQ;
+    else if (c == '>') cur.format = FORMAT_FASTA;
+    else errx(EX_DATAERR, "sequence reader - unrecognized file format");
+    return;
+  }
 }
 
 bool PrimeStream(int fd, StreamCursor &cur) {
@@ -92,17 +100,48 @@ void FastReader::Reset(StreamCursor &cur) {
   format_ = cur.format;
 }
 
-// Appends the offsets of line-initial '>' found since `next_line`, which is a
-// line index into the newline index and is advanced past what was examined.  A
-// line whose first byte has not been read yet is left for the next call.
-void FastReader::CollectHeaders(std::vector<size_t> &heads,
-                                size_t &next_line) const {
-  for (; next_line <= nl_.size(); next_line++) {
-    size_t start = next_line == 0 ? 0 : (size_t) nl_[next_line - 1] + 1;
-    if (start >= buf_.size())
-      break;
-    if (buf_[start] == '>')
-      heads.push_back(start);
+// Length of line `j` with a trailing carriage return dropped, as kseq reads it.
+static inline size_t LineLen(const std::vector<char> &buf, size_t start, size_t stop) {
+  if (stop > start && buf[stop - 1] == '\r')
+    stop--;
+  return stop - start;
+}
+
+// Appends the offset just past each record that ends within the lines scanned
+// so far.  A record is complete once the next header is seen, or once its
+// quality has reached the length of its sequence.
+void FastReader::CollectRecordEnds(std::vector<size_t> &ends,
+                                   RecordScan &scan) const {
+  for (; scan.next_line < nl_.size(); scan.next_line++) {
+    size_t start = scan.next_line == 0 ? 0 : (size_t) nl_[scan.next_line - 1] + 1;
+    size_t stop = (size_t) nl_[scan.next_line];
+    size_t len = LineLen(buf_, start, stop);
+    char c = len ? buf_[start] : '\0';
+
+    // A header line ends the record whose sequence is being read.
+    if (scan.state == 1 && (c == '>' || c == '@')) {
+      ends.push_back(start);
+      scan.state = 0;
+    }
+    if (scan.state == 0) {
+      if (c == '>' || c == '@') {  // anything before a header is skipped
+        scan.state = 1;
+        scan.seq_len = scan.quals_len = 0;
+      }
+      continue;
+    }
+    if (scan.state == 1) {
+      if (c == '+')
+        scan.state = 2;
+      else
+        scan.seq_len += len;
+      continue;
+    }
+    scan.quals_len += len;
+    if (scan.quals_len >= scan.seq_len) {
+      ends.push_back(stop + 1);
+      scan.state = 0;
+    }
   }
 }
 
@@ -118,31 +157,25 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
 
   // Keep reading past the target until the block holds `record_multiple` whole
   // records or the input ends, so a record longer than the block is taken whole.
-  std::vector<size_t> heads;
-  size_t next_line = 0;
+  std::vector<size_t> ends;
+  RecordScan scan;
   size_t keep = 0, recs = 0;
   for (;;) {
     // At end of input a final record may lack its trailing newline.
     if (! got && ! buf_.empty() && buf_.back() != '\n')
       buf_.push_back('\n');
     ScanNewlines();
-    if (format_ == FORMAT_FASTQ) {
-      recs = nl_.size() / 4;
+    CollectRecordEnds(ends, scan);
+    if (got) {
+      recs = ends.size();
       recs -= recs % record_multiple;
-      keep = recs ? (size_t) nl_[recs * 4 - 1] + 1 : 0;
+      keep = recs ? ends[recs - 1] : 0;
     }
     else {
-      CollectHeaders(heads, next_line);
-      if (got) {
-        // The record under the last header may continue past the buffer.
-        recs = heads.empty() ? 0 : heads.size() - 1;
-        recs -= recs % record_multiple;
-        keep = recs ? heads[recs] : 0;
-      }
-      else {
-        recs = heads.size();
-        keep = buf_.size();
-      }
+      // The input ends here, so a record still open is the last one and is
+      // kept: Parse reports it the way kseq does.
+      recs = ends.size() + (scan.state != 0 ? 1 : 0);
+      keep = buf_.size();
     }
     if (keep > 0 || ! got)
       break;
@@ -164,50 +197,30 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
     return false;
 
   bool live = true;
-  ScanNewlines();
+  std::vector<size_t> ends;
+  RecordScan scan;
   size_t keep = 0, recs = 0;
-  if (format_ == FORMAT_FASTQ) {
-    const size_t want = records * 4;
-    while (nl_.size() < want && live) {
-      live = Fill(fd, cur, REFILL_CHUNK);
-      ScanNewlines();
-    }
-    if (buf_.empty())
-      return false;
-    if (! live && buf_.back() != '\n') {
-      buf_.push_back('\n');
-      ScanNewlines();
-    }
-    size_t lines = nl_.size() < want ? (nl_.size() / 4) * 4 : want;
-    keep = lines ? (size_t) nl_[lines - 1] + 1 : 0;
-    recs = lines / 4;
+  ScanNewlines();
+  CollectRecordEnds(ends, scan);
+  while (ends.size() < records && live) {
+    live = Fill(fd, cur, REFILL_CHUNK);
+    ScanNewlines();
+    CollectRecordEnds(ends, scan);
+  }
+  if (buf_.empty())
+    return false;
+  if (! live && buf_.back() != '\n') {
+    buf_.push_back('\n');
+    ScanNewlines();
+    CollectRecordEnds(ends, scan);
+  }
+  if (ends.size() >= records) {
+    keep = ends[records - 1];
+    recs = records;
   }
   else {
-    // A FASTA record ends only where the next header begins, and may span any
-    // number of lines, so read until the header after the last wanted record is
-    // in the buffer, then cut in front of it.
-    std::vector<size_t> heads;
-    size_t next_line = 0;
-    CollectHeaders(heads, next_line);
-    while (heads.size() <= records && live) {
-      live = Fill(fd, cur, REFILL_CHUNK);
-      ScanNewlines();
-      CollectHeaders(heads, next_line);
-    }
-    if (buf_.empty())
-      return false;
-    if (heads.size() > records) {
-      keep = heads[records];
-      recs = records;
-    }
-    else {
-      if (buf_.back() != '\n') {
-        buf_.push_back('\n');
-        ScanNewlines();
-      }
-      keep = buf_.size();
-      recs = heads.size();
-    }
+    keep = buf_.size();
+    recs = ends.size() + (scan.state != 0 ? 1 : 0);
   }
 
   if (keep < buf_.size()) {
@@ -219,12 +232,44 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
   return ! buf_.empty();
 }
 
+// A record carries the format kseq would report for it: a quality string makes
+// it FASTQ, and its absence makes it FASTA whatever the rest of the file is.
+void FastReader::Emit(SeqView &v) {
+  v.format = v.quals_len > 0 ? FORMAT_FASTQ : FORMAT_FASTA;
+  records_.push_back(v);
+}
+
+// A malformed record is still emitted, so the records of a file keep their
+// positions and the mates of a pair stay in step.  Its bases are intact, and
+// the quality values it does carry still describe the bases they cover, so they
+// are kept for quality masking, which bounds itself by the shorter span.  The
+// record is written out as FASTA, because a quality string of the wrong length
+// would make the classified and unclassified files something Kraken 2 will not
+// read back, and padding one to fit would fabricate quality nobody measured.
+// The caller reports the fault once the run has finished.
+void FastReader::Fault(SeqView &v, const char *verb) {
+  fault_count_++;
+  if (fault_.empty())
+    RecordFault(v, verb);
+  Emit(v);
+  records_.back().format = FORMAT_FASTA;
+}
+
+void FastReader::RecordFault(const SeqView &v, const char *verb) {
+  char msg[512];
+  snprintf(msg, sizeof(msg),
+           "sequence reader - record '%.*s' %s %u bases and %u quality values",
+           (int) (v.header_len > 200 ? 200 : v.header_len), v.header, verb,
+           v.seq_len, v.quals_len);
+  fault_ = msg;
+}
+
 void FastReader::Parse() {
   records_.clear();
   char *base = buf_.data();
 
   auto trim = [](const char *s, const char *e) -> uint32_t {
-    while (e > s && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t'))
+    if (e > s && e[-1] == '\r')
       e--;
     return (uint32_t) (e - s);
   };
@@ -233,72 +278,94 @@ void FastReader::Parse() {
   };
   auto line_stop = [&](size_t j) -> char * { return base + nl_[j]; };
 
-  // Splits a header line into identifier and comment the way kseq does.
+  // Splits a header line into identifier and comment the way kseq does: the
+  // identifier ends at the first whitespace of any kind.
+  auto space = [](char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\v' || c == '\f';
+  };
   auto set_header = [&](SeqView &v, char *hs, char *he) {
     char *p = hs;
-    while (p < he && *p != ' ' && *p != '\t')
+    while (p < he && ! space(*p))
       p++;
     v.header = hs;
-    v.header_len = trim(hs, p);
-    while (p < he && (*p == ' ' || *p == '\t'))
+    v.header_len = (uint32_t) (p - hs);
+    while (p < he && space(*p))
       p++;
     v.comment = p;
     v.comment_len = trim(p, he);
   };
 
-  if (format_ == FORMAT_FASTQ) {
-    size_t recs = nl_.size() / 4;
-    records_.resize(recs);
-    size_t out = 0;
-    for (size_t i = 0; i < recs; i++) {
-      size_t j = i * 4;
-      char *hs = line_start(j), *he = line_stop(j);
-      if (hs >= he || *hs != '@')
-        break;
-      SeqView &v = records_[out];
-      v.format = FORMAT_FASTQ;
-      set_header(v, hs + 1, he);
-      char *q = line_start(j + 1);
-      v.seq = q;
-      v.seq_len = trim(q, line_stop(j + 1));
-      q = line_start(j + 3);
-      v.quals = q;
-      v.quals_len = trim(q, line_stop(j + 3));
-      out++;
+  size_t nlines = nl_.size();
+  int state = 0;
+  SeqView v;
+  char *seq_dst = nullptr, *quals_dst = nullptr;
+
+  for (size_t j = 0; j < nlines; j++) {
+    char *ls = line_start(j);
+    uint32_t len = trim(ls, line_stop(j));
+    char c = len ? *ls : '\0';
+
+    // A header line ends the record being read, which then has no quality, the
+    // ordinary case for FASTA and what kseq returns for a FASTQ record cut
+    // short before its '+' line.
+    if (state == 1 && (c == '>' || c == '@')) {
+      v.quals = nullptr;
+      v.quals_len = 0;
+      Emit(v);
+      state = 0;
     }
-    records_.resize(out);
-    record_count_ = out;
-    return;
+    if (state == 0) {
+      if (c != '>' && c != '@')
+        continue;  // kseq skips anything before a header
+      v = SeqView();
+      set_header(v, ls + 1, ls + len);
+      v.seq = v.quals = nullptr;
+      v.seq_len = v.quals_len = 0;
+      seq_dst = quals_dst = nullptr;
+      state = 1;
+      continue;
+    }
+    if (state == 1) {
+      if (c == '+') {
+        state = 2;
+        continue;
+      }
+      // Sequence spans every line up to the next marker, spliced in place by
+      // shifting bytes down over the newlines.
+      if (seq_dst == nullptr)
+        v.seq = seq_dst = ls;
+      if (seq_dst != ls)
+        memmove(seq_dst, ls, len);
+      seq_dst += len;
+      v.seq_len = (uint32_t) (seq_dst - v.seq);
+      continue;
+    }
+    if (quals_dst == nullptr)
+      v.quals = quals_dst = ls;  // kseq reads a line here even for an empty read
+    if (quals_dst != ls)
+      memmove(quals_dst, ls, len);
+    quals_dst += len;
+    v.quals_len = (uint32_t) (quals_dst - v.quals);
+    if (v.quals_len >= v.seq_len) {
+      if (v.quals_len != v.seq_len)
+        Fault(v, "has");  // kept, so later records keep their positions
+      else
+        Emit(v);
+      state = 0;
+    }
   }
 
-  // FASTA: sequence spans every line up to the next header, spliced in place by
-  // shifting bytes down over the newlines.
-  size_t nlines = nl_.size();
-  size_t j = 0;
-  while (j < nlines) {
-    char *hs = line_start(j), *he = line_stop(j);
-    if (hs >= he || *hs != '>')
-      break;
-    SeqView v;
-    v.format = FORMAT_FASTA;
+  // Whatever is still open belongs to the last record in the input.
+  if (state == 1) {
     v.quals = nullptr;
     v.quals_len = 0;
-    set_header(v, hs + 1, he);
-    j++;
-    char *dst = (j < nlines) ? line_start(j) : base + buf_.size();
-    v.seq = dst;
-    while (j < nlines) {
-      char *ls = line_start(j);
-      if (*ls == '>')
-        break;
-      uint32_t len = trim(ls, line_stop(j));
-      if (dst != ls)
-        memmove(dst, ls, len);
-      dst += len;
-      j++;
-    }
-    v.seq_len = (uint32_t) (dst - v.seq);
-    records_.push_back(v);
+    Emit(v);
+  }
+  else if (state == 2) {
+    if (v.quals_len != v.seq_len)
+      Fault(v, "ends with");
+    else
+      Emit(v);
   }
   record_count_ = records_.size();
 }
