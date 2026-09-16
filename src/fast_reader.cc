@@ -4,7 +4,9 @@
  */
 
 #include "fast_reader.h"
+#include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <unistd.h>
 
 namespace kraken2 {
@@ -40,50 +42,127 @@ void FastReader::TruncateIndex(size_t keep) {
   scanned_ = keep;
 }
 
+// Offsets into the buffer and record lengths are 32-bit, so no buffer may grow
+// past this.  Only a single record of about 4 GiB can get there.
+static const size_t MAX_BUFFER_BYTES = 0xffffffffu;
+
+// One read(), retried when a signal interrupts it, and switched to blocking mode
+// once if the descriptor was left non-blocking, so neither is mistaken for the
+// end of the input.  Returns what read() returns otherwise.
+static ssize_t ReadSome(int fd, char *dst, size_t n) {
+  bool made_blocking = false;
+  for (;;) {
+    ssize_t got = read(fd, dst, n);
+    if (got >= 0)
+      return got;
+    if (errno == EINTR)
+      continue;
+    if ((errno == EAGAIN || errno == EWOULDBLOCK) && ! made_blocking) {
+      int flags = fcntl(fd, F_GETFL);
+      if (flags >= 0 && fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0) {
+        made_blocking = true;
+        continue;
+      }
+    }
+    return got;
+  }
+}
+
 // Reads until `bytes` have been appended or the descriptor is exhausted.  A
 // single read() on a pipe returns whatever is available, so loop.
 bool FastReader::Fill(int fd, StreamCursor &cur, size_t bytes) {
   size_t base = buf_.size();
+  if (base + bytes > MAX_BUFFER_BYTES) {
+    cur.error = "sequence reader - a record is longer than the 4 GiB this "
+                "reader supports";
+    cur.eof = true;
+    return false;
+  }
   buf_.resize(base + bytes);
   size_t got = 0;
   while (got < bytes) {
-    ssize_t n = read(fd, buf_.data() + base + got, bytes - got);
-    if (n <= 0)
+    ssize_t n = ReadSome(fd, buf_.data() + base + got, bytes - got);
+    if (n < 0) {
+      cur.error = std::string("sequence reader - read error: ") + strerror(errno);
+      break;
+    }
+    if (n == 0)
       break;
     got += (size_t) n;
   }
   buf_.resize(base + got);
-  if (got == 0) {
+  if (got == 0 || ! cur.error.empty()) {
     cur.eof = true;
     return false;
   }
   return true;
 }
 
-// The format is the first record marker in the stream.  Blank lines ahead of it
-// are skipped, as kseq skips them.
+// Names the compression format whose magic number opens the stream, if any.
+// Compressed bytes can contain a newline followed by '@' or '>' by chance, so
+// they are recognized by their magic number rather than by the absence of a
+// record marker.
+static const char *CompressionName(const unsigned char *b, size_t n) {
+  if (n >= 2 && b[0] == 0x1f && b[1] == 0x8b) return "gzip";
+  if (n >= 3 && b[0] == 'B' && b[1] == 'Z' && b[2] == 'h') return "bzip2";
+  if (n >= 6 && b[0] == 0xfd && b[1] == '7' && b[2] == 'z' && b[3] == 'X' &&
+      b[4] == 'Z' && b[5] == 0) return "xz";
+  if (n >= 4 && b[0] == 0x28 && b[1] == 0xb5 && b[2] == 0x2f && b[3] == 0xfd)
+    return "zstd";
+  return nullptr;
+}
+
+// The format is that of the first line beginning with a record marker.  Only
+// blank lines and comment lines, beginning with '#' or ';', may come ahead of
+// it; they are skipped, as kseq and the parser here skip them.  Anything else
+// first means the input is not sequence data, which is also what keeps a
+// document with a line that happens to begin with '>' from being read as FASTA.
 static void DetectFormat(StreamCursor &cur, const std::vector<char> &buf) {
   if (cur.format != FORMAT_AUTO_DETECT)
     return;
-  for (size_t i = 0; i < buf.size(); i++) {
-    char c = buf[i];
-    if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
-      continue;
-    if (c == '@') cur.format = FORMAT_FASTQ;
-    else if (c == '>') cur.format = FORMAT_FASTA;
-    else errx(EX_DATAERR, "sequence reader - unrecognized file format");
-    return;
+  for (size_t i = 0; i < buf.size(); ) {
+    const char *nl = (const char *) memchr(buf.data() + i, '\n', buf.size() - i);
+    size_t stop = nl ? (size_t) (nl - buf.data()) : buf.size();
+    size_t j = i;
+    while (j < stop && (buf[j] == ' ' || buf[j] == '\t' || buf[j] == '\r'))
+      j++;
+    if (j < stop) {
+      char c = buf[i];
+      if (c == '@') { cur.format = FORMAT_FASTQ; return; }
+      if (c == '>') { cur.format = FORMAT_FASTA; return; }
+      if (c != '#' && c != ';')
+        errx(EX_DATAERR, "sequence reader - unrecognized file format");
+      for (size_t k = i; k < stop; k++)
+        if (buf[k] == '\0')
+          errx(EX_DATAERR, "sequence reader - unrecognized file format");
+    }
+    if (! nl)
+      break;
+    i = stop + 1;
   }
 }
 
 bool PrimeStream(int fd, StreamCursor &cur) {
   char chunk[1 << 16];
-  ssize_t n = read(fd, chunk, sizeof(chunk));
-  if (n <= 0) {
+  ssize_t n = ReadSome(fd, chunk, sizeof(chunk));
+  if (n < 0) {
+    cur.error = std::string("sequence reader - read error: ") + strerror(errno);
     cur.eof = true;
     return false;
   }
-  cur.carry.assign(chunk, chunk + n);
+  if (n == 0) {
+    cur.eof = true;
+    return false;
+  }
+  const char *compressed = CompressionName((const unsigned char *) chunk, n);
+  if (compressed)
+    errx(EX_DATAERR, "sequence reader - input is %s-compressed; decompress it "
+                     "before classifying", compressed);
+  // A UTF-8 byte order mark, as some editors write, is not part of the data.
+  size_t skip = (n >= 3 && (unsigned char) chunk[0] == 0xef &&
+                 (unsigned char) chunk[1] == 0xbb &&
+                 (unsigned char) chunk[2] == 0xbf) ? 3 : 0;
+  cur.carry.assign(chunk + skip, chunk + n);
   DetectFormat(cur, cur.carry);
   return true;
 }
@@ -148,6 +227,10 @@ void FastReader::CollectRecordEnds(std::vector<size_t> &ends,
 bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
                            size_t record_multiple) {
   Reset(cur);
+  if (! cur.error.empty()) {
+    buf_.clear();
+    return false;
+  }
   if (record_multiple < 1)
     record_multiple = 1;
 
@@ -162,11 +245,13 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
   size_t keep = 0, recs = 0;
   for (;;) {
     // At end of input a final record may lack its trailing newline.
-    if (! got && ! buf_.empty() && buf_.back() != '\n')
+    if (! got && cur.error.empty() && ! buf_.empty() && buf_.back() != '\n')
       buf_.push_back('\n');
     ScanNewlines();
     CollectRecordEnds(ends, scan);
-    if (got) {
+    if (got || ! cur.error.empty()) {
+      // A stream that failed has not ended, so a record still open was cut
+      // short by the failure and is left out.
       recs = ends.size();
       recs -= recs % record_multiple;
       keep = recs ? ends[recs - 1] : 0;
@@ -183,7 +268,10 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
   }
 
   if (keep < buf_.size()) {
-    cur.carry.assign(buf_.begin() + keep, buf_.end());
+    // A failed stream is never read again, so a refused tail, which may be a
+    // record of several GiB, is dropped rather than carried.
+    if (cur.error.empty())
+      cur.carry.assign(buf_.begin() + keep, buf_.end());
     buf_.resize(keep);
     TruncateIndex(keep);
   }
@@ -193,6 +281,10 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
 
 bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
   Reset(cur);
+  if (! cur.error.empty()) {
+    buf_.clear();
+    return false;
+  }
   if (records == 0)
     return false;
 
@@ -209,7 +301,7 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
   }
   if (buf_.empty())
     return false;
-  if (! live && buf_.back() != '\n') {
+  if (! live && cur.error.empty() && buf_.back() != '\n') {
     buf_.push_back('\n');
     ScanNewlines();
     CollectRecordEnds(ends, scan);
@@ -218,13 +310,19 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
     keep = ends[records - 1];
     recs = records;
   }
+  else if (! cur.error.empty()) {
+    // Cut short by a failed stream rather than by its end.
+    recs = ends.size();
+    keep = recs ? ends[recs - 1] : 0;
+  }
   else {
     keep = buf_.size();
     recs = ends.size() + (scan.state != 0 ? 1 : 0);
   }
 
   if (keep < buf_.size()) {
-    cur.carry.assign(buf_.begin() + keep, buf_.end());
+    if (cur.error.empty())
+      cur.carry.assign(buf_.begin() + keep, buf_.end());
     buf_.resize(keep);
     TruncateIndex(keep);
   }
@@ -289,8 +387,8 @@ void FastReader::Parse() {
       p++;
     v.header = hs;
     v.header_len = (uint32_t) (p - hs);
-    while (p < he && space(*p))
-      p++;
+    if (p < he)
+      p++;  // kseq consumes the one separator and keeps any further whitespace
     v.comment = p;
     v.comment_len = trim(p, he);
   };

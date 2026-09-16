@@ -55,6 +55,10 @@ struct StreamCursor {
   std::vector<char> carry;
   SequenceFormat format;
   bool eof;
+  // Set when the stream cannot be read further for a reason other than its end:
+  // a read error, or a record too long for the reader.  Loads stop once it is
+  // set, and the caller reports it after the run.
+  std::string error;
   StreamCursor() : format(FORMAT_AUTO_DETECT), eof(false) { }
 };
 

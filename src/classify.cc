@@ -48,16 +48,18 @@ static bool MatesAgree(const SeqView &a, const SeqView &b) {
   return memcmp(a.header, b.header, sa - a.header) == 0;
 }
 
-// Re-emits a record from its view, appending a suffix to the header line.
+// Re-emits a record from its view.  The suffix follows the identifier and
+// precedes the comment, where Sequence::to_string puts it.
 static void WriteSeqView(ostringstream &oss, const SeqView &v,
                          const char *header_suffix) {
   oss << (v.format == FORMAT_FASTQ ? '@' : '>');
   oss.write(v.header, v.header_len);
+  oss << header_suffix;
   if (v.comment_len) {
     oss << ' ';
     oss.write(v.comment, v.comment_len);
   }
-  oss << header_suffix << "\n";
+  oss << "\n";
   oss.write(v.seq, v.seq_len);
   oss << "\n";
   if (v.format == FORMAT_FASTQ) {
@@ -576,6 +578,13 @@ void ProcessFiles(const char *filename1, const char *filename2,
   bool have_input = PrimeStream(fd1, cursor1);
   if (layout == InputLayout::TWO_FILES)
     PrimeStream(fd2, cursor2);
+  // Nothing has been written yet, so a file that cannot be read at all ends the
+  // run here.
+  if (! cursor1.error.empty())
+    errx(EX_IOERR, "%s (%s)", cursor1.error.c_str(),
+         filename1 ? filename1 : "standard input");
+  if (! cursor2.error.empty())
+    errx(EX_IOERR, "%s (%s)", cursor2.error.c_str(), filename2);
   // printing_sequences gates whether records are emitted, so the outputs are
   // opened before any block is classified.
   if (have_input)
@@ -585,6 +594,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
   // written before it is complete and flushed.
   string input_fault;
   size_t input_fault_count = 0;
+  bool mates_differ = false;  // set only inside critical(seqread)
 
   #pragma omp parallel
   {
@@ -627,8 +637,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
           #pragma omp critical(seqread)
           {
             ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
-            if (ok_read)
+            if (ok_read) {
               ok_read = reader2.LoadRecords(fd2, cursor2, reader1.RecordCount());
+              // A second file that runs out first leaves first mates unpaired.
+              if (! ok_read || reader2.RecordCount() != reader1.RecordCount())
+                mates_differ = true;
+            }
             block_id = next_input_block_id++;
           }
           break;
@@ -823,24 +837,53 @@ void ProcessFiles(const char *filename1, const char *filename2,
   if (outputs.unclassified_output2 != nullptr)
     (*outputs.unclassified_output2) << std::flush;
 
-  // Every record that parsed has been classified and written by now, so the
-  // message says what the run did produce as well as what was wrong with the
-  // input.
+  // A first file that runs out first leaves second mates unpaired.  The run is
+  // over, so the check can read on from where the second file stopped.
+  if (layout == InputLayout::TWO_FILES && ! mates_differ &&
+      cursor1.error.empty() && cursor2.error.empty()) {
+    FastReader rest;
+    if (rest.LoadRecords(fd2, cursor2, 1) && rest.RecordCount() > 0)
+      mates_differ = true;
+  }
+  if (filename1)
+    close(fd1);
+  if (filename2)
+    close(fd2);
+
+  // Every record that could be read has been classified and written by now, so
+  // the message says what the run did produce as well as what was wrong with
+  // the input.
+  vector<string> problems;
+  if (! cursor1.error.empty())
+    problems.push_back(cursor1.error + " (" +
+                       (filename1 ? filename1 : "standard input") + ")");
+  if (! cursor2.error.empty())
+    problems.push_back(cursor2.error + " (" + filename2 + ")");
+  if (mates_differ && cursor1.error.empty() && cursor2.error.empty())
+    problems.push_back(string("the two mate files hold different numbers of "
+                              "records, so only the pairs up to the end of the "
+                              "shorter one were classified"));
   if (! input_fault.empty()) {
-    string more;
+    string f = input_fault;
     if (input_fault_count > 1)
-      more = ", and " + std::to_string(input_fault_count - 1) +
-             " further malformed records";
-    string wrote = ". Their bases were classified with the rest; " +
-                   std::to_string(stats.total_sequences) +
-                   " records were classified";
+      f += ", and " + std::to_string(input_fault_count - 1) +
+           " further malformed records";
+    f += "; their bases were classified with the rest";
+    problems.push_back(f);
+  }
+  if (! problems.empty()) {
+    string msg;
+    for (size_t i = 0; i < problems.size(); i++)
+      msg += (i ? "; " : "") + problems[i];
+    msg += ". " + std::to_string(stats.total_sequences) +
+           " records were classified";
     if (outputs.kraken_output != nullptr)
-      wrote += " and written to " + (opts.kraken_output_filename.empty()
-                                     ? string("standard output")
-                                     : opts.kraken_output_filename);
+      msg += " and written to " + (opts.kraken_output_filename.empty()
+                                   ? string("standard output")
+                                   : opts.kraken_output_filename);
     if (! opts.report_filename.empty())
-      wrote += "; the report was not written";
-    errx(EX_DATAERR, "%s%s%s", input_fault.c_str(), more.c_str(), wrote.c_str());
+      msg += "; the report was not written";
+    errx(EX_DATAERR, "%s", msg.c_str());
   }
 }
 
