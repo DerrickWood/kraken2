@@ -71,8 +71,12 @@ static void WriteSeqView(ostringstream &oss, const SeqView &v,
 static void MaskLowQualityBases(const SeqView &v, int minimum_quality_score) {
   if (v.quals == nullptr)
     return;
+  // The lengths agree for every record whose quality string was consistent.
+  // For a malformed record the quality covers only part of the sequence, and
+  // the bound masks over that part rather than exempting the record.
+  uint32_t len = v.seq_len < v.quals_len ? v.seq_len : v.quals_len;
   char *seq = v.seq_mutable();
-  for (uint32_t i = 0; i < v.seq_len; i++)
+  for (uint32_t i = 0; i < len; i++)
     if ((v.quals[i] - '!') < minimum_quality_score)
       seq[i] = 'x';
 }
@@ -577,6 +581,11 @@ void ProcessFiles(const char *filename1, const char *filename2,
   if (have_input)
     InitializeOutputs(opts, outputs, cursor1.format);
 
+  // A malformed record is reported after the parallel region, so the output
+  // written before it is complete and flushed.
+  string input_fault;
+  size_t input_fault_count = 0;
+
   #pragma omp parallel
   {
     MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.spaced_seed_mask,
@@ -589,6 +598,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
     vector<string> translated_frames(6);
     SeqView *seq1 = nullptr, *seq2 = nullptr;
     FastReader reader1, reader2;
+    size_t seen_faults = 0;
     size_t idx1 = 0, idx2 = 0;
     uint64_t block_id;
     OutputData out_data;
@@ -641,6 +651,18 @@ void ProcessFiles(const char *filename1, const char *filename2,
       reader1.Parse();
       if (layout == InputLayout::TWO_FILES)
         reader2.Parse();
+      if (reader1.fault_count() + reader2.fault_count() > seen_faults) {
+        const string &f = reader1.fault().empty() ? reader2.fault()
+                                                  : reader1.fault();
+        size_t added = reader1.fault_count() + reader2.fault_count() - seen_faults;
+        seen_faults += added;
+        #pragma omp critical(input_fault)
+        {
+          if (input_fault.empty())
+            input_fault = f;
+          input_fault_count += added;
+        }
+      }
       idx1 = idx2 = 0;
 
       // Reset all dynamically-growing things
@@ -800,6 +822,26 @@ void ProcessFiles(const char *filename1, const char *filename2,
     (*outputs.unclassified_output1) << std::flush;
   if (outputs.unclassified_output2 != nullptr)
     (*outputs.unclassified_output2) << std::flush;
+
+  // Every record that parsed has been classified and written by now, so the
+  // message says what the run did produce as well as what was wrong with the
+  // input.
+  if (! input_fault.empty()) {
+    string more;
+    if (input_fault_count > 1)
+      more = ", and " + std::to_string(input_fault_count - 1) +
+             " further malformed records";
+    string wrote = ". Their bases were classified with the rest; " +
+                   std::to_string(stats.total_sequences) +
+                   " records were classified";
+    if (outputs.kraken_output != nullptr)
+      wrote += " and written to " + (opts.kraken_output_filename.empty()
+                                     ? string("standard output")
+                                     : opts.kraken_output_filename);
+    if (! opts.report_filename.empty())
+      wrote += "; the report was not written";
+    errx(EX_DATAERR, "%s%s%s", input_fault.c_str(), more.c_str(), wrote.c_str());
+  }
 }
 
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
