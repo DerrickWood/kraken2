@@ -189,9 +189,42 @@ static inline size_t LineLen(const std::vector<char> &buf, size_t start, size_t 
 // Appends the offset just past each record that ends within the lines scanned
 // so far.  A record is complete once the next header is seen, or once its
 // quality has reached the length of its sequence.
-void FastReader::CollectRecordEnds(std::vector<size_t> &ends,
-                                   RecordScan &scan) const {
-  for (; scan.next_line < nl_.size(); scan.next_line++) {
+void FastReader::CollectRecordEnds(RecordScan &scan) const {
+  const char *b = buf_.data();
+  const size_t nlines = nl_.size();
+  for (; scan.next_line < nlines; scan.next_line++) {
+    // Most FASTQ is four lines to a record: header, one sequence line, '+', one
+    // quality line at least as long as the sequence.  When a record has exactly
+    // that shape, the state machine below would walk its four lines and end the
+    // record after the fourth, so it is taken in one step.  Anything else,
+    // including a sequence line that itself begins with a marker or a quality
+    // string wrapped onto more lines, goes through the state machine.  This runs
+    // inside the input critical section, so it reads as few bytes as it can.
+    while (scan.state == 0 && scan.next_line + 3 < nlines) {
+      size_t j = scan.next_line;
+      size_t s0 = j == 0 ? 0 : (size_t) nl_[j - 1] + 1;
+      size_t e0 = nl_[j], e1 = nl_[j + 1], e2 = nl_[j + 2], e3 = nl_[j + 3];
+      size_t s1 = e0 + 1, s2 = e1 + 1, s3 = e2 + 1;
+      if (s0 >= e0 || b[s0] != '@' || s2 >= e2 || b[s2] != '+')
+        break;
+      size_t len1 = e1 - s1;
+      if (len1 && b[e1 - 1] == '\r')
+        len1--;
+      if (len1 && (b[s1] == '>' || b[s1] == '@' || b[s1] == '+'))
+        break;
+      size_t len3 = e3 - s3;
+      if (len3 && b[e3 - 1] == '\r')
+        len3--;
+      if (len3 < len1)
+        break;
+      scan.Add(e3 + 1);
+      scan.next_line += 4;
+      if (scan.count >= scan.limit)
+        return;
+    }
+    if (scan.next_line >= nlines)
+      break;
+
     size_t start = scan.next_line == 0 ? 0 : (size_t) nl_[scan.next_line - 1] + 1;
     size_t stop = (size_t) nl_[scan.next_line];
     size_t len = LineLen(buf_, start, stop);
@@ -199,8 +232,10 @@ void FastReader::CollectRecordEnds(std::vector<size_t> &ends,
 
     // A header line ends the record whose sequence is being read.
     if (scan.state == 1 && (c == '>' || c == '@')) {
-      ends.push_back(start);
+      scan.Add(start);
       scan.state = 0;
+      if (scan.count >= scan.limit)
+        return;  // this header starts the next record, so it is not consumed
     }
     if (scan.state == 0) {
       if (c == '>' || c == '@') {  // anything before a header is skipped
@@ -218,8 +253,12 @@ void FastReader::CollectRecordEnds(std::vector<size_t> &ends,
     }
     scan.quals_len += len;
     if (scan.quals_len >= scan.seq_len) {
-      ends.push_back(stop + 1);
+      scan.Add(stop + 1);
       scan.state = 0;
+      if (scan.count >= scan.limit) {
+        scan.next_line++;
+        return;
+      }
     }
   }
 }
@@ -240,7 +279,6 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
 
   // Keep reading past the target until the block holds `record_multiple` whole
   // records or the input ends, so a record longer than the block is taken whole.
-  std::vector<size_t> ends;
   RecordScan scan;
   size_t keep = 0, recs = 0;
   for (;;) {
@@ -248,18 +286,17 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
     if (! got && cur.error.empty() && ! buf_.empty() && buf_.back() != '\n')
       buf_.push_back('\n');
     ScanNewlines();
-    CollectRecordEnds(ends, scan);
+    CollectRecordEnds(scan);
     if (got || ! cur.error.empty()) {
       // A stream that failed has not ended, so a record still open was cut
       // short by the failure and is left out.
-      recs = ends.size();
-      recs -= recs % record_multiple;
-      keep = recs ? ends[recs - 1] : 0;
+      recs = scan.count - scan.count % record_multiple;
+      keep = recs == 0 ? 0 : recs == scan.count ? scan.last_end : scan.prior_end;
     }
     else {
       // The input ends here, so a record still open is the last one and is
       // kept: Parse reports it the way kseq does.
-      recs = ends.size() + (scan.state != 0 ? 1 : 0);
+      recs = scan.count + (scan.state != 0 ? 1 : 0);
       keep = buf_.size();
     }
     if (keep > 0 || ! got)
@@ -289,35 +326,35 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
     return false;
 
   bool live = true;
-  std::vector<size_t> ends;
   RecordScan scan;
+  scan.limit = records;
   size_t keep = 0, recs = 0;
   ScanNewlines();
-  CollectRecordEnds(ends, scan);
-  while (ends.size() < records && live) {
+  CollectRecordEnds(scan);
+  while (scan.count < records && live) {
     live = Fill(fd, cur, REFILL_CHUNK);
     ScanNewlines();
-    CollectRecordEnds(ends, scan);
+    CollectRecordEnds(scan);
   }
   if (buf_.empty())
     return false;
   if (! live && cur.error.empty() && buf_.back() != '\n') {
     buf_.push_back('\n');
     ScanNewlines();
-    CollectRecordEnds(ends, scan);
+    CollectRecordEnds(scan);
   }
-  if (ends.size() >= records) {
-    keep = ends[records - 1];
+  if (scan.count >= records) {
+    keep = scan.last_end;
     recs = records;
   }
   else if (! cur.error.empty()) {
     // Cut short by a failed stream rather than by its end.
-    recs = ends.size();
-    keep = recs ? ends[recs - 1] : 0;
+    recs = scan.count;
+    keep = recs ? scan.last_end : 0;
   }
   else {
     keep = buf_.size();
-    recs = ends.size() + (scan.state != 0 ? 1 : 0);
+    recs = scan.count + (scan.state != 0 ? 1 : 0);
   }
 
   if (keep < buf_.size()) {

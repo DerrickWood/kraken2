@@ -77,8 +77,8 @@ class FastReader {
   // of records.
 
   // Pulls about `target_bytes`, then trims back to the last complete record.
-  // `record_multiple` forces the kept record count to be a multiple of that
-  // value, so interleaved mate pairs are never split across blocks.  A record
+  // `record_multiple`, 1 or 2, forces the kept record count to be a multiple of
+  // that value, so interleaved mate pairs are never split across blocks.  A record
   // longer than `target_bytes` grows the block rather than ending the input.
   bool LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
                  size_t record_multiple = 1);
@@ -109,16 +109,23 @@ class FastReader {
   void ScanNewlines();
   void TruncateIndex(size_t keep);
   bool Fill(int fd, StreamCursor &cur, size_t bytes);
-  // Walks lines with kseq's record rules, appending the offset just past each
-  // complete record.  State persists across calls so a buffer that grows is
-  // scanned once.
+  // Walks lines with kseq's record rules, counting complete records.  State
+  // persists across calls so a buffer that grows is scanned once.  The loaders
+  // need only the end of the last record or the one before it, so only those
+  // two offsets are kept; nothing is allocated under the input lock.
   struct RecordScan {
     size_t next_line;  // first line not yet examined
     int state;         // 0 seeking a header, 1 in sequence, 2 in quality
     size_t seq_len, quals_len;
-    RecordScan() : next_line(0), state(0), seq_len(0), quals_len(0) { }
+    size_t count;      // complete records found
+    size_t last_end;   // offset just past the most recent complete record
+    size_t prior_end;  // offset just past the record before it
+    size_t limit;      // scanning stops once count reaches this
+    RecordScan() : next_line(0), state(0), seq_len(0), quals_len(0), count(0),
+                   last_end(0), prior_end(0), limit((size_t) -1) { }
+    void Add(size_t end) { prior_end = last_end; last_end = end; count++; }
   };
-  void CollectRecordEnds(std::vector<size_t> &ends, RecordScan &scan) const;
+  void CollectRecordEnds(RecordScan &scan) const;
 
   void Emit(SeqView &v);
   void Fault(SeqView &v, const char *verb);
