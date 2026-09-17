@@ -31,7 +31,6 @@ using std::string;
 using std::vector;
 using namespace kraken2;
 
-static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const size_t INPUT_BLOCK_BYTES = 8 * 1024 * 1024;
 
 // Mate identifiers agree once any trailing /1 or /2 is discounted.
@@ -1258,18 +1257,6 @@ void InitializeOutputs(const Options &opts, OutputStreamData &outputs, SequenceF
       }
       outputs.initialized = true;
     }
-  }
-}
-
-void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
-  if (dna.format != FORMAT_FASTQ)
-    return;
-  if (dna.seq.size() != dna.quals.size())
-    errx(EX_DATAERR, "%s: Sequence length (%d) != Quality string length (%d)",
-                     dna.header.c_str(), (int) dna.seq.size(), (int) dna.quals.size());
-  for (size_t i = 0; i < dna.seq.size(); i++) {
-    if ((dna.quals[i] - '!') < minimum_quality_score)
-      dna.seq[i] = 'x';
   }
 }
 
