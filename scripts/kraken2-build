@@ -34,6 +34,7 @@ my $DEF_THREAD_CT = 1;
 my $DEF_LOAD_FACTOR = 0.7;
 my $DEF_BLOCK_SIZE = 16384;
 my $DEF_SUBBLOCK_SIZE = 0;
+my $DEF_NCBI_SOURCE = "refseq";
 
 my @VALID_LIBRARY_TYPES = qw/archaea bacteria plasmid viral plant
                              protozoa fungi human nr nt
@@ -57,6 +58,7 @@ my (
   $block_size,
   $subblock_size,
   $minimum_bits_for_taxid,
+  $ncbi_source,
 
   $dl_taxonomy,
   $dl_library,
@@ -82,6 +84,7 @@ $fast_build = $ENV{"KRAKEN2_FAST_BUILD"} || 0;
 $block_size = $ENV{"KRAKEN2_BLOCK_SIZE"} || $DEF_BLOCK_SIZE;
 $subblock_size = $ENV{"KRAKEN2_SUBBLOCK_SIZE"} || $DEF_SUBBLOCK_SIZE;
 $minimum_bits_for_taxid = $ENV{"KRAKEN2_MIN_TAXID_BITS"} || 0;
+$ncbi_source = $ENV{"KRAKEN2_NCBI_SOURCE"} || $DEF_NCBI_SOURCE;
 
 # variables corresponding to task options
 my @TASK_LIST = (
@@ -113,6 +116,7 @@ GetOptions(
   "block-size=i" => \$block_size,
   "subblock-size=i" => \$subblock_size,
   "minimum-bits-for-taxid=i" => \$minimum_bits_for_taxid,
+  "source=s" => \$ncbi_source,
 
   "download-taxonomy" => \$dl_taxonomy,
   "download-library=s" => \$dl_library,
@@ -189,6 +193,7 @@ $ENV{"KRAKEN2_FAST_BUILD"} = $fast_build ? 1 : "";
 $ENV{"KRAKEN2_BLOCK_SIZE"} = $block_size;
 $ENV{"KRAKEN2_SUBBLOCK_SIZE"} = $subblock_size;
 $ENV{"KRAKEN2_MIN_TAXID_BITS"} = $minimum_bits_for_taxid;
+$ENV{"KRAKEN2_NCBI_SOURCE"} = $ncbi_source;
 
 if ($dl_taxonomy) {
   download_taxonomy();
@@ -272,6 +277,10 @@ Options:
                              built when using multiple threads.  This is faster,
                              but does introduce variability in minimizer/LCA
                              pairs.  Used with --build and --standard options.
+  -ncbi_source               NCBI source of genomes. Valid values are
+                             refseq, genbank; def: $DEF_NCBI_SOURCE
+                             Applies only to ("archaea", "bacteria", "viral", 
+                             "fungi", "plant", "protozoa").
 EOF
   exit $exit_code;
 }
