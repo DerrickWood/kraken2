@@ -319,7 +319,12 @@ bool FastReader::LoadBlock(int fd, StreamCursor &cur, size_t target_bytes,
     buf_.resize(keep);
     TruncateIndex(keep);
   }
-  loaded_records_ = buf_.empty() ? 0 : recs;
+  // Blank or comment lines after the last record are not a block.  Handing one
+  // out would ask the second mate file for no records, which reads as that file
+  // having run out first.
+  if (recs == 0)
+    buf_.clear();
+  loaded_records_ = recs;
   return ! buf_.empty();
 }
 
