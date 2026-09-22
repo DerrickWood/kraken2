@@ -592,6 +592,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
   // A malformed record is reported after the parallel region, so the output
   // written before it is complete and flushed.
   string input_fault;
+  uint64_t input_fault_block = 0;  // block the reported record came from
   size_t input_fault_count = 0;
   bool mates_differ = false;  // set only inside critical(seqread)
 
@@ -671,8 +672,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
         seen_faults += added;
         #pragma omp critical(input_fault)
         {
-          if (input_fault.empty())
+          // Blocks are read in order, so the lowest block holding a malformed
+          // record holds the earliest one, whichever thread reaches it first.
+          if (input_fault.empty() || block_id < input_fault_block) {
             input_fault = f;
+            input_fault_block = block_id;
+          }
           input_fault_count += added;
         }
       }
