@@ -54,11 +54,28 @@ struct SeqView {
   char *seq_mutable() const { return const_cast<char *>(seq); }
 };
 
+// Bytes read from an input are overwritten by the next read, so the buffers
+// holding them are grown without initializing what they grow into.  A vector of
+// char would otherwise write zeros over every byte about to be read.
+template <class T>
+struct ReadBufferAlloc : std::allocator<T> {
+  typedef std::allocator<T> base;
+  template <class U> struct rebind { typedef ReadBufferAlloc<U> other; };
+  ReadBufferAlloc() { }
+  template <class U> ReadBufferAlloc(const ReadBufferAlloc<U> &) { }
+  template <class U> void construct(U *p) { ::new ((void *) p) U; }
+  template <class U, class A> void construct(U *p, A &&a) {
+    base::construct(p, std::forward<A>(a));
+  }
+};
+
+typedef std::vector<char, ReadBufferAlloc<char> > ReadBuffer;
+
 // Per-stream state: the tail of an incomplete record, carried to the next
 // block.  One per input file, shared by all threads, only ever touched with the
 // input lock held.
 struct StreamCursor {
-  std::vector<char> carry;
+  ReadBuffer carry;
   SequenceFormat format;
   bool eof;
   // Set when the stream cannot be read further for a reason other than its end:
@@ -139,7 +156,7 @@ class FastReader {
 
   void Reset(StreamCursor &cur);
 
-  std::vector<char> buf_;
+  ReadBuffer buf_;
   std::vector<uint32_t> nl_;   // offsets of newlines within buf_
   size_t scanned_;             // bytes of buf_ already covered by nl_
   std::vector<SeqView> records_;

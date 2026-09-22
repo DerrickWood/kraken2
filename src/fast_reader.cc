@@ -124,7 +124,7 @@ static const char *CompressionName(const unsigned char *b, size_t n) {
 // it; they are skipped, as kseq and the parser here skip them.  Anything else
 // first means the input is not sequence data, which is also what keeps a
 // document with a line that happens to begin with '>' from being read as FASTA.
-static void DetectFormat(StreamCursor &cur, const std::vector<char> &buf) {
+static void DetectFormat(StreamCursor &cur, const ReadBuffer &buf) {
   if (cur.format != FORMAT_AUTO_DETECT)
     return;
   for (size_t i = 0; i < buf.size(); ) {
@@ -187,7 +187,7 @@ void FastReader::Reset(StreamCursor &cur) {
 }
 
 // Length of line `j` with a trailing carriage return dropped, as kseq reads it.
-static inline size_t LineLen(const std::vector<char> &buf, size_t start, size_t stop) {
+static inline size_t LineLen(const ReadBuffer &buf, size_t start, size_t stop) {
   if (stop > start && buf[stop - 1] == '\r')
     stop--;
   return stop - start;
