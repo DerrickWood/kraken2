@@ -79,6 +79,7 @@ void ProcessSequencesFast(const Options &opts,
                           const Taxonomy &taxonomy) {
   size_t processed_seq_ct = 0;
   size_t processed_ch_ct = 0;
+  BatchSequenceReader reader;
 
 #pragma omp parallel
   {
@@ -86,19 +87,19 @@ void ProcessSequencesFast(const Options &opts,
     MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask,
                              !opts.input_is_protein, opts.toggle_mask);
 
-    BatchSequenceReader reader;
-
+    BatchSequenceReader reader_clone(reader);
     while (true) {
       // Declaration of "ok" and break need to be done outside of critical
       // section to conform with OpenMP spec.
       bool ok;
-      BatchSequenceReader reader_clone(reader);
 #pragma omp critical(reader)
-      ok = reader_clone.LoadBlock(opts.block_size);
+      {
+        ok = reader_clone.LoadBlock(opts.block_size);
+      }
       if (!ok)
         break;
-      while (reader_clone.NextSequence(sequence)) {
-        auto all_sequence_ids = ExtractNCBISequenceIDs(sequence.header);
+      for (Sequence *sequence = reader_clone.NextSequence(); sequence != nullptr; sequence = reader_clone.NextSequence()) {
+        auto all_sequence_ids = ExtractNCBISequenceIDs(sequence->header);
         taxid_t taxid = 0;
         for (auto &seqid : all_sequence_ids) {
           if (ID_to_taxon_map.count(seqid) == 0 ||
@@ -110,14 +111,14 @@ void ProcessSequencesFast(const Options &opts,
         }
         if (taxid) {
           // Add terminator for protein sequences if not already there
-          if (opts.input_is_protein && sequence.seq.back() != '*')
-            sequence.seq.push_back('*');
-          ProcessSequenceFast(sequence.seq, taxid, kraken_index, taxonomy,
+          if (opts.input_is_protein && sequence->seq.back() != '*')
+            sequence->seq.push_back('*');
+          ProcessSequenceFast(sequence->seq, taxid, kraken_index, taxonomy,
                               scanner, opts.min_clear_hash_value);
 #pragma omp atomic
           processed_seq_ct++;
 #pragma omp atomic
-          processed_ch_ct += sequence.seq.size();
+          processed_ch_ct += sequence->seq.size();
         }
       }
       if (isatty(fileno(stderr))) {
