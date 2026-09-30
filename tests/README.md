@@ -113,6 +113,7 @@ A PR that intentionally changes output should include regenerated golden files
 
 | Check | Bug |
 |---|---|
+| `inspect.redirect_keeps_header` | On Linux, `kraken2-inspect --db DB > file` loses the `#` header lines, because `dump_table` reopens `/dev/fd/1` with truncation (`dump_table.cc`, `reports.cc`). Checked as a normal test on macOS. |
 | `negative.missing_reads`, `negative.missing_mate` | `classify` ignores `open()` failure on read files, and so reports 0 sequences and exits 0 (`seqreader.h`, `BatchSequenceReader`) |
 | `negative.long_opts` | An `opts.k2d` larger than 64 bytes is read into a stack struct and crashes `classify` (`classify.cc`) |
 | `negative.names_dmp_without_trailer` | A `names.dmp` without a trailing tab-pipe gives every taxon an empty name, with no error (`taxonomy.cc`) |
