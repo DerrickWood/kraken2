@@ -55,7 +55,9 @@ jobs:
             cxx: clang++
             omp: -fopenmp
             apt: libomp-dev
-            san: -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -O1
+            # The shared ASan runtime lets k2 (Python) preload the same runtime
+            # that the instrumented binaries and libtax.so use.
+            san: -fsanitize=address,undefined -shared-libasan -fno-omit-frame-pointer -fno-sanitize-recover=undefined -O1
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +89,9 @@ jobs:
             {
               echo "ASAN_OPTIONS=detect_leaks=0:abort_on_error=0"
               echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1"
-              echo "E2E_PYTHON_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so)"
+              asan=$(clang -print-file-name=libclang_rt.asan-x86_64.so)
+              echo "E2E_PYTHON_PRELOAD=$asan"
+              echo "LD_LIBRARY_PATH=$(dirname "$asan")"
             } >> "$GITHUB_ENV"
           fi
 

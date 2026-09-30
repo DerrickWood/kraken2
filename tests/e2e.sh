@@ -325,13 +325,27 @@ if [ ! -s db/hash.k2d ]; then
 fi
 
 check build.db_check "$PYTHON" "$TESTS/k2db_check.py" db
+opts_same() {
+  # opts_same A B  compares two opts.k2d files field by field.  The files are
+  # a raw IndexOptions struct whose padding bytes are uninitialized, so a
+  # byte comparison can differ between otherwise identical builds.
+  "$PYTHON" - "$1" "$2" <<'PY'
+import struct, sys
+fmt = "<QQQQ?7xQiii4x"
+a, b = (struct.unpack(fmt, open(p, "rb").read()) for p in sys.argv[1:3])
+print("opts fields:", a)
+sys.exit(a != b)
+PY
+}
+
 deterministic_build() {
   local n f
-  for n in 1 4; do
-    build_db_kraken2_build db_t$n $n || return 1
-    for f in hash.k2d taxo.k2d opts.k2d; do cmp "db/$f" "db_t$n/$f" || return 1; done
+  for n in 1 "$BT4"; do
+    build_db_kraken2_build db_t$n "$n" || return 1
+    for f in hash.k2d taxo.k2d; do cmp "db/$f" "db_t$n/$f" || return 1; done
+    opts_same db/opts.k2d "db_t$n/opts.k2d" || return 1
   done
-  echo "hash.k2d, taxo.k2d and opts.k2d identical at --threads 1, 2 and 4 with --subblock-size 8192"
+  echo "hash.k2d and taxo.k2d identical, opts.k2d fields identical, at --threads 1, $BT and $BT4"
 }
 if [ $OPENMP = 1 ]; then
   check build.deterministic_threads deterministic_build
@@ -339,8 +353,24 @@ else
   skip build.deterministic_threads "built without OpenMP"
 fi
 
-inspect_db() { "$KINSPECT" --db db > inspect.txt && golden inspect.txt inspect.txt; }
+# Piped through cat because of the redirect bug checked just below.
+inspect_db() { "$KINSPECT" --db db | cat > inspect.txt && golden inspect.txt inspect.txt; }
 check inspect.golden inspect_db
+
+inspect_to_file() {
+  # dump_table writes the header with std::cout, then reopens /dev/fd/1 with
+  # an ofstream for the per-taxon lines.  On Linux that open truncates a
+  # regular file, erasing the header.
+  "$KINSPECT" --db db > inspect_file.txt || return 1
+  grep '^#' inspect_file.txt
+  grep -q '^# Database options' inspect_file.txt
+}
+if [ "$(uname -s)" = Linux ]; then
+  xfail_check inspect.redirect_keeps_header "on Linux, kraken2-inspect > file loses the header lines (dump_table.cc opens /dev/fd/1 with truncation)" \
+    inspect_to_file
+else
+  check inspect.redirect_keeps_header inspect_to_file
+fi
 
 # ---------------------------------------------------------------------------
 # Classification with the kraken2 wrapper.
@@ -477,8 +507,15 @@ check negative.confidence_out_of_range must_fail "$KRAKEN2" --db db --confidence
 check negative.truncated_hash must_fail "$KRAKEN2" --db db_trunc_hash --output /dev/null "$R1"
 check negative.truncated_taxo must_fail "$KRAKEN2" --db db_trunc_taxo --output /dev/null "$R1"
 check negative.short_opts must_fail "$KRAKEN2" --db db_short_opts --output /dev/null "$R1"
-xfail_check negative.long_opts "an oversized opts.k2d overflows a stack struct (classify.cc)" \
-  must_fail "$KRAKEN2" --db db_long_opts --output /dev/null "$R1"
+rejects_opts() {
+  # The error must blame opts.k2d, not whatever the overflow clobbered.
+  local out
+  out=$(must_fail "$@" 2>&1); local rc=$?
+  printf '%s\n' "$out"
+  [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'opts'
+}
+xfail_check negative.long_opts "an oversized opts.k2d overflows a stack struct in classify.cc; crashes on macOS, misleading error on Linux" \
+  rejects_opts "$KRAKEN2" --db db_long_opts --output /dev/null "$R1"
 
 names_no_trailer() {
   # names.dmp lines must end in a tab-pipe because the parser strips the last
@@ -545,7 +582,7 @@ else
   check k2.classify.gzip.matches_plain bash -c "
     '$PYTHON' '$K2' classify --db k2db --paired --output k2gz.out r1.fq.gz r2.fq.gz && cmp paired.out k2gz.out"
   check k2.inspect.matches_kraken2_inspect bash -c "
-    '$PYTHON' '$K2' inspect --db k2db | grep -v '^# Database: ' > k2inspect.txt && cmp inspect.txt k2inspect.txt"
+    '$PYTHON' '$K2' inspect --db k2db | grep -v '^# Database: ' > k2inspect.txt && diff inspect.txt k2inspect.txt"
 
   # Two databases that split the references between them.  Multi-database
   # classification runs classify once per database and combines the results

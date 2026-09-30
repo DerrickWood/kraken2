@@ -16,6 +16,7 @@ PR; it exits non-zero only if a command cannot run at all.
 import os
 import resource
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -150,7 +151,10 @@ def main():
                                 bout, big + "_1.fq", big + "_2.fq"], log)
             r["big_calls"] = read_output(bout)
         r["db_files"] = {f: open(os.path.join(db, f), "rb").read()
-                         for f in ("hash.k2d", "taxo.k2d", "opts.k2d")}
+                         for f in ("hash.k2d", "taxo.k2d")}
+        # opts.k2d is a raw struct with uninitialized padding, so compare fields.
+        r["db_files"]["opts.k2d"] = struct.unpack(
+            "<QQQQ?7xQiii4x", open(os.path.join(db, "opts.k2d"), "rb").read())
 
     b, h = res["base"], res["head"]
     md = []
@@ -167,7 +171,7 @@ def main():
         md.append(f"**Database files differ:** {', '.join(diff_db)} "
                   f"(identical: {', '.join(same_db) or 'none'})")
     else:
-        md.append("**Database files:** hash.k2d, taxo.k2d and opts.k2d are byte-identical.")
+        md.append("**Database files:** hash.k2d and taxo.k2d are byte-identical and opts.k2d fields match.")
     if b["check"] != h["check"]:
         md.append("")
         md.append("k2db_check.py output:")
