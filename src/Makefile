@@ -59,7 +59,7 @@ k2mask: k2mask.o fast_reader.o
 	$(CXX) $(CXXFLAGS) -o $@ k2mask.o fast_reader.o $(LDFLAGS) -lz -pthread
 
 merge: merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o omp_hack.o
-	$(CXX) $(CXXFLAGS) -o $@ merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o omp_hack.o -lc
+	$(CXX) $(CXXFLAGS) -o $@ merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o omp_hack.o $(LDFLAGS) -lc
 
 blast_to_fasta: blast_to_fasta.o blast_defline.o blast_utils.o
 	$(CC) $(CFLAGS) -o  $@  blast_to_fasta.o blast_utils.o blast_defline.o $(LDFLAGS) -lm -lc
