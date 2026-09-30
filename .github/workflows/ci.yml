@@ -1,0 +1,248 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same PR or branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu gcc
+            id: ubuntu-gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+            omp: -fopenmp
+          - name: ubuntu clang + libomp
+            id: ubuntu-clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+            omp: -fopenmp
+            apt: libomp-dev
+          - name: ubuntu gcc, no OpenMP
+            id: ubuntu-no-openmp
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+            omp: ""
+          - name: macOS clang + libomp
+            id: macos-clang
+            os: macos-15
+            cc: clang
+            cxx: clang++
+            brew: libomp
+          - name: ubuntu clang ASan + UBSan
+            id: ubuntu-sanitizers
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+            omp: -fopenmp
+            apt: libomp-dev
+            san: -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -O1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure toolchain
+        run: |
+          omp="${{ matrix.omp }}"
+          ld=""
+          if [ -n "${{ matrix.apt }}" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ${{ matrix.apt }}
+          fi
+          if [ -n "${{ matrix.brew }}" ]; then
+            brew install ${{ matrix.brew }}
+            prefix=$(brew --prefix libomp)
+            omp="-Xpreprocessor -fopenmp -I$prefix/include"
+            ld="-L$prefix/lib -lomp"
+          fi
+          # src/Makefile reads CXX, KRAKEN2_SKIP_FOPENMP (the OpenMP compile
+          # flag, which also carries the sanitizer flags) and LDFLAGS from the
+          # environment, and install_kraken2.sh runs that Makefile.
+          {
+            echo "CC=${{ matrix.cc }}"
+            echo "CXX=${{ matrix.cxx }}"
+            echo "KRAKEN2_SKIP_FOPENMP=$omp ${{ matrix.san }}"
+            echo "LDFLAGS=$ld ${{ matrix.san }}"
+            echo "MAKEFLAGS=-j4"
+          } >> "$GITHUB_ENV"
+          if [ -n "${{ matrix.san }}" ]; then
+            {
+              echo "ASAN_OPTIONS=detect_leaks=0:abort_on_error=0"
+              echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1"
+              echo "E2E_PYTHON_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so)"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and install with install_kraken2.sh
+        run: |
+          start=$(date +%s)
+          ./install_kraken2.sh "$RUNNER_TEMP/k2" > build.log 2>&1 || { cat build.log; exit 1; }
+          secs=$(( $(date +%s) - start ))
+          warnings=$(grep -c 'warning:' build.log || true)
+          echo "Built in ${secs}s with $warnings compiler warnings"
+          # install_kraken2.sh substitutes install paths into the scripts.
+          if grep -l '#####=' "$RUNNER_TEMP"/k2/*; then
+            echo "::error::install_kraken2.sh left placeholders in the files above"
+            exit 1
+          fi
+          {
+            echo "### Build: ${{ matrix.name }}"
+            echo ""
+            echo "Built and installed in ${secs}s; $warnings compiler warnings."
+            if [ "$warnings" -gt 0 ]; then
+              echo ""
+              echo "<details><summary>Warnings</summary>"
+              echo ""
+              echo '```'
+              grep 'warning:' build.log | sort -u | head -n 50
+              echo '```'
+              echo "</details>"
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: End-to-end tests
+        env:
+          E2E_LABEL: ${{ matrix.name }}
+        run: tests/e2e.sh "$RUNNER_TEMP/k2" "$RUNNER_TEMP/e2e"
+
+      - name: Upload test outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/e2e/results.tsv
+            ${{ runner.temp }}/e2e/logs
+            ${{ runner.temp }}/e2e/actual
+            build.log
+          retention-days: 14
+
+  cmake:
+    name: CMake build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee cmake.log
+          cmake --build build -j4
+      - name: Check targets
+        run: |
+          status=0
+          # CMakeLists.txt only prints a message when OpenMP is missing and
+          # then builds serial binaries, so check for it explicitly.
+          if grep -q 'OpenMP could not be found' cmake.log; then
+            echo "::error::CMake did not find OpenMP and built serial binaries"
+            status=1
+          fi
+          for t in build_db classify estimate_capacity dump_table lookup_accession_numbers k2mask blast_to_fasta libtax.so; do
+            if [ ! -e "build/src/$t" ]; then
+              echo "::error::CMake build did not produce $t"
+              status=1
+            fi
+          done
+          # merge (used by k2 for multi-database classification) has no CMake
+          # target yet.  Report it without failing so the gap stays visible.
+          if [ ! -e build/src/merge ]; then
+            echo "::warning::CMake has no target for merge, so k2 multi-database classification cannot work from a CMake build (known gap)"
+            echo "Known gap: CMake has no \`merge\` target." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status
+
+  scripts:
+    name: Script checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Perl syntax
+        run: |
+          for f in scripts/*.pl scripts/*.pm scripts/kraken2 scripts/kraken2-build scripts/kraken2-inspect data/simulator.pl; do
+            perl -Iscripts -c "$f"
+          done
+      - name: Shell syntax
+        run: |
+          for f in scripts/*.sh tests/*.sh tests/data/*.sh; do bash -n "$f"; done
+          sh -n install_kraken2.sh
+      - name: Python syntax and k2 smoke test
+        run: |
+          python3 -m py_compile scripts/k2 tests/k2db_check.py tests/pr_compare.py
+          python3 scripts/k2 --help > /dev/null
+          python3 scripts/k2 build --help > /dev/null
+          python3 scripts/k2 classify --help > /dev/null
+      - name: ShellCheck
+        run: |
+          # Errors in shipped scripts and warnings in the test scripts fail
+          # the job.  Warnings in shipped scripts are listed but do not fail,
+          # since several predate this CI.
+          shellcheck -S error scripts/*.sh install_kraken2.sh
+          shellcheck -S warning tests/*.sh tests/data/*.sh
+          if ! shellcheck -S warning -f gcc scripts/*.sh install_kraken2.sh > shellcheck.txt; then
+            n=$(wc -l < shellcheck.txt)
+            echo "::notice::ShellCheck reports $n warnings in scripts/ (not failing; see job summary)"
+            {
+              echo "### ShellCheck warnings in shipped scripts (informational)"
+              echo ""
+              echo '```'
+              cat shellcheck.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  pr-compare:
+    name: PR vs base comparison
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MAKEFLAGS: -j4
+    steps:
+      - name: Check out PR (merged with base)
+        uses: actions/checkout@v4
+        with:
+          path: head
+      - name: Check out base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - name: Build both
+        run: |
+          (cd head && ./install_kraken2.sh "$RUNNER_TEMP/head" > "$RUNNER_TEMP/head-build.log" 2>&1) || { cat "$RUNNER_TEMP/head-build.log"; exit 1; }
+          if ! (cd base && ./install_kraken2.sh "$RUNNER_TEMP/base" > "$RUNNER_TEMP/base-build.log" 2>&1); then
+            echo "Base commit failed to build; skipping comparison." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "skip=1" >> "$GITHUB_ENV"
+          fi
+      - name: Simulate a larger read set for timing
+        if: env.skip != '1'
+        run: perl head/data/simulator.pl --num-frags 500000 --output-format "$RUNNER_TEMP/big#.fq" head/data/*.fa
+      - name: Compare
+        if: env.skip != '1'
+        run: |
+          python3 head/tests/pr_compare.py "$RUNNER_TEMP/base" "$RUNNER_TEMP/head" "$RUNNER_TEMP/cmp" "$RUNNER_TEMP/big" > compare.md
+          {
+            echo "Base: \`${{ github.event.pull_request.base.sha }}\`; head: PR #${{ github.event.pull_request.number }} merged into base (\`${{ github.sha }}\`)."
+            echo ""
+            cat compare.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat compare.md
