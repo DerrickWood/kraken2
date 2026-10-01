@@ -35,6 +35,10 @@ class MinimizerScanner {
                    uint64_t toggle_mask = DEFAULT_TOGGLE_MASK,
                    int revcom_version = CURRENT_REVCOM_VERSION);
 
+  // Pointer form: avoids materializing a std::string per record, and matches
+  // the flat buffer a device kernel would be handed.
+  void LoadSequence(const char *seq, size_t len, size_t start = 0,
+      size_t finish = SIZE_MAX);
   void LoadSequence(const std::string &seq, size_t start = 0,
       size_t finish = SIZE_MAX);
 
@@ -53,7 +57,8 @@ class MinimizerScanner {
   uint64_t canonical_representation(uint64_t kmer, uint8_t n);
   void set_lookup_table_character(char ch, uint8_t val);
 
-  const std::string *str_;  // pointer to sequence
+  const char *str_;         // sequence bases, not NUL-terminated
+  size_t str_len_;
   ssize_t k_;
   ssize_t l_;
   size_t str_pos_, start_, finish_;
@@ -64,7 +69,7 @@ class MinimizerScanner {
   uint64_t lmer_mask_;
   uint64_t last_minimizer_;
   ssize_t loaded_ch_;
-  std::deque<MinimizerData> queue_;
+  std::vector<MinimizerData> queue_;
   ssize_t queue_pos_;
   uint64_t last_ambig_;
   uint8_t lookup_table_[UINT8_MAX + 1];
