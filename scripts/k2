@@ -85,7 +85,8 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "use_names": "-n",
     "use_daemon": "-D",
     "cht_cell_size": "-C",
-    "dump_taxon_counters": "-d"
+    "dump_taxon_counters": "-d",
+    "flag_unique_minimizers": "-F",
 }
 
 
@@ -4041,7 +4042,7 @@ def classify_multi_dbs(args, filenames=[]):
             classified_filenames.append(pathname)
             args.output = pathname
             setattr(args, "dump_taxon_counters", pathname + ".dump")
-
+            setattr(args, "flag_unique_minimizers", True)
             LOG.info("Running classification job for database {}\n".format(db))
             classify(args)
             LOG.info("Finished running classification job for database {}\n".format(db))
@@ -4991,6 +4992,12 @@ def make_classify_parser(subparsers):
         action="store_true",
         default=argparse.SUPPRESS,
         help="Print scientific names instead of just taxids",
+    )
+    parser.add_argument(
+        "--flag-unique-minimizers",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Adds an asterisks in front of taxids associated with unique minimizers",
     )
     parser.add_argument(
         "--minimum-hit-groups",

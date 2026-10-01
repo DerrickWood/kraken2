@@ -34,6 +34,7 @@ static const size_t NUM_FRAGMENTS_PER_THREAD = 10000;
 static const taxid_t MATE_PAIR_BORDER_TAXON = TAXID_MAX;
 static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
+static taxid_t UNIQUE_MINIMIZER_TAG = 0;
 
 // Token stream used to defer minimizer lookups in ClassifySequence so they can be
 // resolved in one prefetched batch. kind selects how replay rebuilds taxa[]/counts;
@@ -89,6 +90,7 @@ struct Options {
   std::vector<char *> filenames;
   bool daemon_mode;
   bool check_pair_order;
+  bool flag_unique_minimizers;
 
   void reset() {
     quick_mode = false;
@@ -106,6 +108,7 @@ struct Options {
     use_memory_mapping = false;
     daemon_mode = false;
     check_pair_order = false;
+    flag_unique_minimizers = false;
 
     index_filename.clear();
     taxonomy_filename.clear();
@@ -863,6 +866,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
   // Phase 3: replay token stream, reproducing the original behavior exactly.
   {
     taxid_t last_taxon = 0;
+    taxid_t minimizer_tag = 0;
     for (size_t ti = 0; ti < tok_stream.size(); ti++) {
       const MinToken &tok = tok_stream[ti];
       taxid_t taxon = 0;
@@ -884,6 +888,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
         taxon = lookup_vals[tok.key_idx];
         last_taxon = taxon;
         if (taxon) {
+          minimizer_tag = UNIQUE_MINIMIZER_TAG;
           minimizer_hit_groups++;
           if (!opts.report_filename.empty() || !opts.taxon_counters_dump_filename.empty())
             curr_taxon_counts[taxon].add_kmer(lookup_keys[tok.key_idx]);
@@ -896,7 +901,8 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
         }
         break;
       }
-      taxa.push_back(taxon);
+      taxa.push_back(minimizer_tag | taxon);
+      minimizer_tag = 0;
       if (taxon) {
         hit_counts[taxon]++;
         if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
@@ -973,6 +979,8 @@ void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
   auto last_code = taxa[0];
   auto code_count = 1;
 
+  std::string unique_minimizer_indicator[2] = {"", "*"};
+
   for (size_t i = 1; i < taxa.size(); i++) {
     auto code = taxa[i];
 
@@ -985,8 +993,9 @@ void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
           oss << "A:" << code_count << " ";
         }
         else {
-          auto ext_code = taxonomy.nodes()[last_code].external_id;
-          oss << ext_code << ":" << code_count << " ";
+          auto ext_code = taxonomy.nodes()[last_code & ~(1UL << 63)].external_id;
+          oss << unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0]
+              << ext_code << ":" << code_count << " ";
         }
       }
       else {  // mate pair/reading frame marker
@@ -1001,8 +1010,9 @@ void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
       oss << "A:" << code_count << " ";
     }
     else {
-      auto ext_code = taxonomy.nodes()[last_code].external_id;
-      oss << ext_code << ":" << code_count;
+      auto ext_code = taxonomy.nodes()[last_code & ~(1UL << 63)].external_id;
+      oss << unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0]
+          << ext_code << ":" << code_count << " ";
     }
   }
   else {  // mate pair/reading frame marker
@@ -1093,7 +1103,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:d:nmzqPSMKDc")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:d:nmzqPSMKDcF")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -1170,6 +1180,10 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'd':
         opts.taxon_counters_dump_filename = optarg;
         break;
+      case 'F':
+        taxid_t bit = 1;
+        UNIQUE_MINIMIZER_TAG = (bit << (sizeof(taxid_t) * 8 - 1));
+        break;
     }
   }
 
@@ -1218,6 +1232,7 @@ void usage(int exit_code) {
        << "  -O filename      Output file for normal Kraken output" << endl
        << "  -K               In comb. w/ -R, provide minimizer information in report" << endl
        << "  -D               Start a daemon, this options is intended to be used with wrappers" << std::endl
-       << "  -d filename      Dump taxon counters to filename." << endl;
-    exit(exit_code);
+       << "  -d filename      Dump taxon counters to filename." << endl
+       << "  -F               Add an asterisks in front of taxids associated with unique minimizers" << std::endl;
+  exit(exit_code);
 }
