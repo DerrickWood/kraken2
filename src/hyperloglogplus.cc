@@ -646,6 +646,9 @@ void HyperLogLogPlusMinus<T>::merge(HyperLogLogPlusMinus<T>&& other) {
         // this->merge(static_cast<const HyperLogLogPlusMinus<T>&>(other));
         // consider using addHashToSparseList(this->sparseList, val, pPrime) and checking for sizes
         this->sparseList.insert(other.sparseList.begin(), other.sparseList.end());
+        // As on insert, switch to the dense registers once the list passes m/4.
+        if (this->sparseList.size() > this->m / 4)
+          switchToNormalRepresentation();
       } else if (other.sparse) {
         // other is sparse, but this is not
         addToRegisters(other.sparseList);
@@ -687,6 +690,9 @@ void HyperLogLogPlusMinus<T>::merge(const HyperLogLogPlusMinus<T>& other) {
       if (this->sparse && other.sparse) {
         // consider using addHashToSparseList(this->sparseList, val, pPrime) and checking for sizes
         this->sparseList.insert(other.sparseList.begin(), other.sparseList.end());
+        // As on insert, switch to the dense registers once the list passes m/4.
+        if (this->sparseList.size() > this->m / 4)
+          switchToNormalRepresentation();
       } else if (other.sparse) {
         // other is sparse, but this is not
         addToRegisters(other.sparseList);
