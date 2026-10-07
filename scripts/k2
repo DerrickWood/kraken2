@@ -3895,7 +3895,7 @@ def merge_classification_output(
         in_filename2, out_filename, use_names,
         classified_headers_filename,
         merge_minimizer_data, report_filename,
-        report_zeroes, mpa_style
+        report_zeroes, mpa_style, minimum_hit_groups
 ):
     merge_binary = find_kraken2_binary("merge")
     argv = [
@@ -3904,6 +3904,7 @@ def merge_classification_output(
         "-t", taxonomy_pathname,
         "-T", str(threads),
         "-b", str(batch_size),
+        "-M", str(minimum_hit_groups)
     ]
 
     if report_filename:
@@ -4077,7 +4078,8 @@ def classify_multi_dbs(args, filenames=[]):
             report_minimizer_data,
             report_filename if final else None,
             report_zeroes if final else None,
-            mpa_style if final else None
+            mpa_style if final else None,
+            args.minimum_hit_groups
         )
 
         progress.progress(1, relative=True)
@@ -4993,12 +4995,12 @@ def make_classify_parser(subparsers):
         default=argparse.SUPPRESS,
         help="Print scientific names instead of just taxids",
     )
-    parser.add_argument(
-        "--flag-unique-minimizers",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Adds an asterisks in front of taxids associated with unique minimizers",
-    )
+    # parser.add_argument(
+    #     "--flag-unique-minimizers",
+    #     action="store_true",
+    #     default=argparse.SUPPRESS,
+    #     help="Adds an asterisks in front of taxids associated with unique minimizers",
+    # )
     parser.add_argument(
         "--minimum-hit-groups",
         type=int,

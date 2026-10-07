@@ -4,12 +4,17 @@
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
 
+#include <cstdio>
 #include <err.h>
+#include <functional>
+#include <iterator>
+#include <ostream>
 #include <sys/wait.h>
 #include <sys/types.h>
 
 #include "kraken2_headers.h"
 #include "kv_store.h"
+#include "omp_hack.h"
 #include "taxonomy.h"
 #include "seqreader.h"
 #include "fast_reader.h"
@@ -49,22 +54,22 @@ static bool MatesAgree(const SeqView &a, const SeqView &b) {
 
 // Re-emits a record from its view.  The suffix follows the identifier and
 // precedes the comment, where Sequence::to_string puts it.
-static void WriteSeqView(ostringstream &oss, const SeqView &v,
+static void WriteSeqView(std::string &oss, const SeqView &v,
                          const char *header_suffix) {
-  oss << (v.format == FORMAT_FASTQ ? '@' : '>');
-  oss.write(v.header, v.header_len);
-  oss << header_suffix;
-  if (v.comment_len) {
-    oss << ' ';
-    oss.write(v.comment, v.comment_len);
-  }
-  oss << "\n";
-  oss.write(v.seq, v.seq_len);
-  oss << "\n";
+  oss += (v.format == FORMAT_FASTQ ? '@' : '>');
+  oss.append(v.header, v.header_len);
+  // oss += header_suffix;
+  // if (v.comment_len) {
+  //   oss += ' ';
+  //   oss += v.comment;
+  // }
+  oss += "\n";
+  oss.append(v.seq, v.seq_len);
+  oss += "\n";
   if (v.format == FORMAT_FASTQ) {
-    oss << "+\n";
-    oss.write(v.quals, v.quals_len);
-    oss << "\n";
+    oss += "+\n";
+    oss.append(v.quals, v.quals_len);
+    oss += "\n";
   }
 }
 
@@ -197,6 +202,115 @@ public:
   string classified_out2_str;
   string unclassified_out1_str;
   string unclassified_out2_str;
+
+  OutputData() {
+    kraken_str.reserve(2048 * 2048);
+    classified_out1_str.reserve(1024);
+  }
+
+  bool valid() { return !kraken_str.empty(); }
+
+  void writeToTempFile(const std::string &base_filename, std::vector<taxid_t> *taxa = nullptr) {
+    ostringstream oss;
+    oss << base_filename << "." << block_id;
+    ofstream outfile(oss.str());
+
+    size_t n = 0;
+    if (!kraken_str.empty()) {
+      n = kraken_str.size();
+      outfile.write((const char *)&n, sizeof(n));
+      outfile << kraken_str;
+    }
+    if (!classified_out1_str.empty()) {
+      n = classified_out1_str.size();
+      // std::cout << "wrote " << n << " bytes of data" << std::endl;
+      outfile.write((const char *)&n, sizeof(n));
+      outfile << classified_out1_str;
+    }
+    if (!classified_out2_str.empty()) {
+      n = classified_out2_str.size();
+      outfile.write((const char *)&n, sizeof(n));
+      outfile << classified_out2_str;
+    }
+    if (!unclassified_out1_str.empty()) {
+      n = unclassified_out1_str.size();
+      outfile.write((const char *)&n, sizeof(n));
+      outfile << unclassified_out1_str;
+    }
+    if (!unclassified_out2_str.empty()) {
+      n = unclassified_out2_str.size();
+      outfile.write((const char *)&n, sizeof(n));
+      outfile << unclassified_out2_str;
+    }
+
+    outfile.flush();
+  }
+
+  void writeToFile(OutputStreamData &outputs) {
+    if (outputs.kraken_output != nullptr)
+      (*outputs.kraken_output) << kraken_str;
+    if (outputs.classified_output1 != nullptr)
+      (*outputs.classified_output1) << classified_out1_str;
+    if (outputs.classified_output2 != nullptr)
+      (*outputs.classified_output2) << classified_out2_str;
+    if (outputs.unclassified_output1 != nullptr)
+      (*outputs.unclassified_output1) << unclassified_out1_str;
+    if (outputs.unclassified_output2 != nullptr)
+      (*outputs.unclassified_output2) << unclassified_out2_str;
+  }
+
+  static void appendOutDataToFile(const std::string &kraken_output_filename, uint64_t block_id, OutputStreamData &outputs) {
+    std::ostringstream in_filename;
+    in_filename << kraken_output_filename << "." << block_id;
+    {
+      std::ifstream in_file(in_filename.str());
+
+      size_t n = 0;
+      auto iter = istreambuf_iterator<char>(in_file);
+      if (outputs.kraken_output != nullptr) {
+        in_file.read((char *)&n, sizeof(n));
+        std::copy_n(iter, n, ostreambuf_iterator<char>(*outputs.kraken_output));
+        iter++;
+      }
+      if (outputs.classified_output1 != nullptr) {
+        in_file.read((char *)&n, sizeof(n));
+        advance(iter, sizeof(n));
+        std::copy_n(iter, n,
+                    ostreambuf_iterator<char>(*outputs.classified_output1));
+        iter++;
+      }
+      if (outputs.classified_output2 != nullptr) {
+        in_file.read((char *)&n, sizeof(n));
+        std::copy_n(iter, n,
+                    ostreambuf_iterator<char>(*outputs.classified_output2));
+        iter++;
+      }
+      if (outputs.unclassified_output1 != nullptr) {
+        in_file.read((char *)&n, sizeof(n));
+        std::copy_n(iter, n,
+                    ostreambuf_iterator<char>(*outputs.unclassified_output1));
+        iter++;
+      }
+      if (outputs.unclassified_output2 != nullptr) {
+        in_file.read((char *)&n, sizeof(n));
+        std::copy_n(iter, n,
+                    ostreambuf_iterator<char>(*outputs.unclassified_output2));
+      }
+      in_file.close();
+    }
+    std::remove(in_filename.str().c_str());
+  }
+
+  void write(ifstream &in, ofstream &out) {
+  }
+
+  void clear() {
+    kraken_str.clear();
+    classified_out1_str.clear();
+    classified_out2_str.clear();
+    unclassified_out1_str.clear();
+    unclassified_out2_str.clear();
+  }
 };
 
 void ParseCommandLine(int argc, char **argv, Options &opts);
@@ -205,12 +319,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, const Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs, taxon_counters_t &total_taxon_counters);
-taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream &koss,
+taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &koss,
     KeyValueStore *hash, Taxonomy &tax, IndexOptions &idx_opts,
     const Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames, taxon_counters_t &my_taxon_counts);
-void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
+void AddHitlistString(std::string &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy);
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
     Taxonomy &tax, size_t total_minimizers, const Options &opts);
@@ -553,9 +667,10 @@ void ProcessFiles(const char *filename1, const char *filename2,
     return a.block_id > b.block_id;
   };
   std::priority_queue<OutputData, vector<OutputData>, decltype(comparator)>
-    output_queue(comparator);
+      output_queue(comparator);
+  std::priority_queue<int, vector<int>, std::greater<int>> file_queue;
   uint64_t next_input_block_id = 0;
-  uint64_t next_output_block_id = 0;
+  std::atomic<uint64_t> next_output_block_id{0};
   omp_lock_t output_lock;
   omp_init_lock(&output_lock);
   // The critical section reads raw bytes from these descriptors and cuts on a
@@ -616,6 +731,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
     uint64_t block_id;
     OutputData out_data;
     taxon_counters_t thread_taxon_counters;
+    std::vector<int> ready_blocks;
 
     while (true) {
       thread_stats.total_sequences = 0;
@@ -661,8 +777,24 @@ void ProcessFiles(const char *filename1, const char *filename2,
         }
       }
 
-      if (! ok_read)
+      if (!ok_read) {
+        #pragma omp critical(output_queue)
+        {
+          while (!file_queue.empty() && file_queue.top() == next_output_block_id.load()) {
+            ready_blocks.push_back(file_queue.top());
+            next_output_block_id.fetch_add(1);
+            file_queue.pop();
+          }
+        }
+
+        omp_set_lock(&output_lock);
+        for (auto &next_block : ready_blocks) {
+            OutputData::appendOutDataToFile(opts.kraken_output_filename, next_block, outputs);
+        }
+        ready_blocks.clear();
+        omp_unset_lock(&output_lock);
         break;
+      }
 
       // Parsing is deliberately outside the critical section above.
       reader1.Parse();
@@ -687,11 +819,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
       idx1 = idx2 = 0;
 
       // Reset all dynamically-growing things
-      kraken_oss.str("");
-      c1_oss.str("");
-      c2_oss.str("");
-      u1_oss.str("");
-      u2_oss.str("");
+      out_data.clear();
       thread_taxon_counters.clear();
 
       while (idx1 < reader1.size()) {
@@ -724,33 +852,30 @@ void ProcessFiles(const char *filename1, const char *filename2,
         taxid_t call;
         if (opts.paired_end_processing) {
           call =
-              ClassifySequence(*seq1, *seq2, kraken_oss, hash, tax, idx_opts,
+              ClassifySequence(*seq1, *seq2, out_data.kraken_str, hash, tax, idx_opts,
                                opts, thread_stats, scanner, taxa, hit_counts,
                                translated_frames, thread_taxon_counters);
         } else {
           static const SeqView empty_sequence = { nullptr, nullptr, nullptr,
               nullptr, 0, 0, 0, 0, FORMAT_FASTQ };
-          call = ClassifySequence(*seq1, empty_sequence, kraken_oss, hash, tax, idx_opts,
+          call = ClassifySequence(*seq1, empty_sequence, out_data.kraken_str, hash, tax, idx_opts,
                                   opts, thread_stats, scanner, taxa, hit_counts,
                                   translated_frames, thread_taxon_counters);
         }
+
         if (outputs.printing_sequences) {
           char buffer[64] = "";
-          if (call)
-            sprintf(buffer, " kraken:taxid|%llu",
-                (unsigned long long) tax.nodes()[call].external_id);
-          WriteSeqView(call ? c1_oss : u1_oss, *seq1, call ? buffer : "");
+          // if (call)
+          //   sprintf(buffer, " kraken:taxid|%llu",
+          //       (unsigned long long) tax.nodes()[call].external_id);
+          WriteSeqView(call ? out_data.classified_out1_str : out_data.unclassified_out1_str, *seq1, call ? buffer : "");
           if (opts.paired_end_processing)
-            WriteSeqView(call ? c2_oss : u2_oss, *seq2, call ? buffer : "");
+            WriteSeqView(call ? out_data.classified_out2_str : out_data.unclassified_out2_str, *seq2, call ? buffer : "");
         }
         thread_stats.total_bases += seq1->seq_len;
         if (opts.paired_end_processing)
           thread_stats.total_bases += seq2->seq_len;
       }
-
-      // #pragma omp atomic
-      // #pragma omp atomic
-      // #pragma omp atomic
 
       #pragma omp critical(output_stats)
       {
@@ -764,16 +889,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
       }
 
       out_data.block_id = block_id;
-      out_data.kraken_str.assign(kraken_oss.str());
-      out_data.classified_out1_str.assign(c1_oss.str());
-      out_data.classified_out2_str.assign(c2_oss.str());
-      out_data.unclassified_out1_str.assign(u1_oss.str());
-      out_data.unclassified_out2_str.assign(u2_oss.str());
-
-      #pragma omp critical(output_queue)
-      {
-        output_queue.push(std::move(out_data));
-      }
 
       if (!opts.report_filename.empty() || !opts.taxon_counters_dump_filename.empty()) {
 #pragma omp critical(update_taxon_counters)
@@ -782,53 +897,38 @@ void ProcessFiles(const char *filename1, const char *filename2,
         }
       }
 
-      bool output_loop = true;
-      bool borrowed_buffer = false;
-      while (output_loop) {
+      if (!omp_test_lock(&output_lock)) {
+        out_data.writeToTempFile(opts.kraken_output_filename);
+        #pragma omp critical(output_queue)
+        file_queue.push(out_data.block_id);
+      } else {
         #pragma omp critical(output_queue)
         {
-          output_loop = !output_queue.empty();
-          if (!output_loop && !borrowed_buffer) {
-            out_data = std::move(buffers.back());
-            buffers.pop_back();
-          } else if (borrowed_buffer && output_loop) {
-            buffers.push_back(std::move(out_data));
-          }
-
-          if (output_loop) {
-            if (output_queue.top().block_id == next_output_block_id) {
-              out_data = std::move(const_cast<OutputData &>(output_queue.top()));
-              output_queue.pop();
-              borrowed_buffer = true;
-              // Acquiring output lock obligates thread to print out
-              // next output data block, contained in out_data
-              omp_set_lock(&output_lock);
-              next_output_block_id++;
-            } else {
-              output_loop = false;
-              if (buffers.size() > 0) {
-                out_data = std::move(buffers.back());
-                buffers.pop_back();
-              } else {
-                out_data = OutputData();
-              }
-            }
+          file_queue.push(out_data.block_id);
+          while (!file_queue.empty() && file_queue.top() == next_output_block_id.load()) {
+            ready_blocks.push_back(file_queue.top());
+            next_output_block_id.fetch_add(1);
+            file_queue.pop();
           }
         }
-        if (! output_loop)
-          break;
-        if (outputs.kraken_output != nullptr)
-          (*outputs.kraken_output) << out_data.kraken_str;
-        if (outputs.classified_output1 != nullptr)
-          (*outputs.classified_output1) << out_data.classified_out1_str;
-        if (outputs.classified_output2 != nullptr)
-          (*outputs.classified_output2) << out_data.classified_out2_str;
-        if (outputs.unclassified_output1 != nullptr)
-          (*outputs.unclassified_output1) << out_data.unclassified_out1_str;
-        if (outputs.unclassified_output2 != nullptr)
-          (*outputs.unclassified_output2) << out_data.unclassified_out2_str;
+
+        bool block_written = false;
+        for (auto &next_block : ready_blocks) {
+          if (next_block == out_data.block_id) {
+            // write to final output file
+            out_data.writeToFile(outputs);
+            block_written = true;
+          } else {
+            OutputData::appendOutDataToFile(opts.kraken_output_filename, next_block, outputs);
+          }
+        }
+        ready_blocks.clear();
+
+        if (!block_written) {
+          out_data.writeToTempFile(opts.kraken_output_filename);
+        }
         omp_unset_lock(&output_lock);
-      }  // end while output loop
+      }
     } // end while
   } // end parallel block
 
@@ -957,7 +1057,65 @@ std::string TrimPairInfo(std::string &id) {
   return id;
 }
 
-taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream &koss,
+char *int_to_string(uint64_t x, char *out) {
+        static const char table[200] = {
+                0x30, 0x30, 0x30, 0x31, 0x30, 0x32, 0x30, 0x33, 0x30, 0x34, 0x30, 0x35,
+                0x30, 0x36, 0x30, 0x37, 0x30, 0x38, 0x30, 0x39, 0x31, 0x30, 0x31, 0x31,
+                0x31, 0x32, 0x31, 0x33, 0x31, 0x34, 0x31, 0x35, 0x31, 0x36, 0x31, 0x37,
+                0x31, 0x38, 0x31, 0x39, 0x32, 0x30, 0x32, 0x31, 0x32, 0x32, 0x32, 0x33,
+                0x32, 0x34, 0x32, 0x35, 0x32, 0x36, 0x32, 0x37, 0x32, 0x38, 0x32, 0x39,
+                0x33, 0x30, 0x33, 0x31, 0x33, 0x32, 0x33, 0x33, 0x33, 0x34, 0x33, 0x35,
+                0x33, 0x36, 0x33, 0x37, 0x33, 0x38, 0x33, 0x39, 0x34, 0x30, 0x34, 0x31,
+                0x34, 0x32, 0x34, 0x33, 0x34, 0x34, 0x34, 0x35, 0x34, 0x36, 0x34, 0x37,
+                0x34, 0x38, 0x34, 0x39, 0x35, 0x30, 0x35, 0x31, 0x35, 0x32, 0x35, 0x33,
+                0x35, 0x34, 0x35, 0x35, 0x35, 0x36, 0x35, 0x37, 0x35, 0x38, 0x35, 0x39,
+                0x36, 0x30, 0x36, 0x31, 0x36, 0x32, 0x36, 0x33, 0x36, 0x34, 0x36, 0x35,
+                0x36, 0x36, 0x36, 0x37, 0x36, 0x38, 0x36, 0x39, 0x37, 0x30, 0x37, 0x31,
+                0x37, 0x32, 0x37, 0x33, 0x37, 0x34, 0x37, 0x35, 0x37, 0x36, 0x37, 0x37,
+                0x37, 0x38, 0x37, 0x39, 0x38, 0x30, 0x38, 0x31, 0x38, 0x32, 0x38, 0x33,
+                0x38, 0x34, 0x38, 0x35, 0x38, 0x36, 0x38, 0x37, 0x38, 0x38, 0x38, 0x39,
+                0x39, 0x30, 0x39, 0x31, 0x39, 0x32, 0x39, 0x33, 0x39, 0x34, 0x39, 0x35,
+                0x39, 0x36, 0x39, 0x37, 0x39, 0x38, 0x39, 0x39,
+        };
+
+        uint64_t top = x / 100000000;
+        uint64_t bottom = x % 100000000;
+        //
+        uint64_t toptop = top / 10000;
+        uint64_t topbottom = top % 10000;
+        uint64_t bottomtop = bottom / 10000;
+        uint64_t bottombottom = bottom % 10000;
+        //
+        uint64_t toptoptop = toptop / 100;
+        uint64_t toptopbottom = toptop % 100;
+
+        uint64_t topbottomtop = topbottom / 100;
+        uint64_t topbottombottom = topbottom % 100;
+
+        uint64_t bottomtoptop = bottomtop / 100;
+        uint64_t bottomtopbottom = bottomtop % 100;
+
+        uint64_t bottombottomtop = bottombottom / 100;
+        uint64_t bottombottombottom = bottombottom % 100;
+        //
+        memcpy(out, &table[2 * toptoptop], 2);
+        memcpy(out + 2, &table[2 * toptopbottom], 2);
+        memcpy(out + 4, &table[2 * topbottomtop], 2);
+        memcpy(out + 6, &table[2 * topbottombottom], 2);
+        memcpy(out + 8, &table[2 * bottomtoptop], 2);
+        memcpy(out + 10, &table[2 * bottomtopbottom], 2);
+        memcpy(out + 12, &table[2 * bottombottomtop], 2);
+        memcpy(out + 14, &table[2 * bottombottombottom], 2);
+
+        size_t i = 0;
+        while (out[i] == '0' && i < 15)
+                i += 1;
+        out[16] = '\0';
+
+        return &out[i];
+}
+
+taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &koss,
                          KeyValueStore *hash, Taxonomy &taxonomy,
                          IndexOptions &idx_opts, const Options &opts,
                          ClassificationStats &stats, MinimizerScanner &scanner,
@@ -966,6 +1124,7 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
                          taxon_counters_t &curr_taxon_counts)
 {
   uint64_t *minimizer_ptr;
+  char buffer[17];
   taxid_t call = 0;
   taxa.clear();
   hit_counts.clear();
@@ -1102,6 +1261,11 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
   // Void a call made by too few minimizer groups
   if (call && minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
+  else {
+    for (auto &taxid : taxa) {
+      taxid &= ~UNIQUE_MINIMIZER_TAG;
+    }
+  }
 
   if (call) {
     stats.total_classified++;
@@ -1115,78 +1279,105 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, ostringstream 
     return call;
 
   if (call)
-    koss << "C\t";
+    koss += "C\t";
   else
-    koss << "U\t";
+    koss += "U\t";
   {
     uint32_t n = dna.header_len;
     if (opts.paired_end_processing && n > 2 && dna.header[n - 2] == '/' &&
         (dna.header[n - 1] == '1' || dna.header[n - 1] == '2'))
       n -= 2;
-    koss.write(dna.header, n);
-    koss << "\t";
+    koss.append(dna.header, n);
+    koss += "\t";
   }
 
   auto ext_call = taxonomy.nodes()[call].external_id;
+  char *int_str = int_to_string(ext_call, buffer);
   if (opts.print_scientific_name) {
     const char *name = nullptr;
     if (call) {
       name = taxonomy.name_data() + taxonomy.nodes()[call].name_offset;
     }
-    koss << (name ? name : "unclassified") << " (taxid " << ext_call << ")";
+    koss += (name ? name : "unclassified");
+    koss += " (taxid ";
+    koss += int_str;
+    koss += ")";
   }
   else {
-    koss << ext_call;
+    koss += int_str;
   }
 
-  koss << "\t";
-  if (! opts.paired_end_processing)
-    koss << dna.seq_len << "\t";
-  else
-    koss << dna.seq_len << "|" << dna2.seq_len << "\t";
+  koss += "\t";
+  if (!opts.paired_end_processing) {
+    int_str = int_to_string(dna.seq_len, buffer);
+    koss += int_str;
+    koss += "\t";
+  } else {
+    int_str = int_to_string(dna.seq_len, buffer);
+    koss += int_str;
+    koss += "|";
+    int_str = int_to_string(dna2.seq_len, buffer);
+    koss += int_str;
+    koss += "\t";
+  }
 
   if (opts.quick_mode) {
-    koss << ext_call << ":Q";
+    int_str = int_to_string(ext_call, buffer);
+    koss += int_str;
+    koss += ":Q";
   }
   else {
     if (taxa.empty())
-      koss << "0:0";
-    else
+      koss += "0:0";
+    else {
       AddHitlistString(koss, taxa, taxonomy);
+    }
   }
 
-  koss << endl;
+  koss += "\n";
 
   return call;
 }
 
-void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
+void AddHitlistString(std::string &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy)
 {
   auto last_code = taxa[0];
   auto code_count = 1;
+  char buffer1[17];
+  char buffer2[17];
 
   std::string unique_minimizer_indicator[2] = {"", "*"};
+  auto umm_complement = ~UNIQUE_MINIMIZER_TAG;
 
   for (size_t i = 1; i < taxa.size(); i++) {
     auto code = taxa[i];
 
     if (code == last_code) {
       code_count += 1;
-    }
-    else {
+    } else {
+      char *v = int_to_string(code_count, buffer1);
       if (last_code != MATE_PAIR_BORDER_TAXON && last_code != READING_FRAME_BORDER_TAXON) {
         if (last_code == AMBIGUOUS_SPAN_TAXON) {
-          oss << "A:" << code_count << " ";
+          oss += "A:";
+          oss += v;
+          oss += " ";
         }
         else {
-          auto ext_code = taxonomy.nodes()[last_code & ~(1UL << 63)].external_id;
-          oss << unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0]
-              << ext_code << ":" << code_count << " ";
+          auto ext_code =
+              taxonomy.nodes()[last_code & umm_complement].external_id;
+          char *k = int_to_string(ext_code, buffer2);
+          std::string &indicator =
+              unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0];
+          oss += indicator;
+          oss += k;
+          oss += ":";
+          oss += v;
+          oss += " ";
         }
       }
       else {  // mate pair/reading frame marker
-        oss << (last_code == MATE_PAIR_BORDER_TAXON ? "|:| " : "-:- ");
+        oss += (last_code == MATE_PAIR_BORDER_TAXON ? "|:| " : "-:- ");
       }
       code_count = 1;
       last_code = code;
@@ -1194,16 +1385,25 @@ void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
   }
   if (last_code != MATE_PAIR_BORDER_TAXON && last_code != READING_FRAME_BORDER_TAXON) {
     if (last_code == AMBIGUOUS_SPAN_TAXON) {
-      oss << "A:" << code_count << " ";
-    }
-    else {
-      auto ext_code = taxonomy.nodes()[last_code & ~(1UL << 63)].external_id;
-      oss << unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0]
-          << ext_code << ":" << code_count << " ";
+      oss += "A:";
+      char *count = int_to_string(code_count, buffer1);
+      oss += count;
+      oss += " ";
+    } else {
+      char *v = int_to_string(code_count, buffer1);
+      auto ext_code = taxonomy.nodes()[last_code & umm_complement].external_id;
+      char *k = int_to_string(ext_code, buffer2);
+      std::string &indicator =
+        unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0];
+      oss += indicator;
+      oss += k;
+      oss += ":";
+      oss += v;
+      oss += " ";
     }
   }
   else {  // mate pair/reading frame marker
-    oss << (last_code == MATE_PAIR_BORDER_TAXON ? "|:|" : "-:-");
+    oss += (last_code == MATE_PAIR_BORDER_TAXON ? "|:|" : "-:-");
   }
 }
 

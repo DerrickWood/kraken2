@@ -750,7 +750,15 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                         }
                                 }
 
-                                taxid_t call = hit_groups < minimum_hit_groups ? 0 : resolve_tree(taxonomy, hit_counts, total_minimizers, confidence_threshold);
+                                taxid_t call =
+                                    hit_groups < minimum_hit_groups &&
+                                            (fields1[status_field][0] == 'U' &&
+                                             fields2[status_field][0] == 'U')
+                                        ? 0
+                                        : resolve_tree(taxonomy, hit_counts,
+                                                       total_minimizers,
+                                                       confidence_threshold);
+
                                 taxid_t internal_call = taxonomy.GetInternalID(call);
                                 taxid = int_to_string(call, itoa_buf);
 
@@ -898,7 +906,7 @@ std::tuple<size_t, size_t> merge_classification_output(
                 }
 
                 taxid_t call =
-                    hit_groups < minimum_hit_groups
+                        hit_groups < minimum_hit_groups && (fields1[status_field][0] == 'U' && fields2[status_field][0] == 'U')
                         ? 0
                         : resolve_tree(taxonomy, hit_counts, total_minimizers,
                                        confidence_threshold);
@@ -1001,7 +1009,7 @@ int main(int argc, char **argv) {
         int ch;
         int threads = 1;
         int batch_size = 1000;
-        int minimum_hit_groups = 6;
+        int minimum_hit_groups = 2;
         bool flag_unique_minimizers = false;
         bool use_names = false;
         bool report_zeros = false;
