@@ -29,6 +29,7 @@ import re
 import shutil
 import signal
 import subprocess
+import ssl
 import sys
 import tarfile
 import time
@@ -345,7 +346,9 @@ def make_https_connection(server):
         conn = http.client.HTTPSConnection(hostname, port)
         conn.set_tunnel(server)
     else:
-        conn = http.client.HTTPSConnection(server)
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        conn = http.client.HTTPSConnection(server, context=context)
 
     return conn
 
@@ -1863,7 +1866,7 @@ def download_taxonomy(args):
         http_download_file2(NCBI_SERVER, [filename], save_to=os.path.abspath(os.curdir))
         LOG.info("Untarring taxonomy tree data\n")
         with tarfile.open("taxdump.tar.gz", "r:gz") as tar:
-            tar.extractall()
+            tar.extractall(filter='fully_trusted')
         LOG.info("Finished Untarring taxonomy tree data\n")
         concurrent.futures.wait(futures)
 
@@ -1993,13 +1996,13 @@ def download_gtdb_genomes(args, remote_filepath, md5s):
                             )
                         else:
                             LOG.info("Extracting {}\n".format(member.name))
-                            tar.extract(member)
+                            tar.extract(member, filter='fully_trusted')
                             LOG.info("Finished extracting {}\n".format(member.name))
                         accession_to_filepath[accession] = os.path.abspath(member.name)
                     else:
                         # We do not check if a file has already been extracted here
                         LOG.info("Extracting {}\n".format(member.name))
-                        tar.extract(member)
+                        tar.extract(member, filter='fully_trusted')
                         LOG.info("Finished extracting {}\n".format(member.name))
                         filepaths_without_accession.append(os.path.abspath(member.name))
     else:
