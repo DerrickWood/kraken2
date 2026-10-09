@@ -3898,7 +3898,8 @@ def merge_classification_output(
         in_filename2, out_filename, use_names,
         classified_headers_filename,
         merge_minimizer_data, report_filename,
-        report_zeroes, mpa_style, minimum_hit_groups
+        report_zeroes, mpa_style, minimum_hit_groups,
+        flag_unique_minimizers
 ):
     merge_binary = find_kraken2_binary("merge")
     argv = [
@@ -3920,6 +3921,8 @@ def merge_classification_output(
         argv.append("-m")
     if use_names:
         argv.append("-n")
+    if flag_unique_minimizers:
+        argv.append("-F")
     if classified_headers_filename:
         argv.extend(["-c", classified_headers_filename])
 
@@ -4062,9 +4065,11 @@ def classify_multi_dbs(args, filenames=[]):
     LOG.info("Merging output files\n")
     progress = ProgressBar(len(classified_filenames) - 1, 0)
     final = False
+    flag_unique_minimizers = False
     while not final:
         if len(classified_filenames) == 2:
             final = True
+            flag_unique_minimizers = False
 
         LOG.debug("{}\r".format(progress.get_bar()))
 
@@ -4082,7 +4087,8 @@ def classify_multi_dbs(args, filenames=[]):
             report_filename if final else None,
             report_zeroes if final else None,
             mpa_style if final else None,
-            args.minimum_hit_groups
+            args.minimum_hit_groups,
+            flag_unique_minimizers
         )
 
         progress.progress(1, relative=True)
