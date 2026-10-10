@@ -1262,8 +1262,12 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   if (call && minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
   else {
+    // The border and ambiguity markers occupy the top of the taxid range,
+    // so they already have the tag bit set and must keep it.
     for (auto &taxid : taxa) {
-      taxid &= ~UNIQUE_MINIMIZER_TAG;
+      if (taxid != MATE_PAIR_BORDER_TAXON && taxid != READING_FRAME_BORDER_TAXON &&
+          taxid != AMBIGUOUS_SPAN_TAXON)
+        taxid &= ~UNIQUE_MINIMIZER_TAG;
     }
   }
 
