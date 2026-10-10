@@ -3916,7 +3916,7 @@ def merge_classification_output(
         classified_headers_filename,
         merge_minimizer_data, report_filename,
         report_zeroes, mpa_style, minimum_hit_groups,
-        flag_unique_minimizers
+        flag_unique_minimizers, confidence_threshold=0.0
 ):
     merge_binary = find_kraken2_binary("merge")
     argv = [
@@ -3942,6 +3942,8 @@ def merge_classification_output(
         argv.append("-F")
     if classified_headers_filename:
         argv.extend(["-c", classified_headers_filename])
+    if confidence_threshold:
+        argv.extend(["-i", repr(confidence_threshold)])
 
     argv.extend([in_filename1, in_filename2])
     subprocess.call(argv)
@@ -3999,6 +4001,14 @@ def classify_multi_dbs(args, filenames=[]):
     classified_out_filename = None
     unclassified_out_filename = None
     mpa_style = False
+    confidence_threshold = getattr(args, "confidence", 0.0)
+    if confidence_threshold < 0 or confidence_threshold > 1:
+        LOG.error(
+            "--confidence, {:f}, must be between 0 and 1 inclusive\n".format(
+                confidence_threshold
+            )
+        )
+        sys.exit(1)
 
     if "report" in args:
         report_filename, args.report = (args.report, None)
@@ -4060,6 +4070,13 @@ def classify_multi_dbs(args, filenames=[]):
     LOG.info("Finished creating and loading merged taxonomy\n")
 
     if not filenames:
+        # The confidence threshold is applied once, by the final merge, to
+        # the combined hit list. Each database is searched with a threshold
+        # of 0 so that a partition's U status means only that the read had no
+        # hits there or failed the minimum-hit-groups test, which is when
+        # classify keeps the unique-minimizer tags that merge counts as hit
+        # groups.
+        args.confidence = 0.0
         for db in dbs:
             args.db = db
             pathname = mktemp(prefix="k2_")
@@ -4108,7 +4125,8 @@ def classify_multi_dbs(args, filenames=[]):
             report_zeroes if final else None,
             mpa_style if final else None,
             args.minimum_hit_groups,
-            flag_unique_minimizers
+            flag_unique_minimizers,
+            confidence_threshold if final else 0.0
         )
 
         progress.progress(1, relative=True)
