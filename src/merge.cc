@@ -468,6 +468,10 @@ void parse_hit_list(char *string, int len,
                 } else if (str_taxid[0] == '-') {
                         taxid = READING_FRAME_BORDER_TAXON;
                         count = READING_FRAME_BORDER_TAXON;
+                } else if (str_count[0] == 'Q') {
+                        // classify --quick prints "taxid:Q" in place of a
+                        // hit list, which carries no counts to merge.
+                        errx(1, "Cannot merge output produced with --quick");
                 } else {
                         int tag = (str_taxid[0] == '*') * (1U << 31);
                         int off = tag == (1U << 31);
