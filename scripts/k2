@@ -4065,7 +4065,10 @@ def classify_multi_dbs(args, filenames=[]):
     LOG.info("Merging output files\n")
     progress = ProgressBar(len(classified_filenames) - 1, 0)
     final = False
-    flag_unique_minimizers = False
+    # Intermediate merges keep the unique-minimizer tags of reads that are
+    # still unclassified, so that the final merge can apply
+    # --minimum-hit-groups to the hit groups of all databases combined.
+    flag_unique_minimizers = True
     while not final:
         if len(classified_filenames) == 2:
             final = True
