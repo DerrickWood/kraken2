@@ -521,7 +521,6 @@ size_t merge_hit_lists(const kraken2::Taxonomy &taxonomy,
                 int final_count = 0;
                 int unique_minimizer_tag =
                     (tc1.taxid < 0 || tc2.taxid < 0) ? (1U << 31) : 0;
-                hit_groups += (unique_minimizer_tag != 0);
                 // We have either encountered a ambigous taxid
                 // or a pair or translated search delimiter.
                 // Do not bother running the LCA on those,
@@ -554,6 +553,15 @@ size_t merge_hit_lists(const kraken2::Taxonomy &taxonomy,
                 }
 
                 total_minimizers += final_count;
+                // classify run-length encodes only identical codes, so every
+                // position of a tagged run is the first k-mer of its own
+                // minimizer lookup, and "*X:2" stands for two hit groups.  A
+                // merged segment is tagged when either input is tagged over the
+                // same positions, so counting its positions counts each lookup
+                // once, however the runs of the two inputs are split.
+                if (unique_minimizer_tag) {
+                        hit_groups += final_count;
+                }
                 merged_hit_list.push_back({final_taxid | unique_minimizer_tag, final_count});
                 if (add_to_hit_counts) {
                         hit_counts[final_taxid] += final_count;
