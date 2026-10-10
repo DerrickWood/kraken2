@@ -211,40 +211,36 @@ public:
 
   bool valid() { return !kraken_str.empty(); }
 
-  void writeToTempFile(const std::string &base_filename, std::vector<taxid_t> *taxa = nullptr) {
+  // Spill file layout: the byte lengths of the five sections (Kraken output,
+  // classified mates 1 and 2, unclassified mates 1 and 2), each a uint64_t,
+  // followed by the sections themselves in the same order.  Every length is
+  // written, including zero, so the reader does not depend on which outputs
+  // are open.
+  static std::string spillFileName(const std::string &spill_prefix, uint64_t block_id) {
     ostringstream oss;
-    oss << base_filename << "." << block_id;
-    ofstream outfile(oss.str());
+    oss << spill_prefix << "." << block_id;
+    return oss.str();
+  }
 
-    size_t n = 0;
-    if (!kraken_str.empty()) {
-      n = kraken_str.size();
-      outfile.write((const char *)&n, sizeof(n));
-      outfile << kraken_str;
-    }
-    if (!classified_out1_str.empty()) {
-      n = classified_out1_str.size();
-      // std::cout << "wrote " << n << " bytes of data" << std::endl;
-      outfile.write((const char *)&n, sizeof(n));
-      outfile << classified_out1_str;
-    }
-    if (!classified_out2_str.empty()) {
-      n = classified_out2_str.size();
-      outfile.write((const char *)&n, sizeof(n));
-      outfile << classified_out2_str;
-    }
-    if (!unclassified_out1_str.empty()) {
-      n = unclassified_out1_str.size();
-      outfile.write((const char *)&n, sizeof(n));
-      outfile << unclassified_out1_str;
-    }
-    if (!unclassified_out2_str.empty()) {
-      n = unclassified_out2_str.size();
-      outfile.write((const char *)&n, sizeof(n));
-      outfile << unclassified_out2_str;
-    }
+  void writeToTempFile(const std::string &spill_prefix) {
+    const std::string filename = spillFileName(spill_prefix, block_id);
+    ofstream outfile(filename, std::ios::binary | std::ios::trunc);
+    if (!outfile)
+      err(EX_CANTCREAT, "unable to create temporary file %s", filename.c_str());
 
-    outfile.flush();
+    const string *sections[] = { &kraken_str, &classified_out1_str,
+                                 &classified_out2_str, &unclassified_out1_str,
+                                 &unclassified_out2_str };
+    for (auto section : sections) {
+      uint64_t n = section->size();
+      outfile.write((const char *)&n, sizeof(n));
+    }
+    for (auto section : sections)
+      outfile.write(section->data(), section->size());
+
+    outfile.close();
+    if (!outfile)
+      err(EX_IOERR, "unable to write temporary file %s", filename.c_str());
   }
 
   void writeToFile(OutputStreamData &outputs) {
@@ -260,46 +256,40 @@ public:
       (*outputs.unclassified_output2) << unclassified_out2_str;
   }
 
-  static void appendOutDataToFile(const std::string &kraken_output_filename, uint64_t block_id, OutputStreamData &outputs) {
-    std::ostringstream in_filename;
-    in_filename << kraken_output_filename << "." << block_id;
-    {
-      std::ifstream in_file(in_filename.str());
+  // Copies a block written by writeToTempFile to the outputs that are open
+  // and removes the file.
+  static void appendOutDataToFile(const std::string &spill_prefix, uint64_t block_id, OutputStreamData &outputs) {
+    const std::string filename = spillFileName(spill_prefix, block_id);
+    ifstream in_file(filename, std::ios::binary);
+    if (!in_file)
+      err(EX_IOERR, "unable to open temporary file %s", filename.c_str());
 
-      size_t n = 0;
-      auto iter = istreambuf_iterator<char>(in_file);
-      if (outputs.kraken_output != nullptr) {
-        in_file.read((char *)&n, sizeof(n));
-        std::copy_n(iter, n, ostreambuf_iterator<char>(*outputs.kraken_output));
-        iter++;
+    std::ostream *streams[] = { outputs.kraken_output,
+                                outputs.classified_output1,
+                                outputs.classified_output2,
+                                outputs.unclassified_output1,
+                                outputs.unclassified_output2 };
+    uint64_t lengths[5];
+    if (!in_file.read((char *)lengths, sizeof(lengths)))
+      errx(EX_IOERR, "temporary file %s is truncated", filename.c_str());
+
+    vector<char> buffer(1024 * 1024);
+    for (int i = 0; i < 5; i++) {
+      uint64_t remaining = lengths[i];
+      while (remaining > 0) {
+        size_t chunk = std::min<uint64_t>(remaining, buffer.size());
+        if (!in_file.read(buffer.data(), chunk))
+          errx(EX_IOERR, "temporary file %s is truncated", filename.c_str());
+        if (streams[i] != nullptr)
+          streams[i]->write(buffer.data(), chunk);
+        remaining -= chunk;
       }
-      if (outputs.classified_output1 != nullptr) {
-        in_file.read((char *)&n, sizeof(n));
-        advance(iter, sizeof(n));
-        std::copy_n(iter, n,
-                    ostreambuf_iterator<char>(*outputs.classified_output1));
-        iter++;
-      }
-      if (outputs.classified_output2 != nullptr) {
-        in_file.read((char *)&n, sizeof(n));
-        std::copy_n(iter, n,
-                    ostreambuf_iterator<char>(*outputs.classified_output2));
-        iter++;
-      }
-      if (outputs.unclassified_output1 != nullptr) {
-        in_file.read((char *)&n, sizeof(n));
-        std::copy_n(iter, n,
-                    ostreambuf_iterator<char>(*outputs.unclassified_output1));
-        iter++;
-      }
-      if (outputs.unclassified_output2 != nullptr) {
-        in_file.read((char *)&n, sizeof(n));
-        std::copy_n(iter, n,
-                    ostreambuf_iterator<char>(*outputs.unclassified_output2));
-      }
-      in_file.close();
     }
-    std::remove(in_filename.str().c_str());
+    if (in_file.peek() != std::char_traits<char>::eof())
+      errx(EX_IOERR, "temporary file %s has trailing data", filename.c_str());
+    in_file.close();
+    if (std::remove(filename.c_str()) != 0)
+      err(EX_IOERR, "unable to remove temporary file %s", filename.c_str());
   }
 
   void write(ifstream &in, ofstream &out) {
@@ -656,6 +646,30 @@ void ReportStats(struct timeval time1, struct timeval time2,
           total_unclassified * 100.0 / stats.total_sequences);
 }
 
+// Returns the path prefix for spill files of blocks that finish out of order.
+// They go next to the Kraken output when it is a regular file, where there is
+// room for output of that size, and otherwise (standard output, a pipe or a
+// device such as /dev/stdout) in TMPDIR or /tmp.  The process ID keeps
+// concurrent runs that share a directory apart.
+static std::string SpillFilePrefix(const Options &opts) {
+  std::string dir;
+  struct stat sb;
+  const std::string &out = opts.kraken_output_filename;
+  if (!out.empty() && out != "-" && stat(out.c_str(), &sb) == 0 &&
+      S_ISREG(sb.st_mode)) {
+    size_t slash = out.find_last_of('/');
+    dir = slash == std::string::npos ? "." : out.substr(0, slash + 1);
+  } else {
+    const char *tmpdir = getenv("TMPDIR");
+    dir = tmpdir != nullptr && *tmpdir != '\0' ? tmpdir : "/tmp";
+  }
+  if (dir.back() != '/')
+    dir += '/';
+  ostringstream oss;
+  oss << dir << "kraken2_spill." << getpid();
+  return oss.str();
+}
+
 void ProcessFiles(const char *filename1, const char *filename2,
     KeyValueStore *hash, Taxonomy &tax,
     IndexOptions &idx_opts, const Options &opts, ClassificationStats &stats,
@@ -707,6 +721,9 @@ void ProcessFiles(const char *filename1, const char *filename2,
   // opened before any block is classified.
   if (have_input)
     InitializeOutputs(opts, outputs, cursor1.format);
+  // Computed after the outputs are opened, so that the Kraken output file
+  // exists and its type can be checked.
+  const std::string spill_prefix = SpillFilePrefix(opts);
 
   // A malformed record is reported after the parallel region, so the output
   // written before it is complete and flushed.
@@ -779,6 +796,12 @@ void ProcessFiles(const char *filename1, const char *filename2,
       }
 
       if (!ok_read) {
+        // Ready blocks are taken from the queue only while holding the output
+        // lock, so no other thread can write a later block before these.  The
+        // lock is waited for rather than tested: every block is queued before
+        // its thread gets here, so the last thread to take the lock writes
+        // whatever is still queued.
+        omp_set_lock(&output_lock);
         #pragma omp critical(output_queue)
         {
           while (!file_queue.empty() && file_queue.top() == next_output_block_id.load()) {
@@ -788,9 +811,8 @@ void ProcessFiles(const char *filename1, const char *filename2,
           }
         }
 
-        omp_set_lock(&output_lock);
         for (auto &next_block : ready_blocks) {
-            OutputData::appendOutDataToFile(opts.kraken_output_filename, next_block, outputs);
+            OutputData::appendOutDataToFile(spill_prefix, next_block, outputs);
         }
         ready_blocks.clear();
         omp_unset_lock(&output_lock);
@@ -899,7 +921,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
       }
 
       if (!omp_test_lock(&output_lock)) {
-        out_data.writeToTempFile(opts.kraken_output_filename);
+        out_data.writeToTempFile(spill_prefix);
         #pragma omp critical(output_queue)
         file_queue.push(out_data.block_id);
       } else {
@@ -920,13 +942,13 @@ void ProcessFiles(const char *filename1, const char *filename2,
             out_data.writeToFile(outputs);
             block_written = true;
           } else {
-            OutputData::appendOutDataToFile(opts.kraken_output_filename, next_block, outputs);
+            OutputData::appendOutDataToFile(spill_prefix, next_block, outputs);
           }
         }
         ready_blocks.clear();
 
         if (!block_written) {
-          out_data.writeToTempFile(opts.kraken_output_filename);
+          out_data.writeToTempFile(spill_prefix);
         }
         omp_unset_lock(&output_lock);
       }
