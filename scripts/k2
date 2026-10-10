@@ -4016,9 +4016,9 @@ def classify_multi_dbs(args, filenames=[]):
 
     if "report_minimizer_data" in args:
         report_minimizer_data = True
-    if "report_zeroes" in args:
+    if "report_zero_counts" in args:
         report_zeroes = True
-        args.report_zeroes = None
+        args.report_zero_counts = None
     if "use_mpa_style" in args:
         mpa_style = True
         args.use_mpa_style = None
