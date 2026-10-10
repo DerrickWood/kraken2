@@ -3670,146 +3670,87 @@ def classify_using_daemon(args, argv):
                     break
 
 
-# TODO: modify to include the scientific name?
-def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
-    fastq = False
-    lines_printed = 0
-    if chr(header[0]) == "@":
-        fastq = True
-    if taxid:
-        header = header.strip() + (" kraken:taxid|" + str(taxid) + "\n").encode()
-    if out_file:
-        out_file.write(header)
-    lines_printed += 1
-
-    while True:
-        if fastq and lines_printed == 4:
-            break
-        if len(in_file.peek()) == 0:
-            break
-        if not fastq and chr(in_file.peek()[0]) == ">":
-            break
+def read_sequence_records(filename):
+    # Yields (identifier, sequence, qualities) for each FASTA or FASTQ record,
+    # where qualities is None for FASTA. The identifier runs up to the first
+    # whitespace, as in classify's reader, and multi-line sequences are joined.
+    with get_reader(filename)(filename, "rb") as in_file:
         line = in_file.readline()
-        if out_file:
-            out_file.write(line)
-        lines_printed += 1
+        while line:
+            line = line.rstrip(b"\r\n")
+            if not line:
+                line = in_file.readline()
+                continue
+            marker = line[:1]
+            fields = line[1:].split(None, 1)
+            identifier = fields[0] if fields else b""
+            if marker == b">":
+                sequence = []
+                line = in_file.readline()
+                while line and not line.startswith(b">"):
+                    sequence.append(line.strip())
+                    line = in_file.readline()
+                yield identifier, b"".join(sequence), None
+            elif marker == b"@":
+                sequence = []
+                line = in_file.readline()
+                while line and not line.startswith(b"+"):
+                    sequence.append(line.strip())
+                    line = in_file.readline()
+                sequence = b"".join(sequence)
+                qualities = []
+                quality_len = 0
+                while quality_len < len(sequence):
+                    line = in_file.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    qualities.append(line)
+                    quality_len += len(line)
+                yield identifier, sequence, b"".join(qualities)
+                line = in_file.readline()
+            else:
+                LOG.error(
+                    "Unrecognized sequence format in {}\n".format(filename)
+                )
+                sys.exit(1)
 
 
-def process_unpaired(
-    input_filenames,
-    classified_out_filename,
-    unclassified_out_filename,
-    classified_headers,
-):
-    if classified_out_filename:
-        classified_out_file = open(classified_out_filename, "wb")
-    if unclassified_out_filename:
-        unclassified_out_file = open(unclassified_out_filename, "wb")
-
-    for filename in input_filenames:
-        with open(filename, "rb") as in_file:
-            for line in in_file:
-                read_name = line.split(b" ", 1)[0]
-                read_name = read_name[1:].strip()
-                classified = read_name.decode() in classified_headers
-                if classified and classified_out_filename:
-                    taxid = classified_headers[read_name.decode()]
-                    write_raw_sequence_to_file(
-                        in_file, classified_out_file, line, taxid
-                    )
-                elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(in_file, unclassified_out_file, line)
-                else:
-                    write_raw_sequence_to_file(in_file, None, line)
-
-    if classified_out_filename:
-        classified_out_file.close()
-    if unclassified_out_filename:
-        unclassified_out_file.close()
+def format_sequence_record(record, minimum_base_quality):
+    # Matches the records classify writes for -C and -U: the identifier
+    # without its comment, the sequence on one line, and for FASTQ a bare
+    # "+" line. Bases below the minimum quality are masked with 'x', as
+    # classify does before writing them.
+    identifier, sequence, qualities = record
+    if qualities is None:
+        return b">" + identifier + b"\n" + sequence + b"\n"
+    if minimum_base_quality > 0:
+        sequence = bytearray(sequence)
+        for i in range(min(len(sequence), len(qualities))):
+            if qualities[i] - 33 < minimum_base_quality:
+                sequence[i] = ord("x")
+        sequence = bytes(sequence)
+    return b"@" + identifier + b"\n" + sequence + b"\n+\n" + qualities + b"\n"
 
 
-def process_paired(
-    input_filenames,
-    classified_out_filename,
-    unclassified_out_filename,
-    classified_headers,
-):
-    if classified_out_filename:
-        classified_out_filename1 = classified_out_filename.replace("#", "_1")
-        classified_out_file1 = open(classified_out_filename1, "wb")
-        classified_out_filename2 = classified_out_filename.replace("#", "_2")
-        classified_out_file2 = open(classified_out_filename2, "wb")
-    if unclassified_out_filename:
-        unclassified_out_filename1 = unclassified_out_filename.replace("#", "_1")
-        unclassified_out_file1 = open(unclassified_out_filename1, "wb")
-        unclassified_out_filename2 = unclassified_out_filename.replace("#", "_2")
-        unclassified_out_file2 = open(unclassified_out_filename2, "wb")
-    for filename1, filename2 in zip(input_filenames[::1], input_filenames[::2]):
-        with open(filename1, "rb") as in_file1, open(filename2, "rb") as in_file2:
-            for line1, line2 in zip(in_file1, in_file2):
-                read_name = line1.split(b" ", 1)[0]
-                read_name = read_name[1:].strip()
-                classified = read_name.decode() in classified_headers
-                if classified and classified_out_filename:
-                    taxid = classified_headers[read_name.decode()]
-                    write_raw_sequence_to_file(
-                        in_file1, classified_out_file1, line1, taxid
-                    )
-                    write_raw_sequence_to_file(
-                        in_file2, classified_out_file2, line2, taxid
-                    )
-                elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(in_file1, unclassified_out_file1, line1)
-                    write_raw_sequence_to_file(in_file2, unclassified_out_file2, line2)
-                else:
-                    write_raw_sequence_to_file(in_file1, None, line1)
-                    write_raw_sequence_to_file(in_file2, None, line2)
-
-    if classified_out_filename:
-        classified_out_file1.close()
-        classified_out_file2.close()
-    if unclassified_out_filename:
-        unclassified_out_file1.close()
-        unclassified_out_file2.close()
+def paired_output_filenames(filename):
+    # Paired output names substitute "_1" and "_2" for a single '#', the
+    # same rule classify applies to -C and -U with paired input.
+    if filename.count("#") != 1:
+        LOG.error(
+            "Paired filename format must contain exactly one # character: "
+            "{}\n".format(filename)
+        )
+        sys.exit(1)
+    return filename.replace("#", "_1"), filename.replace("#", "_2")
 
 
-def process_interleaved(
-    input_filenames,
-    classified_out_filename,
-    unclassified_out_filename,
-    classified_headers,
-):
-    if classified_out_filename:
-        classified_out_file = open(classified_out_filename, "wb")
-    if unclassified_out_filename:
-        unclassified_out_file = open(unclassified_out_filename, "wb")
-
-    for filename in input_filenames:
-        with open(filename, "rb") as in_file:
-            for line in in_file:
-                line2 = in_file.readline()
-                read_name = line.split(b" ", 1)[0]
-                read_name = read_name[1:].strip()
-                classified = read_name.decode() in classified_headers
-                if classified and classified_out_filename:
-                    taxid = classified_headers[read_name.decode()]
-                    write_raw_sequence_to_file(
-                        in_file, classified_out_file, line, taxid
-                    )
-                    write_raw_sequence_to_file(
-                        in_file, classified_out_file, line2, taxid
-                    )
-                elif not classified and unclassified_out_filename:
-                    write_raw_sequence_to_file(in_file, unclassified_out_file, line)
-                    write_raw_sequence_to_file(in_file, unclassified_out_file, line2)
-                else:
-                    write_raw_sequence_to_file(in_file, None, line)
-                    write_raw_sequence_to_file(in_file, None, line2)
-
-    if classified_out_filename:
-        classified_out_file.close()
-    if unclassified_out_filename:
-        unclassified_out_file.close()
+def strip_mate_suffix(identifier):
+    # classify drops a trailing /1 or /2 from paired read names in its
+    # per-read output, which is where merge takes the classified names from.
+    if len(identifier) > 2 and identifier[-2:] in (b"/1", b"/2"):
+        return identifier[:-2]
+    return identifier
 
 
 def write_fasta_sequences(
@@ -3819,29 +3760,57 @@ def write_fasta_sequences(
     unclassified_out_filename,
     classified_headers,
 ):
+    paired = "paired" in args or "interleaved" in args
+    minimum_base_quality = getattr(args, "minimum_base_quality", 0) or 0
+    classified_names = set(name.encode() for name in classified_headers)
+
+    out_filenames = [classified_out_filename, unclassified_out_filename]
+    out_files = []
+    for out_filename in out_filenames:
+        if not out_filename:
+            out_files.append(None)
+        elif paired:
+            filename1, filename2 = paired_output_filenames(out_filename)
+            out_files.append((open(filename1, "wb"), open(filename2, "wb")))
+        else:
+            out_files.append((open(out_filename, "wb"),))
 
     if "paired" in args:
-        process_paired(
-            input_filenames,
-            classified_out_filename,
-            unclassified_out_filename,
-            classified_headers,
+        pairs = zip(
+            itertools.chain.from_iterable(
+                read_sequence_records(f) for f in input_filenames[0::2]
+            ),
+            itertools.chain.from_iterable(
+                read_sequence_records(f) for f in input_filenames[1::2]
+            ),
         )
+        fragments = (list(pair) for pair in pairs)
     elif "interleaved" in args:
-        process_interleaved(
-            input_filenames,
-            classified_out_filename,
-            unclassified_out_filename,
-            classified_headers,
+        records = itertools.chain.from_iterable(
+            read_sequence_records(f) for f in input_filenames
         )
+        fragments = (list(pair) for pair in zip(records, records))
     else:
-        process_unpaired(
-            input_filenames,
-            classified_out_filename,
-            unclassified_out_filename,
-            classified_headers,
+        fragments = (
+            [record]
+            for f in input_filenames
+            for record in read_sequence_records(f)
         )
 
+    for fragment in fragments:
+        name = fragment[0][0]
+        if paired:
+            name = strip_mate_suffix(name)
+        files = out_files[0] if name in classified_names else out_files[1]
+        if files is None:
+            continue
+        for out_file, record in zip(files, fragment):
+            out_file.write(format_sequence_record(record, minimum_base_quality))
+
+    for files in out_files:
+        if files is not None:
+            for out_file in files:
+                out_file.close()
 
 class TaxonomyStruct(ctypes.Structure):
     pass
@@ -4018,6 +3987,11 @@ def classify_multi_dbs(args, filenames=[]):
     if "unclassified_out" in args:
         unclassified_out_filename = args.unclassified_out
         args.unclassified_out = None
+    if "paired" in args or "interleaved" in args:
+        # Checked here so that a bad name fails before classification runs.
+        for out_filename in (classified_out_filename, unclassified_out_filename):
+            if out_filename:
+                paired_output_filenames(out_filename)
     if "use_names" in args:
         use_names = True
         args.use_names = None
@@ -4133,6 +4107,8 @@ def classify_multi_dbs(args, filenames=[]):
         with open(classified_headers_filename, "r") as in_file:
             classified_headers = list(map(lambda line: line.strip(), in_file.readlines()))
         total_seqs = int(classified_headers.pop())
+        # merge writes each classified read name on its own line after a '>'.
+        classified_headers = [name[1:] for name in classified_headers]
 
     num_classified_sequences = len(classified_headers)
     num_unclassified_sequences = total_seqs - num_classified_sequences
