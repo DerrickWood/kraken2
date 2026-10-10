@@ -641,7 +641,7 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                 std::unordered_map<uint64_t, taxid_t> lca_cache;
                 char *fields1[5];
                 char *fields2[5];
-                char scientific_name[500];
+                std::string scientific_name;
 
                 const char *status;
                 const char *taxid;
@@ -800,14 +800,18 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                 }
 
                                 if (use_names) {
-                                        const char *name =
-                                                taxonomy.name_data() +
-                                                taxonomy.nodes()[internal_call].name_offset;
-                                        if (!name) {
-                                                name = "unclassified";
-                                        }
-                                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
-                                        taxid = scientific_name;
+                                        // Match classify: taxid 0 is labeled
+                                        // "unclassified" rather than with
+                                        // the name of the root node.
+                                        const char *name = call
+                                                ? taxonomy.name_data() +
+                                                  taxonomy.nodes()[internal_call].name_offset
+                                                : "unclassified";
+                                        scientific_name.assign(name);
+                                        scientific_name += " (taxid ";
+                                        scientific_name += taxid;
+                                        scientific_name += ")";
+                                        taxid = scientific_name.c_str();
                                 }
                                 if (!merged_hit_list.empty()) {
                                         fprintf(out, "%s\t%s\t%s\t%s\t", status,
@@ -881,7 +885,7 @@ std::tuple<size_t, size_t> merge_classification_output(
 
         char *fields1[5];
         char *fields2[5];
-        char scientific_name[100];
+        std::string scientific_name;
 
         const char *status;
         const char *taxid;
@@ -959,14 +963,17 @@ std::tuple<size_t, size_t> merge_classification_output(
                 }
 
                 if (use_names) {
-                        const char *name =
-                            taxonomy.name_data() +
-                            taxonomy.nodes()[internal_call].name_offset;
-                        if (!name) {
-                                name = "unclassified";
-                        }
-                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
-                        taxid = scientific_name;
+                        // Match classify: taxid 0 is labeled "unclassified"
+                        // rather than with the name of the root node.
+                        const char *name = call
+                            ? taxonomy.name_data() +
+                              taxonomy.nodes()[internal_call].name_offset
+                            : "unclassified";
+                        scientific_name.assign(name);
+                        scientific_name += " (taxid ";
+                        scientific_name += taxid;
+                        scientific_name += ")";
+                        taxid = scientific_name.c_str();
                 }
                 if (!merged_hit_list.empty()) {
                         fprintf(out, "%s\t%s\t%s\t%s\t", status,
