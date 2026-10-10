@@ -4,6 +4,7 @@
  * This file is part of the Kraken 2 taxonomic sequence classification system.
  */
 
+#include <atomic>
 #include <cstdio>
 #include <err.h>
 #include <functional>
