@@ -10,6 +10,7 @@ add_executable(build_db
 
 add_executable(classify
         classify.cc
+        fast_reader.cc
         reports.cc
         mmap_file.cc
         compact_hash.cc
