@@ -107,7 +107,7 @@ The workflow is `.github/workflows/ci.yml`. On a pull request, open the run's **
    It warns, without failing, that there is no `merge` target yet.
 
 A PR that intentionally changes output should include regenerated golden files
-(`tests/update_golden.sh /path/to/install`). Its PR comparison should show the same changes.
+(`tests/update_golden.sh /path/to/install`). Its PR comparison should show the same changes. Golden files that belong to expected-failure checks hold the output expected once the bug is fixed, so `update_golden.sh` leaves them alone unless `E2E_UPDATE_XFAIL_GOLDEN=1` is set; set it only when running against a build in which that bug is fixed.
 
 ## Known bugs marked as expected failures
 

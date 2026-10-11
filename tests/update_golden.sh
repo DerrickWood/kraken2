@@ -8,6 +8,10 @@
 # tests/golden instead of comparing, then reruns it normally to confirm the
 # new files are stable.  Review the resulting diff before committing; the PR
 # summary job in CI shows the same changes read by read.
+#
+# Golden files that belong to expected-failure checks are left unchanged unless
+# E2E_UPDATE_XFAIL_GOLDEN=1 is set; set it only with a build in which the known
+# bug is fixed.
 
 set -euo pipefail
 
@@ -19,7 +23,7 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/k2golden.XXXXXX")
 
-E2E_UPDATE_GOLDEN=1 E2E_XPASS_OK=1 "$here/e2e.sh" "$1" "$work/update" > "$work/update.log" 2>&1 || true
+E2E_UPDATE_GOLDEN=1 E2E_UPDATE_XFAIL_GOLDEN="${E2E_UPDATE_XFAIL_GOLDEN:-0}" E2E_XPASS_OK=1 "$here/e2e.sh" "$1" "$work/update" > "$work/update.log" 2>&1 || true
 "$here/e2e.sh" "$1" "$work/verify"
 
 echo

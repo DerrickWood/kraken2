@@ -103,6 +103,8 @@ xfail_check() {
   local name=$1 reason=$2; shift 2
   wanted "$name" || return 0
   local log="$LOGS/$name.log"
+  # Seen by golden(), which is called from inside CMD.
+  local in_xfail=1
   if "$@" > "$log" 2>&1; then
     n_xpass=$((n_xpass + 1))
     record XPASS "$name" "expected to fail ($reason) but passed; if the bug is fixed, change xfail_check to check in tests/e2e.sh"
@@ -130,11 +132,17 @@ skip() {
 }
 
 # golden NAME FILE  compares FILE with tests/golden/NAME, or refreshes the
-# golden copy when E2E_UPDATE_GOLDEN=1.
+# golden copy when E2E_UPDATE_GOLDEN=1.  Golden files used by an xfail_check
+# hold the output expected once the known bug is fixed, so they are refreshed
+# only when E2E_UPDATE_XFAIL_GOLDEN=1 as well, from a build that has the fix.
 golden() {
   local name=$1 file=$2
   cp "$file" "$ACTUAL/$name"
   if [ "${E2E_UPDATE_GOLDEN:-0}" = 1 ]; then
+    if [ "${in_xfail:-0}" = 1 ] && [ "${E2E_UPDATE_XFAIL_GOLDEN:-0}" != 1 ]; then
+      echo "not updating tests/golden/$name: it belongs to an expected-failure check (set E2E_UPDATE_XFAIL_GOLDEN=1 to update it from a build with the fix)"
+      return 0
+    fi
     cp "$file" "$GOLDEN/$name"
     return 0
   fi
