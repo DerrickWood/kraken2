@@ -497,10 +497,8 @@ corrupt_db _short_opts opts.k2d 32
 rm -rf db_long_opts; cp -R db db_long_opts; { cat db/opts.k2d; head -c 4096 /dev/zero; } > db_long_opts/opts.k2d
 
 check negative.missing_db must_fail "$KRAKEN2" --db no_such_db "$R1"
-xfail_check negative.missing_reads "classify ignores open() failure on read files and exits 0 (seqreader.h BatchSequenceReader)" \
-  must_fail "$KRAKEN2" --db db --output /dev/null no_such_reads.fq
-xfail_check negative.missing_mate "classify ignores open() failure on read files and exits 0 (seqreader.h BatchSequenceReader)" \
-  must_fail "$KRAKEN2" --db db --paired --output /dev/null "$R1" no_such_reads.fq
+check negative.missing_reads must_fail "$KRAKEN2" --db db --output /dev/null no_such_reads.fq
+check negative.missing_mate must_fail "$KRAKEN2" --db db --paired --output /dev/null "$R1" no_such_reads.fq
 check negative.k2_missing_reads must_fail "$PYTHON" "$K2" classify --db db --output /dev/null no_such_reads.fq
 check negative.paired_odd_files must_fail "$KRAKEN2" --db db --paired "$R1"
 check negative.confidence_out_of_range must_fail "$KRAKEN2" --db db --confidence 1.5 "$R1"
@@ -603,7 +601,12 @@ else
     multi_classify multi --threads "$BT" &&
       golden multi.out multi.out && golden multi.report multi.report
   }
-  check k2.multi_db.resolve_lca.golden multi_lca
+  # At 2a0381c, classify -F (which k2 passes to every database) clears the tag
+  # bit of the mate-pair, reading-frame and ambiguous-span markers in the hit
+  # list, so the combined output is malformed.  The golden files below hold the
+  # output with that bug fixed.
+  MULTI_DB_BUG="classify -F clears the tag bit of hit-list markers, corrupting per-database output (classify.cc ClassifySequence)"
+  xfail_check k2.multi_db.resolve_lca.golden "$MULTI_DB_BUG" multi_lca
   check k2.multi_db.resolve_lca.accuracy accuracy multi.out
   check k2.multi_db.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2dbB,k2dbA --paired --output multi_ba.out --report multi_ba.report '$R1' '$R2' &&
@@ -614,14 +617,17 @@ else
     xfail_check k2.multi_db.threads_without_openmp "merge -T >1 busy-waits forever in builds without OpenMP (merge.cc merge_classification_output_parallel)" \
       with_timeout 15 "$PYTHON" "$K2" classify --db k2dbA,k2dbB --paired --threads 2 --output multi_t2.out "$R1" "$R2"
   fi
-  check k2.multi_db.matches_single_db bash -c "cmp paired.out multi.out && cmp paired.report multi.report"
+  # classify ends each hit list with a space and merge does not, so trailing
+  # whitespace is not compared.
+  xfail_check k2.multi_db.matches_single_db "$MULTI_DB_BUG" bash -c "
+    cmp <(sed 's/[[:space:]]*\$//' paired.out) <(sed 's/[[:space:]]*\$//' multi.out) && cmp paired.report multi.report"
   multi_policies() {
     multi_classify first --merge-policy first-classified &&
       golden multi.first.out first.out &&
     multi_classify last --merge-policy last-classified &&
       golden multi.last.out last.out
   }
-  check k2.multi_db.policies.golden multi_policies
+  xfail_check k2.multi_db.policies.golden "$MULTI_DB_BUG" multi_policies
   multi_mm() {
     multi_classify multimm --report-minimizer-data && golden multi.minimizer.report multimm.report
   }

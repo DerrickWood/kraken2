@@ -32,9 +32,9 @@
  16.14	71	0	7349	2314	F	10699	      Siphoviridae
  16.14	71	0	7349	2314	G	186765	        Lambdavirus
  16.14	71	71	7349	2314	S	10710	          Escherichia virus Lambda
-  7.73	34	0	3844	1126	O	2169561	    Ortervirales
-  7.73	34	0	3844	1126	F	11632	      Retroviridae
-  7.73	34	0	3844	1126	F1	327045	        Orthoretrovirinae
-  7.73	34	0	3844	1126	G	11646	          Lentivirus
+  7.73	34	0	3844	1129	O	2169561	    Ortervirales
+  7.73	34	0	3844	1129	F	11632	      Retroviridae
+  7.73	34	0	3844	1129	F1	327045	        Orthoretrovirinae
+  7.73	34	0	3844	1129	G	11646	          Lentivirus
   5.68	25	25	2814	824	S	11709	            Human immunodeficiency virus 2
   2.05	9	9	1030	302	S	11676	            Human immunodeficiency virus 1

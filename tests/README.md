@@ -114,9 +114,9 @@ A PR that intentionally changes output should include regenerated golden files
 | Check | Bug |
 |---|---|
 | `inspect.redirect_keeps_header` | On Linux, `kraken2-inspect --db DB > file` loses the `#` header lines, because `dump_table` reopens `/dev/fd/1` with truncation (`dump_table.cc`, `reports.cc`). Checked as a normal test on macOS. |
-| `negative.missing_reads`, `negative.missing_mate` | `classify` ignores `open()` failure on read files, and so reports 0 sequences and exits 0 (`seqreader.h`, `BatchSequenceReader`) |
 | `negative.long_opts` | An `opts.k2d` larger than 64 bytes is read into a stack struct and crashes `classify` (`classify.cc`) |
 | `negative.names_dmp_without_trailer` | A `names.dmp` without a trailing tab-pipe gives every taxon an empty name, with no error (`taxonomy.cc`) |
 | `build.orphan_taxid_reported` | `kraken2-build` silently drops sequences whose taxid is absent from `nodes.dmp` (`taxonomy.cc` `MarkNode`). `k2 build` reports them. |
 | `k2.build.cht_cell_40` | 40-bit cells with fewer than 129 taxa lose key bits in `int` shifts (`compact_hash.h` `CompactHashCell40::hashed_key`) |
+| `k2.multi_db.resolve_lca.golden`, `k2.multi_db.matches_single_db`, `k2.multi_db.policies.golden` | With `-F`, which `k2` passes to `classify` for every database, `classify` clears the tag bit of the mate-pair, reading-frame and ambiguous-span markers, so their hit-list entries are printed as taxids read from before the node array and `merge` combines malformed input (`classify.cc` `ClassifySequence`). The golden files hold the output with this fixed. |
 | `k2.multi_db.threads_without_openmp` | In a build without OpenMP, `merge -T 2` busy-waits forever (`merge.cc` `merge_classification_output_parallel`). Checked only in that build. |
