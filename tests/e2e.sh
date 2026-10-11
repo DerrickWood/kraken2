@@ -609,12 +609,7 @@ else
     multi_classify multi --threads "$BT" &&
       golden multi.out multi.out && golden multi.report multi.report
   }
-  # At 2a0381c, classify -F (which k2 passes to every database) clears the tag
-  # bit of the mate-pair, reading-frame and ambiguous-span markers in the hit
-  # list, so the combined output is malformed.  The golden files below hold the
-  # output with that bug fixed.
-  MULTI_DB_BUG="classify -F clears the tag bit of hit-list markers, corrupting per-database output (classify.cc ClassifySequence)"
-  xfail_check k2.multi_db.resolve_lca.golden "$MULTI_DB_BUG" multi_lca
+  check k2.multi_db.resolve_lca.golden multi_lca
   check k2.multi_db.resolve_lca.accuracy accuracy multi.out
   check k2.multi_db.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2dbB,k2dbA --paired --output multi_ba.out --report multi_ba.report '$R1' '$R2' &&
@@ -627,7 +622,7 @@ else
   fi
   # classify ends each hit list with a space and merge does not, so trailing
   # whitespace is not compared.
-  xfail_check k2.multi_db.matches_single_db "$MULTI_DB_BUG" bash -c "
+  check k2.multi_db.matches_single_db bash -c "
     cmp <(sed 's/[[:space:]]*\$//' paired.out) <(sed 's/[[:space:]]*\$//' multi.out) && cmp paired.report multi.report"
   multi_policies() {
     multi_classify first --merge-policy first-classified &&
@@ -635,7 +630,7 @@ else
     multi_classify last --merge-policy last-classified &&
       golden multi.last.out last.out
   }
-  xfail_check k2.multi_db.policies.golden "$MULTI_DB_BUG" multi_policies
+  check k2.multi_db.policies.golden multi_policies
   multi_mm() {
     multi_classify multimm --report-minimizer-data && golden multi.minimizer.report multimm.report
   }
