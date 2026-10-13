@@ -56,7 +56,7 @@ lookup_accession_numbers: lookup_accession_numbers.o mmap_file.o omp_hack.o util
 	$(CXX) $(CXXFLAGS) -o $@ lookup_accession_numbers.o mmap_file.o omp_hack.o utilities.o $(LDFLAGS)
 
 k2mask: k2mask.o seqreader.o
-	$(CXX) $(CXXFLAGS) -o $@ k2mask.o seqreader.o $(LDFLAGS) -lz -pthread
+	$(CXX) $(CXXFLAGS) -o $@ k2mask.o fast_reader.o $(LDFLAGS) -lz -pthread
 
 merge: merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o omp_hack.o
 	$(CXX) $(CXXFLAGS) -o $@ merge.o taxonomy.o reports.o mmap_file.o utilities.o hyperloglogplus.o omp_hack.o -lc

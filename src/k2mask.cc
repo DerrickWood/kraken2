@@ -6,8 +6,9 @@
 #include <algorithm>
 #include <deque>
 #include <functional>
-#include <future>
 #include <iostream>
+#include <iterator>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <queue>
@@ -17,11 +18,13 @@
 #include <string.h>
 #include <zlib.h>
 
-#include "gzstream.h"
-#include "seqreader.h"
-#include "threadpool.h"
+#include "fast_reader.h"
 
 using namespace kraken2;
+
+static std::mutex output_lock;
+static std::mutex block_lock;
+std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> pending_blocks;
 
 uint8_t asc2dna[] = {
   /*   0 */ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -46,6 +49,8 @@ uint8_t asc2dna[] = {
   /* 224 */ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
   /* 240 */ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
 };
+
+static const size_t INPUT_BLOCK_BYTES = 8 * 1024 * 1024;
 
 struct PerfectInterval {
   int start;
@@ -77,7 +82,7 @@ struct SDust {
   std::deque<int> kmers;
   std::vector<PerfectInterval> perfectIntervals;
   std::vector<MaskRange> ranges;
-  Sequence seq;
+  SeqView *seq;
   int cw[64];
   int cv[64];
   int rw;
@@ -223,46 +228,148 @@ void runSymmetricDust(SDust &sd, char *seq, size_t size, int offset) {
     saveMaskedRegions(sd, windowStart++);
 }
 
-void printFasta(Sequence& seq, std::ostream &out, int width) {
+void printSequence(SeqView *seq, std::ostream &out, int width) {
   out << ">";
-  out.write(&seq.header[0], seq.header.size());
-  if (seq.comment.size() > 0) {
+  out.write(seq->header, seq->header_len);
+  if (seq->comment_len) {
     out << " ";
-    out.write(&seq.comment[0], seq.comment.size());
+    out.write(seq->comment, seq->comment_len);
   }
-  out << '\n';
-  for (size_t i = 0; i < seq.seq.size(); i += width) {
-    if (i + width >= seq.seq.size())
-      width = seq.seq.size() - i;
-    out.write(&seq.seq[i], width);
+  out << "\n";
+  for (size_t i = 0; i < seq->seq_len; i += width) {
+    if (i + width >= seq->seq_len)
+      width = seq->seq_len - i;
+    out.write(seq->seq + i, width);
     out << '\n';
   }
-  out.flush();
 }
 
-SDust *mask(SDust *sd) {
+void mask(SDust &sd) {
   size_t i = 0;
-  std::string &seq = sd->seq.seq;
+  char *seq = sd.seq->seq_mutable();
+  size_t seq_len = sd.seq->seq_len;
 
-  for (; i < seq.size(); i++) {
+  for (; i < seq_len; i++) {
     if (asc2dna[(int)seq[i]] != 4) {
       int start = i;
       for (;;) {
         seq[i] = toupper(seq[i]);
-        if ((i + 1) == seq.size() || asc2dna[(int)seq[i + 1]] == 4)
+        if ((i + 1) == seq_len || asc2dna[(int)seq[i + 1]] == 4)
           break;
         i++;
       }
       char *s = &seq[0] + start;
-      runSymmetricDust(*sd, s, i - start + 1, start);
-      for (size_t j = 0; j < sd->ranges.size(); j++) {
-        for (int i = sd->ranges[j].start; i < sd->ranges[j].finish; i++)
+      runSymmetricDust(sd, s, i - start + 1, start);
+      for (size_t j = 0; j < sd.ranges.size(); j++) {
+        for (int i = sd.ranges[j].start; i < sd.ranges[j].finish; i++)
           s[i] = processMaskedNucleotide(s[i]);
       }
-      sd->reset();
+      sd.reset();
     }
   }
-  return sd;
+}
+
+void flushOutput(FastReader &reader, std::ofstream &outfile, size_t width) {
+  for (size_t i = 0; i < reader.size(); i++) {
+    printSequence(&reader.at(i), outfile, width);
+  }
+}
+
+void appendPendingData(std::ofstream &outfile, const std::string &in_filename) {
+  {
+    std::ifstream in(in_filename);
+    std::copy(std::istreambuf_iterator<char>(in),
+              std::istreambuf_iterator<char>(),
+              std::ostreambuf_iterator<char>(outfile));
+  }
+  std::remove(in_filename.c_str());
+}
+
+void processInput(int fd, StreamCursor &cursor, std::ofstream &outfile, const std::string &filename, int width, std::atomic<size_t> &input_block_number, std::atomic<size_t> &next_output_block_number) {
+  bool ok_read = false;
+  FastReader reader;
+  SDust sd;
+  size_t block_number;
+  std::ostringstream oss;
+  std::vector<size_t> ready_blocks;
+
+  while (true) {
+    oss.str("");
+    ready_blocks.clear();
+    // assume we have to save to a temp file. This variable will be
+    // set to false later if we do not have to.
+    bool save_to_temp_file = true;
+
+    {
+      std::lock_guard<std::mutex> lg(output_lock);
+      ok_read = reader.LoadBlock(fd, cursor, INPUT_BLOCK_BYTES);
+      block_number = input_block_number.load();
+      input_block_number.fetch_add(1);
+    }
+    if (!ok_read) {
+      {
+        std::lock_guard<std::mutex> lk(block_lock);
+        pending_blocks.push(block_number);
+        while (!pending_blocks.empty() && pending_blocks.top() == next_output_block_number.load()) {
+          ready_blocks.push_back(pending_blocks.top());
+          pending_blocks.pop();
+          next_output_block_number.fetch_add(1);
+        }
+      }
+      std::unique_lock<std::mutex> lk(output_lock);
+      for (auto &next_block : ready_blocks) {
+        oss << filename << "." << next_block;
+        appendPendingData(outfile, oss.str());
+        oss.str("");
+      }
+      break;
+    }
+
+    reader.Parse();
+    size_t read_index = 0;
+
+    while (read_index < reader.size()) {
+      sd.seq = &reader.at(read_index);
+      read_index += 1;
+      mask(sd);
+      sd.reset();
+    }
+
+    read_index = 0;
+    bool block_added = false;
+    if (output_lock.try_lock()) {
+      {
+        std::lock_guard<std::mutex> lk(block_lock);
+        pending_blocks.push(block_number);
+        block_added = true;
+        while (!pending_blocks.empty() && pending_blocks.top() == next_output_block_number.load()) {
+          ready_blocks.push_back(pending_blocks.top());
+          pending_blocks.pop();
+          next_output_block_number.fetch_add(1);
+        }
+      }
+      for (size_t i = 0; i < ready_blocks.size(); i++) {
+        if (ready_blocks[i] == block_number) {
+          flushOutput(reader, outfile, width);
+          save_to_temp_file = false;
+        } else {
+          oss << filename << "." << ready_blocks[i];
+          appendPendingData(outfile, oss.str());
+          oss.str("");
+        }
+      }
+      output_lock.unlock();
+    }
+
+    if (save_to_temp_file) {
+      oss << filename << "." << block_number;
+      std::ofstream temp(oss.str());
+      flushOutput(reader, temp, width);
+      std::lock_guard<std::mutex> lk(block_lock);
+      if (!block_added)
+        pending_blocks.push(block_number);
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -350,37 +457,30 @@ int main(int argc, char **argv) {
   }
   auto outputFileMode = std::ios::out | std::ios::trunc;
   std::ofstream out(outfile, outputFileMode);
-  std::vector<SDust *> sds(threads);
-  for (size_t i = 0; i < sds.size(); i++) {
-    sds[i] = new SDust();
+
+  // new way
+  int fd = infile == "/dev/stdin" ? fileno(stdin) : open(infile.c_str(), O_RDONLY);
+  StreamCursor cursor;
+  bool have_input = PrimeStream(fd, cursor);
+  if (!have_input) {
+    return 0;
   }
-  thread_pool pool(threads - 1);
-  std::queue<std::future<SDust *>> tasks;
-  BatchSequenceReader reader(infile.c_str());
-  for (SDust *sd = sds.back(); reader.NextSequence(sd->seq); sd = sds.back()) {
-    sds.pop_back();
-    if (threads > 1) {
-      tasks.push(pool.submit(mask, sd));
-      while (sds.empty()) {
-        sd = tasks.front().get();
-        printFasta(sd->seq, out, lineWidth);
-        tasks.pop();
-        sd->reset();
-        sds.push_back(sd);
-      }
-    } else {
-      mask(sd);
-      printFasta(sd->seq, out, lineWidth);
-      sds.push_back(sd);
-    }
+  std::vector<std::thread> workers;
+  workers.reserve(threads - 1);
+  std::atomic<size_t> input_block_number{0};
+  std::atomic<size_t> next_output_block_number{0};
+
+  for (auto i = 0; i < threads; i++) {
+    workers.emplace_back(processInput, fd, std::ref(cursor), std::ref(out), std::cref(outfile), lineWidth,
+                  std::ref(input_block_number), std::ref(next_output_block_number));
   }
-  while (!tasks.empty()) {
-    SDust *sd = tasks.front().get();
-    printFasta(sd->seq, out, lineWidth);
-    tasks.pop();
+
+  processInput(fd, cursor, out, outfile, lineWidth, input_block_number,
+               next_output_block_number);
+
+  for (auto &worker : workers) {
+    worker.join();
   }
-  for (size_t i = 0; i < sds.size(); i++)
-    delete (sds[i]);
-  out.flush();
-  remove("masked_sequences.txt");
+
+  return 0;
 }
