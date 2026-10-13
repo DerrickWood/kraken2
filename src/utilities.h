@@ -8,11 +8,11 @@
 #define KRAKEN2_UTILITIES_H_
 
 #include "kraken2_headers.h"
+#include "fast_reader.h"
 #include <vector>
 #include <inttypes.h>
 
 // Functions used by 2+ programs that I couldn't think of a better place for.
-
 namespace kraken2 {
 
 // Turns a simple bitstring of 0s and 1s into one where the 1s and 0s are expanded,
@@ -63,6 +63,84 @@ private:
   size_t num_ones;
   std::vector<size_t> vec;
   const size_t block_size = sizeof(size_t) * 8;
+};
+
+class BlockSaver {
+public:
+  virtual void saveBlock(FastReader &reader, size_t block_id, const std::string &filename, void (*callback)(FastReader &reader, std::ostream &outfile, int width), int width) = 0;
+  virtual std::istream &getNextBlock(size_t block_id) = 0;
+  virtual void finish(std::istream &input) = 0;
+};
+
+class FileSaver : public BlockSaver {
+  void saveBlock(FastReader &reader, size_t block_id, const std::string &filename,
+                 void (*callback)(FastReader &reader,
+                                  std::ostream &outfile, int width),
+                 int width) {
+    oss << filename << "." << block_id;
+    std::ofstream out(oss.str());
+    callback(reader, out, width);
+    oss.str("");
+  }
+
+  std::istream &getNextBlock(size_t block_id) {
+    oss << base_filename << "." << block_id;
+    in_file.open(oss.str());
+
+    return in_file;
+  }
+
+  void finish(std::istream &s) { in_file.close(); }
+
+private:
+  std::ostringstream oss;
+  std::string base_filename;
+  std::ifstream in_file;
+};
+
+class BufferSaver : public BlockSaver {
+  struct BlockData {
+    std::stringstream ss;
+    size_t block_id;
+
+    bool operator>(BlockData &rhs) const {
+      return block_id > rhs.block_id;
+    }
+  };
+
+  void saveBlock(FastReader &reader, size_t block_id,
+                 const std::string &filename,
+                 void (*callback)(FastReader &reader, std::ostream &outfile,
+                                  int width),
+                 int width) {
+    std::unique_lock<std::mutex> lk(mutex);
+    if (buffers.empty()) {
+      buffers.emplace_back(std::stringstream());
+    }
+    callback(reader, buffers.back(), width);
+    pending_blocks.emplace(buffers.back(), block_id);
+    buffers.pop_back();
+  }
+
+  std::istream &getNextBlock(size_t block_id) {
+    std::unique_lock<std::mutex> lk(mutex);
+    BlockData &d = const_cast<BlockData &>(pending_blocks.top());
+    pending_blocks.pop();
+    return d.ss;
+  }
+
+  void finish(std::istream &s) {
+    std::unique_lock<std::mutex> lk(mutex);
+    buffers.emplace_back(static_cast<std::stringstream &>(s));
+    buffers.back().clear();
+  }
+
+private:
+  std::priority_queue<BlockData, std::vector<BlockData>,
+                      std::greater<BlockData>>
+      pending_blocks;
+  std::vector<std::stringstream> buffers;
+  std::mutex mutex;
 };
 
 } // namespace kraken2
