@@ -5,26 +5,40 @@
 
 #include <algorithm>
 #include <deque>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <iterator>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include <queue>
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <zlib.h>
 
 #include "fast_reader.h"
 
 using namespace kraken2;
 
+// input_lock serializes reads from the input stream. output_lock guards the
+// output stream, pending_blocks and next_output_block, so blocks are written
+// in input order.
+static std::mutex input_lock;
 static std::mutex output_lock;
-static std::mutex block_lock;
-std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> pending_blocks;
+static std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> pending_blocks;
+static size_t next_output_block = 0;
+
+// Directory for blocks that finish masking before the blocks ahead of them
+// have been written. Spilling them to disk bounds memory use.
+static std::string spill_dir;
 
 uint8_t asc2dna[] = {
   /*   0 */ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -269,106 +283,84 @@ void mask(SDust &sd) {
   }
 }
 
-void flushOutput(FastReader &reader, std::ofstream &outfile, size_t width) {
+void flushOutput(FastReader &reader, std::ostream &out, size_t width) {
   for (size_t i = 0; i < reader.size(); i++) {
-    printSequence(&reader.at(i), outfile, width);
+    printSequence(&reader.at(i), out, width);
   }
 }
 
-void appendPendingData(std::ofstream &outfile, const std::string &in_filename) {
-  {
-    std::ifstream in(in_filename);
-    std::copy(std::istreambuf_iterator<char>(in),
-              std::istreambuf_iterator<char>(),
-              std::ostreambuf_iterator<char>(outfile));
-  }
-  std::remove(in_filename.c_str());
+std::string spillPath(size_t block_number) {
+  return spill_dir + "/block." + std::to_string(block_number);
 }
 
-void processInput(int fd, StreamCursor &cursor, std::ofstream &outfile, const std::string &filename, int width, std::atomic<size_t> &input_block_number, std::atomic<size_t> &next_output_block_number) {
-  bool ok_read = false;
+void fail(const std::string &what) {
+  std::cerr << "k2mask: " << what << ": " << strerror(errno) << std::endl;
+  std::exit(1);
+}
+
+// Writes every spilled block that is next in input order.  The caller holds
+// output_lock.
+void writeReadySpilledBlocks(std::ostream &out) {
+  while (!pending_blocks.empty() && pending_blocks.top() == next_output_block) {
+    std::string path = spillPath(next_output_block);
+    {
+      std::ifstream in(path, std::ios::binary);
+      if (!in)
+        fail("cannot open " + path);
+      // Inserting an empty streambuf would set failbit on out.
+      if (in.peek() != std::ifstream::traits_type::eof())
+        out << in.rdbuf();
+    }
+    std::remove(path.c_str());
+    pending_blocks.pop();
+    next_output_block++;
+  }
+}
+
+void processInput(int fd, StreamCursor &cursor, std::ostream &out, int width,
+                  size_t &input_block_number) {
   FastReader reader;
   SDust sd;
-  size_t block_number;
-  std::ostringstream oss;
-  std::vector<size_t> ready_blocks;
 
   while (true) {
-    oss.str("");
-    ready_blocks.clear();
-    // assume we have to save to a temp file. This variable will be
-    // set to false later if we do not have to.
-    bool save_to_temp_file = true;
-
+    size_t block_number;
     {
-      std::lock_guard<std::mutex> lg(output_lock);
-      ok_read = reader.LoadBlock(fd, cursor, INPUT_BLOCK_BYTES);
-      block_number = input_block_number.load();
-      input_block_number.fetch_add(1);
-    }
-    if (!ok_read) {
-      {
-        std::lock_guard<std::mutex> lk(block_lock);
-        pending_blocks.push(block_number);
-        while (!pending_blocks.empty() && pending_blocks.top() == next_output_block_number.load()) {
-          ready_blocks.push_back(pending_blocks.top());
-          pending_blocks.pop();
-          next_output_block_number.fetch_add(1);
-        }
-      }
-      std::unique_lock<std::mutex> lk(output_lock);
-      for (auto &next_block : ready_blocks) {
-        oss << filename << "." << next_block;
-        appendPendingData(outfile, oss.str());
-        oss.str("");
-      }
-      break;
+      std::lock_guard<std::mutex> lg(input_lock);
+      if (!reader.LoadBlock(fd, cursor, INPUT_BLOCK_BYTES))
+        break;
+      block_number = input_block_number++;
     }
 
     reader.Parse();
-    size_t read_index = 0;
-
-    while (read_index < reader.size()) {
-      sd.seq = &reader.at(read_index);
-      read_index += 1;
+    for (size_t i = 0; i < reader.size(); i++) {
+      sd.seq = &reader.at(i);
       mask(sd);
       sd.reset();
     }
 
-    read_index = 0;
-    bool block_added = false;
-    if (output_lock.try_lock()) {
-      {
-        std::lock_guard<std::mutex> lk(block_lock);
-        pending_blocks.push(block_number);
-        block_added = true;
-        while (!pending_blocks.empty() && pending_blocks.top() == next_output_block_number.load()) {
-          ready_blocks.push_back(pending_blocks.top());
-          pending_blocks.pop();
-          next_output_block_number.fetch_add(1);
-        }
+    // Write the block directly if it is next and the output is free;
+    // otherwise spill it and let whichever thread reaches it write it.
+    {
+      std::unique_lock<std::mutex> lk(output_lock, std::try_to_lock);
+      if (lk.owns_lock() && block_number == next_output_block) {
+        flushOutput(reader, out, width);
+        next_output_block++;
+        writeReadySpilledBlocks(out);
+        continue;
       }
-      for (size_t i = 0; i < ready_blocks.size(); i++) {
-        if (ready_blocks[i] == block_number) {
-          flushOutput(reader, outfile, width);
-          save_to_temp_file = false;
-        } else {
-          oss << filename << "." << ready_blocks[i];
-          appendPendingData(outfile, oss.str());
-          oss.str("");
-        }
-      }
-      output_lock.unlock();
     }
 
-    if (save_to_temp_file) {
-      oss << filename << "." << block_number;
-      std::ofstream temp(oss.str());
+    std::string path = spillPath(block_number);
+    {
+      std::ofstream temp(path, std::ios::binary | std::ios::trunc);
       flushOutput(reader, temp, width);
-      std::lock_guard<std::mutex> lk(block_lock);
-      if (!block_added)
-        pending_blocks.push(block_number);
+      temp.close();
+      if (!temp)
+        fail("cannot write " + path);
     }
+    std::lock_guard<std::mutex> lk(output_lock);
+    pending_blocks.push(block_number);
+    writeReadySpilledBlocks(out);
   }
 }
 
@@ -427,9 +419,8 @@ int main(int argc, char **argv) {
       outfile = optarg;
       break;
     case 't':
-      // Number of threads. If _n_ threads are specified,
-      // _n - 1_ threads will be used for masking and the
-      // final thread used to manage I/O.
+      // Number of threads. Each thread reads, masks and writes whole
+      // blocks; output stays in input order.
       threads = atoi(optarg);
       break;
     case 'r': {
@@ -457,30 +448,52 @@ int main(int argc, char **argv) {
   }
   auto outputFileMode = std::ios::out | std::ios::trunc;
   std::ofstream out(outfile, outputFileMode);
+  if (!out)
+    fail("cannot open " + outfile);
 
-  // new way
   int fd = infile == "/dev/stdin" ? fileno(stdin) : open(infile.c_str(), O_RDONLY);
+  if (fd < 0)
+    fail("cannot open " + infile);
   StreamCursor cursor;
   bool have_input = PrimeStream(fd, cursor);
   if (!have_input) {
     return 0;
   }
-  std::vector<std::thread> workers;
-  workers.reserve(threads - 1);
-  std::atomic<size_t> input_block_number{0};
-  std::atomic<size_t> next_output_block_number{0};
 
-  for (auto i = 0; i < threads; i++) {
-    workers.emplace_back(processInput, fd, std::ref(cursor), std::ref(out), std::cref(outfile), lineWidth,
-                  std::ref(input_block_number), std::ref(next_output_block_number));
+  if (threads < 1)
+    threads = 1;
+  if (threads > 1) {
+    const char *tmpdir = getenv("TMPDIR");
+    std::string tmpl = std::string(tmpdir && *tmpdir ? tmpdir : "/tmp") +
+                       "/k2mask.XXXXXX";
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    if (mkdtemp(buf.data()) == NULL)
+      fail("cannot create a temporary directory from " + tmpl);
+    spill_dir = buf.data();
   }
 
-  processInput(fd, cursor, out, outfile, lineWidth, input_block_number,
-               next_output_block_number);
+  // The calling thread is one of the `threads` masking threads.
+  size_t input_block_number = 0;
+  std::vector<std::thread> workers;
+  workers.reserve(threads - 1);
+  for (auto i = 0; i < threads - 1; i++) {
+    workers.emplace_back(processInput, fd, std::ref(cursor), std::ref(out),
+                         lineWidth, std::ref(input_block_number));
+  }
+
+  processInput(fd, cursor, out, lineWidth, input_block_number);
 
   for (auto &worker : workers) {
     worker.join();
   }
+
+  if (!spill_dir.empty())
+    rmdir(spill_dir.c_str());
+
+  out.flush();
+  if (!out)
+    fail("cannot write " + outfile);
 
   return 0;
 }

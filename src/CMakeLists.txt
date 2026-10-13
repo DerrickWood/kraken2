@@ -46,7 +46,7 @@ add_executable(lookup_accession_numbers
 
 add_executable(k2mask
         k2mask.cc
-        seqreader.cc)
+        fast_reader.cc)
 
 add_executable(blast_to_fasta
         blast_to_fasta.c
