@@ -701,9 +701,9 @@ else
   }
   MR1="$READS/mhg_1.fq"
   MR2="$READS/mhg_2.fq"
-  xfail_check k2.multi_db.three.min_hit_groups_matches_single_db "k2 merges without -F, so hit groups from databases merged first are not counted (scripts/k2, merge.cc)" \
+  check k2.multi_db.three.min_hit_groups_matches_single_db \
     mhg_matches_single "$DB3" mhg3
-  xfail_check k2.multi_db.four.min_hit_groups_matches_single_db "k2 merges without -F, so hit groups from databases merged first are not counted (scripts/k2, merge.cc)" \
+  check k2.multi_db.four.min_hit_groups_matches_single_db \
     mhg_matches_single "$DB4" mhg4
 
   k2_orphan() {
