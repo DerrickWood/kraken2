@@ -1598,7 +1598,7 @@ void usage(int exit_code) {
        << "* -t filename      Kraken 2 taxonomy filename" << endl
        << "* -o filename      Kraken 2 options filename" << endl
        << "  -q               Quick mode" << endl
-       << "  -c               Ensure pairs are ordered (stop classification otherwise)"
+       << "  -c               Ensure pairs are ordered (stop classification otherwise)" << endl
        << "  -M               Use memory mapping to access hash & taxonomy" << endl
        << "  -T NUM           Confidence score threshold (def. 0)" << endl
        << "  -p NUM           Number of threads (def. 1)" << endl
