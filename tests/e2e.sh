@@ -643,6 +643,69 @@ else
   }
   check k2.multi_db.missing_seqid2taxid_fails multi_missing_map
 
+  # Three- and four-way splits.  The influenza A subtypes, the HIV types and
+  # the betacoronaviruses are spread across databases, so many calls depend
+  # on combining hits from several of them.  k2 merges the per-database
+  # outputs pairwise, so these exercise merges of already merged output,
+  # which two databases never reach.
+  split_more() {
+    local d="$REPO/data"
+    cat "$d/FluA_H1N1.fa" "$d/FluA_H2N2.fa" "$d/HIV_1.fa" "$d/COVID_19.fa" > lib3a.fa
+    cat "$d/FluA_H3N2.fa" "$d/HIV_2.fa" "$d/SARS.fa" "$d/Lambda.fa" > lib3b.fa
+    cat "$d/FluB.fa" "$d/MERS.fa" > lib3c.fa
+    cat "$d/FluA_H1N1.fa" "$d/HIV_1.fa" "$d/COVID_19.fa" > lib4a.fa
+    cat "$d/FluA_H2N2.fa" "$d/HIV_2.fa" "$d/SARS.fa" > lib4b.fa
+    cat "$d/FluA_H3N2.fa" "$d/Lambda.fa" > lib4c.fa
+    cat "$d/FluB.fa" "$d/MERS.fa" > lib4d.fa
+    local x
+    for x in 3a 3b 3c 4a 4b 4c 4d; do
+      k2_build k2db$x --threads "$BT" -- lib$x.fa || return 1
+    done
+  }
+  check k2.multi_db.split_3_and_4.build split_more
+  DB3=k2db3a,k2db3b,k2db3c
+  DB4=k2db4a,k2db4b,k2db4c,k2db4d
+
+  same_ignoring_trailing_space() {
+    cmp <(sed 's/[[:space:]]*$//' "$1") <(sed 's/[[:space:]]*$//' "$2")
+  }
+  # matches_single DBS NAME SINGLE_PREFIX [k2 classify args]  classifies the
+  # fixture reads with DBS and compares output and report with the
+  # single-database files SINGLE_PREFIX.out and SINGLE_PREFIX.report.
+  matches_single() {
+    local dbs=$1 name=$2 single=$3; shift 3
+    k2 classify --db "$dbs" --paired --output "$name.out" --report "$name.report" "$@" "$R1" "$R2" &&
+      same_ignoring_trailing_space "$single.out" "$name.out" &&
+      cmp "$single.report" "$name.report"
+  }
+  check k2.multi_db.three.matches_single_db matches_single "$DB3" multi3 paired
+  check k2.multi_db.four.matches_single_db matches_single "$DB4" multi4 paired
+  check k2.multi_db.four.order_independent bash -c "
+    '$PYTHON' '$K2' classify --db k2db4d,k2db4b,k2db4a,k2db4c --paired --output multi4_r.out --report multi4_r.report '$R1' '$R2' &&
+    cmp multi4.out multi4_r.out && cmp multi4.report multi4_r.report"
+  xfail_check k2.multi_db.three.confidence_matches_single_db "merge does not apply --confidence, so multi-database runs keep calls a single database drops (merge.cc)" \
+    matches_single "$DB3" multi3_c05 c05 --confidence 0.5
+
+  # tests/data/mhg_*.fq hold read pairs whose calls at --minimum-hit-groups 5
+  # and 10 differ between a single database and these splits when hit groups
+  # are not combined correctly across more than two databases.
+  mhg_matches_single() {
+    # mhg_matches_single DBS NAME
+    local dbs=$1 name=$2 m
+    for m in 5 10; do
+      "$KRAKEN2" --db db --paired --minimum-hit-groups $m --output "mhg_single.$m.out" \
+        "$MR1" "$MR2" 2> /dev/null &&
+      k2 classify --db "$dbs" --paired --minimum-hit-groups $m --output "$name.$m.out" "$MR1" "$MR2" &&
+      same_ignoring_trailing_space "mhg_single.$m.out" "$name.$m.out" || return 1
+    done
+  }
+  MR1="$READS/mhg_1.fq"
+  MR2="$READS/mhg_2.fq"
+  xfail_check k2.multi_db.three.min_hit_groups_matches_single_db "k2 merges without -F, so hit groups from databases merged first are not counted (scripts/k2, merge.cc)" \
+    mhg_matches_single "$DB3" mhg3
+  xfail_check k2.multi_db.four.min_hit_groups_matches_single_db "k2 merges without -F, so hit groups from databases merged first are not counted (scripts/k2, merge.cc)" \
+    mhg_matches_single "$DB4" mhg4
+
   k2_orphan() {
     rm -rf k2orph; new_db_dir k2orph
     k2 add-to-library --db k2orph --files orph.fa || return 1
