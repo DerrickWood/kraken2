@@ -11,6 +11,7 @@ reference set in `data/`, which has 38 sequences, 40 taxa and a 420 KB hash tabl
 | `k2db_check.py DB` | Header-only sanity check of a built database (load, bit budgets, orphans) |
 | `data/sim_1.fq`, `data/sim_2.fq` | Frozen reads: 400 simulated pairs, 20 chimeric tie pairs, 20 random pairs |
 | `data/make_reads.sh` | How those reads were made (rerun only on purpose) |
+| `data/mhg_1.fq`, `data/mhg_2.fq` | 18 read pairs whose calls at `--minimum-hit-groups` 5 and 10 depend on combining hit groups across three or more databases |
 | `golden/` | Expected `--output`, `--report` and `kraken2-inspect` files |
 
 ## Running locally
@@ -60,7 +61,10 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
 - **k2.** `k2 add-to-library`, `k2 build`, `k2 classify` and `k2 inspect` must agree with the
   Perl front end. Multi-database classification uses two databases that split the
   references. It is checked against golden files for each `--merge-policy`, against the
-  single-database result, and for order independence.
+  single-database result, and for order independence. Three- and four-way splits, which
+  spread the influenza A subtypes, the HIV types and the betacoronaviruses across databases,
+  must also match the single-database output and report, including with `--confidence 0.5`
+  and, on `data/mhg_*.fq`, with `--minimum-hit-groups` 5 and 10.
 - **Negative cases.** Each of these must fail with a clean non-zero exit, not a crash:
   - a missing database;
   - a missing read file or mate file;
@@ -119,3 +123,15 @@ A PR that intentionally changes output should include regenerated golden files
 | `build.orphan_taxid_reported` | `kraken2-build` silently drops sequences whose taxid is absent from `nodes.dmp` (`taxonomy.cc` `MarkNode`). `k2 build` reports them. |
 | `k2.build.cht_cell_40` | 40-bit cells with fewer than 129 taxa lose key bits in `int` shifts (`compact_hash.h` `CompactHashCell40::hashed_key`) |
 | `k2.multi_db.threads_without_openmp` | In a build without OpenMP, `merge -T 2` busy-waits forever (`merge.cc` `merge_classification_output_parallel`). Checked only in that build. |
+| `k2.multi_db.three.confidence_matches_single_db` | `merge` does not apply `--confidence`, so a multi-database run keeps calls that a single database drops (`merge.cc`) |
+| `k2.multi_db.three.min_hit_groups_matches_single_db`, `k2.multi_db.four.min_hit_groups_matches_single_db` | With three or more databases, `k2` runs the intermediate merges without `-F`, so hit groups from the databases merged first are not counted and `--minimum-hit-groups` leaves reads unclassified (`scripts/k2`, `merge.cc`) |
+
+## How `data/mhg_*.fq` was made
+
+The pairs were selected from reads simulated with `data/simulator.pl` (`PERL_HASH_SEED=0
+PERL_PERTURB_KEYS=0`, 60 bp reads: `--random-seed 7 --num-frags 4000`, names prefixed `a.`,
+and `--random-seed 11 --num-frags 20000`, prefixed `b.`). Each kept pair gets a different call
+at `--minimum-hit-groups` 5 or 10 from `k2 classify` with the three- or four-way split than
+from the single database, on master at e7733dd. With hit groups combined correctly, every
+pair gets the same call as the single database. The two-way split shows no difference on any
+of these reads.
