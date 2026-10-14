@@ -489,7 +489,7 @@ void HyperLogLogPlusMinus<HASH>::dumpHLL(FILE *f) {
   // Maybe enum?
 
   // sparse list
-  int sparse_written = fwrite(&sparse, sizeof(sparse), 1, f);
+  fwrite(&sparse, sizeof(sparse), 1, f);
   if (sparse) {
     auto sparseList_length = sparseList.size();
     fwrite(&sparseList_length, sizeof(sparseList_length), 1, f);
