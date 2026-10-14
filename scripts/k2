@@ -357,15 +357,6 @@ def clear_console_line():
     LOG.debug("\33[2K\r")
 
 
-def count_lines(*filenames):
-    lines = 0
-    for fname in filenames:
-        with open(fname, "r") as f:
-            for line in f:
-                lines += 1
-    return lines
-
-
 def dwk2():
     estimate_capacity = find_kraken2_binary("estimate_capacity")
     output = subprocess.check_output(
@@ -422,10 +413,6 @@ def url_join(netloc, scheme="https", path="", query="", fragment=""):
     return urllib.parse.urlunsplit(split_result)
 
 
-def execute_in_process_pool(func, num_processes, *args):
-    pass
-
-
 def download_and_process_blast_volumes(args):
     download_files_from_manifest(NCBI_SERVER, args.threads, resume=args.resume)
     extraction_futures = []
@@ -466,8 +453,10 @@ def download_and_process_blast_volumes(args):
         for tarball, volume in tarballs_and_converted_volumes:
             f = pool.submit(wrapped_convert_func, args, volume, tarball)
             conversion_futures.append(f)
-        for future in concurrent.futures.as_completed(conversion_futures):
-            result = future.result()
+        _, not_done = concurrent.futures.wait(conversion_futures, return_when=concurrent.futures.FIRST_EXCEPTION)
+        if not_done:
+            LOG.error("Encountered an error when converting volumes\n")
+            sys.exit(1)
 
     library_extension = ".faa" if args.protein else ".fna"
     library_filename = "library" + library_extension
@@ -601,6 +590,12 @@ def get_parent_directory(pathname):
     if len(pathname) > 1 and pathname[-1] == os.path.sep:
         return os.path.dirname(pathname[:-1])
     return os.path.dirname(pathname)
+
+def mktemp(prefix=None, suffix=None):
+    fd, path = tempfile.mkstemp(prefix=prefix, suffix=suffix)
+    os.close(fd)
+
+    return path
 
 
 def find_database(database_name):
@@ -823,7 +818,7 @@ def lookup_accession_numbers(lookup_list_filename, out_filename, *accession_map_
                             )
                         )
                         continue
-                    accession, with_version, taxid, gi = split
+                    accession, _, taxid, _ = split
                     if accession in target_lists:
                         lst = target_lists[accession]
                         del target_lists[accession]
@@ -856,7 +851,7 @@ def spawn_masking_subprocess(output_file, threads, protein=False):
         argv = masking_binary + " -outfmt fasta -threads {} -r x".format(threads)
     cwd = os.path.dirname(os.path.abspath(output_file.name))
     p = subprocess.Popen(
-        argv, shell=True, cwd=cwd, stdin=subprocess.PIPE, stdout=output_file
+        argv, shell=True, cwd=cwd, text=True, stdin=subprocess.PIPE, stdout=output_file
     )
 
     return p
@@ -887,7 +882,7 @@ def mask_files(input_filenames, output_filename, threads, protein=False):
                 )
 
             LOG.info("Masking " + message)
-            with open(input_filename, "rb") as fin:
+            with open(input_filename, "r") as fin:
                 shutil.copyfileobj(fin, masker.stdin)
                 # masker(fin, i + 1 == number_of_files)
             LOG.info("Finished masking " + message)
@@ -898,7 +893,6 @@ def mask_files(input_filenames, output_filename, threads, protein=False):
 
 def add_file(args, filename, hashes):
     already_added = False
-    filehash = None
     if filename in hashes:
         already_added = True
 
@@ -1003,7 +997,6 @@ def assign_taxids(
     sequences_added = 0
     ch_added = 0
     # taxid = manifest_to_taxid[filepath]
-    out_filepath = ""
     if absolute_filepath.endswith(".gz"):
         out_filepath = os.path.splitext(absolute_filepath)[0]
     else:
@@ -1017,35 +1010,65 @@ def assign_taxids(
         opener = open
         if absolute_filepath.endswith(".gz"):
             opener = gzip.open
+        if not masker:
+            writer = out_file
+        else:
+            writer = masker.stdin
+
+        read_size = 16 * 1024 ** 2
         with opener(absolute_filepath, "rt") as in_file:
             accession_re = re.compile(r"GC[AF]_[0-9]{9}\.\d+")
+            need_header = True
             while True:
-                line = in_file.readline()
-                if line == "":
+                buffer = in_file.read(read_size)
+                if len(buffer) == 0:
                     break
-                if line.startswith(">"):
-                    taxid = manifest_to_taxid[filepath]
-                    if not taxid:
-                        match = re.search(accession_re, line)
-                        if not match or match.group(0) not in accession_to_taxid:
-                            LOG.error(
-                                "Unable to assign taxid to sequence {} in file {}\n".format(
-                                    line, in_file.name
+                i = 0
+                header = ""
+                while (i < len(buffer)):
+                    if need_header:
+                        header_start = buffer[i:].find(">") + i
+                        while True:
+                            header_end = buffer[i:].find("\n")
+                            if header_end == -1:
+                                header += buffer[header_start:]
+                                header_start = 0
+                                buffer = in_file.read(read_size)
+                                i = 0
+                            else:
+                                # include the newline
+                                header_end += 1 + i
+                                break
+                        header += buffer[header_start:header_end]
+                        i = header_end
+                        need_header = False
+                        taxid = manifest_to_taxid[filepath]
+                        if not taxid:
+                            match = re.search(accession_re, header)
+                            if not match or match.group(0) not in accession_to_taxid:
+                                LOG.error(
+                                    "Unable to assign taxid to sequence {} in file {}\n".format(
+                                        header, in_file.name
+                                    )
                                 )
-                            )
-                            sys.exit(1)
-                        taxid = accession_to_taxid[match.group(0)]
-                    # line = line.replace(">", ">kraken:taxid|" + taxid + "|", 1)
-                    line = ">kraken:taxid|" + taxid + "|" + line[1:]
-                    sequence_to_url[line] = filepath_to_url[filepath]
-                    sequences_added += 1
-                else:
-                    ch_added += len(line) - 1
-                if not masker:
-                    out_file.write(line)
-                else:
-                    masker.stdin.write(line.encode())
-                taxid = ""
+                                sys.exit(1)
+                            taxid = accession_to_taxid[match.group(0)]
+                        header = ">kraken:taxid|" + taxid + "|" + header[1:]
+                        sequence_to_url[header] = filepath_to_url[filepath]
+                        sequences_added += 1
+                        writer.write(header)
+                        header = ""
+                    else:
+                        seq_end = buffer[i:].find(">")
+                        if seq_end == -1:
+                            seq_end = len(buffer)
+                        else:
+                            seq_end += i
+                            need_header = True
+                        ch_added += seq_end - i
+                        writer.write(buffer[i:seq_end])
+                        i = seq_end
+
         if out_filepath.endswith(".tmp"):
             shutil.move(out_filepath, absolute_filepath)
         if masker:
@@ -1512,7 +1535,7 @@ def decompress_files(compressed_filenames, out_filename=None, buf_size=8192):
             os.rename(out_filename + ".tmp", out_filename)
     else:
         for filename in compressed_filenames:
-            out_filename, ext = os.path.splitext(filename)
+            out_filename, _ = os.path.splitext(filename)
             if os.path.exists(out_filename + ".tmp"):
                 os.remove(out_filename + ".tmp")
             with open(filename, "rb") as gz:
@@ -1560,8 +1583,10 @@ def decompress_and_mask(filepath, masker_threads):
 def download_log(filename, total_size=None):
     pb = None
     current_size = 0
+    _ = filename
 
     def inner(block_number, read_size, size):
+        _ = block_number
         nonlocal pb, current_size, total_size
         if not pb:
             pb = ProgressBar(total_size or size)
@@ -1594,7 +1619,6 @@ def http_download_file(url, local_name=None, call_back=None):
 
 
 def http_download_file2(server, urls, save_to=None, md5sums=None):
-    conn = None
     if isinstance(server, str):
         conn = make_https_connection(server)
     else:
@@ -1773,7 +1797,6 @@ def download_files_from_manifest(
     server,
     threads=1,
     manifest_filename="manifest.txt",
-    filepath_to_taxid_table=None,
     md5sums=None,
     resume=False,
 ):
@@ -1791,7 +1814,6 @@ def download_files_from_manifest(
             # We try to reduce the risk of a single thread downloading
             # many large files.
             random.shuffle(filepaths)
-            partitions = []
             futures = []
             partitions = partition_list(filepaths, threads)
             for partition in partitions:
@@ -1799,7 +1821,7 @@ def download_files_from_manifest(
                     http_download_file2, server, partition, None, md5sums
                 )
                 futures.append(future)
-            (done, not_done) = concurrent.futures.wait(futures)
+            _, not_done = concurrent.futures.wait(futures)
             if len(not_done) != 0:
                 LOG.error("Error encountered while trying to download files\n")
                 for future in not_done:
@@ -2270,8 +2292,8 @@ def get_needed_files(args, path_prefix):
         filename_regex = args.gtdb_files
         pattern = re.compile(filename_regex)
         candidate_files = []
-        if args.protein:
-            filename_regex = r"protein|faa"
+        # if args.protein:
+        #     filename_regex = r"protein|faa"
         for line in in_file:
             md5sum, filepath = line.split()
             filepath = urllib.parse.urljoin(path_prefix + "/releases/latest/", filepath)
@@ -2352,7 +2374,7 @@ def build_gtdb_database(args):
     if not args.gtdb_use_ncbi_taxonomy:
         with open("gtdb.accession2taxid", "r") as in_file:
             for line in in_file:
-                base_accession, accession, taxid, gi = line.split("\t")
+                _, accession, taxid, _ = line.split("\t")
                 accession_to_taxid[accession] = taxid
 
     os.chdir(args.db)
@@ -2504,7 +2526,6 @@ def download_genomic_library(args):
             download_files_from_manifest(
                 NCBI_SERVER,
                 args.threads,
-                filepath_to_taxid_table=filepath_to_taxid_table,
                 resume=args.resume,
             )
             sequence_to_url = assign_taxid_to_sequences(
@@ -2729,7 +2750,7 @@ def read_from_files(filename1, filename2=None):
                 yield (seq1, seq2)
 
 
-def write_to_fifo(filenames, fifo1=None, fifo2=None):
+def write_to_fifo(filenames, fifo1, fifo2=None):
     if fifo2 is not None:
         with open(fifo1, "wb") as file1, open(fifo2, "wb") as file2:
             for fn1, fn2 in zip(filenames[0::2], filenames[1::2]):
@@ -3539,7 +3560,7 @@ def make_seqid_to_taxid_map(
             f.readline()
             for line in f:
                 line = line.strip()
-                accession, with_version, taxid, gi = line.split("\t")
+                accession, _, taxid, gi = line.split("\t")
                 if accession in target_lists:
                     target_list = target_lists[accession]
                     del target_lists[accession]
@@ -3660,7 +3681,7 @@ def write_raw_sequence_to_file(in_file, out_file, header, taxid=None):
     if out_file:
         out_file.write(header)
     lines_printed += 1
-    header = ""
+
     while True:
         if fastq and lines_printed == 4:
             break
@@ -4032,7 +4053,7 @@ def classify_multi_dbs(args, filenames=[]):
         nodes_pathname = os.path.join(dbs[0], "nodes.dmp")
     taxonomy_dll_pathname = find_kraken2_binary("libtax.so")
     taxonomy = Taxonomy(taxonomy_dll_pathname)
-    taxonomy_pathname = tempfile.mktemp(prefix="k2_taxo", suffix=".k2d")
+    taxonomy_pathname = mktemp(prefix="k2_taxo", suffix=".k2d")
     taxonomy.generate_taxonomy(
         names_pathname, nodes_pathname, seqid2taxid_map_pathname, taxonomy_pathname
     )
@@ -4041,7 +4062,7 @@ def classify_multi_dbs(args, filenames=[]):
     if not filenames:
         for db in dbs:
             args.db = db
-            pathname = tempfile.mktemp(prefix="k2_")
+            pathname = mktemp(prefix="k2_")
             classified_filenames.append(pathname)
             args.output = pathname
             setattr(args, "dump_taxon_counters", pathname + ".dump")
@@ -4056,7 +4077,7 @@ def classify_multi_dbs(args, filenames=[]):
 
     # We need these classified headers for outputting stats and
     # also for saving classified and unclassified sequences.
-    classified_headers_filename = tempfile.mktemp(prefix="k2_")
+    classified_headers_filename = mktemp(prefix="k2_")
 
     LOG.info("Merging output files\n")
     progress = ProgressBar(len(classified_filenames) - 1, 0)
@@ -4070,7 +4091,7 @@ def classify_multi_dbs(args, filenames=[]):
         LOG.debug("{}\r".format(progress.get_bar()))
 
         filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
-        out_filename = tempfile.mktemp(prefix="k2_")
+        out_filename = mktemp(prefix="k2_")
         merge_classification_output(
             args.threads, 100,
             taxonomy_pathname,
@@ -4293,7 +4314,7 @@ def adjust_percentages(output_filename):
                 if line.startswith("#") or\
                    (line.startswith("100.00") and line.endswith("root")):
                     continue
-                percentage, minimizers, rest = line.split("\t", 2)
+                _, minimizers, rest = line.split("\t", 2)
                 minimizers = int(minimizers)
                 percentage = (minimizers / total_minimizers) * 100
                 print("{:.2f}\t{}\t{}".format(percentage, minimizers, rest), file=fout, end=None)
@@ -5224,6 +5245,9 @@ def make_merge_parser(subparsers):
 
 class HelpAction(argparse._HelpAction):
     def __call__(self, parser, namespace, values, option_string=None):
+        _ = namespace
+        _ = values
+        _ = option_string
         parser.print_help()
         subparsers = None
         for action in parser._actions:
