@@ -47,6 +47,10 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
   `--gzip-compressed`) and interleaved input. Each mode must produce the same calls as the
   others. `--classified-out` and `--unclassified-out` must match the calls.
   `--memory-mapping` must not change output, and neither may 1, 2, 3, 4 or 8 threads.
+  On a larger input built from the fixture reads (176,000 pairs, 5 input blocks), 4 threads
+  with `--classified-out` and `--unclassified-out` must give the same Kraken output, report
+  and sequence files as 1 thread and leave no spill files, both with `--output` and with
+  Kraken output on stdout (spill files in `TMPDIR`).
 - **Accuracy.** Each read's call is checked against the true taxid in its name. At least 97%
   of simulated pairs must get the exact taxid and 99% must land on the true lineage. At
   most 2 of the 20 random pairs may be classified.
