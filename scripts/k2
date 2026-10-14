@@ -587,10 +587,8 @@ def find_kraken2_binary(name):
         return os.path.join(script_parent_directory, name)
     # if called from within kraken2 project root, search the src dir
     project_root = get_parent_directory(script_parent_directory)
-    if "src" in os.listdir(project_root) and name in os.listdir(
-        os.path.join(project_root, "src")
-    ):
-        return os.path.join(project_root, os.path.join("src", name))
+    if os.path.exists(os.path.join(project_root, "src", name)):
+        return os.path.join(project_root, "src", name)
     # not found in these likely places, exit
     LOG.error("Unable to find {:s}, exiting\n".format(name))
     sys.exit(1)
@@ -852,12 +850,10 @@ def spawn_masking_subprocess(output_file, threads, protein=False):
     if "MASKER" in os.environ:
         masking_binary = os.environ["MASKER"]
     masking_binary = find_kraken2_binary(masking_binary)
-
     argv = masking_binary + " -outfmt fasta | sed -e '/^>/!s/[a-z]/x/g'"
     if masking_binary.find("k2mask") >= 0:
         # k2mask can run multithreaded
         argv = masking_binary + " -outfmt fasta -threads {} -r x".format(threads)
-
     cwd = os.path.dirname(os.path.abspath(output_file.name))
     p = subprocess.Popen(
         argv, shell=True, cwd=cwd, stdin=subprocess.PIPE, stdout=output_file
