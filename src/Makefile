@@ -1,6 +1,6 @@
 CXX ?= g++
 KRAKEN2_SKIP_FOPENMP ?= -fopenmp
-CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++11 -O3 -fPIC -g
+CXXFLAGS = $(KRAKEN2_SKIP_FOPENMP) -Wall -std=c++17 -O3 -fPIC -g
 CXXFLAGS += -DLINEAR_PROBING
 CFLAGS = -Wall -std=c99 -O2 -g
 

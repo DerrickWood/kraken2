@@ -65,7 +65,7 @@ struct ReadBufferAlloc : std::allocator<T> {
   template <class U> ReadBufferAlloc(const ReadBufferAlloc<U> &) { }
   template <class U> void construct(U *p) { ::new ((void *) p) U; }
   template <class U, class A> void construct(U *p, A &&a) {
-    base::construct(p, std::forward<A>(a));
+    ::new ((void *) p) U(std::forward<A>(a));
   }
 };
 
