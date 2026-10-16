@@ -3,7 +3,7 @@ add_executable(build_db
         mmap_file.cc
         compact_hash.cc
         taxonomy.cc
-        seqreader.cc
+        fast_reader.cc
         mmscanner.cc
         omp_hack.cc
         utilities.cc)
@@ -15,7 +15,6 @@ add_executable(classify
         mmap_file.cc
         compact_hash.cc
         taxonomy.cc
-        seqreader.cc
         mmscanner.cc
         omp_hack.cc
         aa_translate.cc
@@ -24,7 +23,7 @@ add_executable(classify
 
 add_executable(estimate_capacity
         estimate_capacity.cc
-        seqreader.cc
+        fast_reader.cc
         mmscanner.cc
         omp_hack.cc
         utilities.cc)
