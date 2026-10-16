@@ -115,12 +115,12 @@ int main(int argc, char **argv) {
 // This function exists to deal with NCBI's use of \x01 characters to denote
 // the start of a new FASTA header in the same line (for non-redundant DBs).
 // We return all sequence IDs in a header line, not just the first.
-vector<string> ExtractNCBISequenceIDs(const string &header) {
+vector<string> ExtractNCBISequenceIDs(const char *header, size_t header_len) {
   vector<string> list;
   string current_str;
   bool in_id = true;
 
-  for (size_t i = 0; i < header.size(); ++i) {
+  for (size_t i = 0; i < header_len; ++i) {
     if (header[i] == 0x01) {
       // 0x01 starts new ID at next char
       if (! current_str.empty())

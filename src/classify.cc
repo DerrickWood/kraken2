@@ -17,7 +17,6 @@
 #include "kv_store.h"
 #include "omp_hack.h"
 #include "taxonomy.h"
-#include "seqreader.h"
 #include "fast_reader.h"
 #include "mmscanner.h"
 #include "compact_hash.h"

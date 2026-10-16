@@ -4,10 +4,11 @@
 #include "compact_hash.h"
 #include "taxonomy.h"
 #include "kv_store.h"
-#include "seqreader.h"
 #include "mmscanner.h"
+#include "fast_reader.h"
 
 using namespace kraken2;
+using kraken2::SeqView;
 
 struct Options {
   string ID_to_taxon_map_filename;
@@ -31,13 +32,13 @@ struct Options {
   size_t cht_cell_bits;
 };
 
-vector<string> ExtractNCBISequenceIDs(const string &header);
+vector<string> ExtractNCBISequenceIDs(const char *header, size_t);
 template<typename Cell>
-void ProcessSequenceFast(const string &seq, taxid_t taxid,
+void ProcessSequenceFast(SeqView &seq, taxid_t taxid,
     CompactHashTable<Cell> &hash, const Taxonomy &tax, MinimizerScanner &scanner,
     uint64_t min_clear_hash_value);
 template<typename Cell>
-void ProcessSequence(const Options &opts, const string &seq, taxid_t taxid,
+void ProcessSequence(const Options &opts, SeqView &seq, taxid_t taxid,
     CompactHashTable<Cell> &hash, const Taxonomy &tax);
 template<typename Cell>
 void ProcessSequencesFast(const Options &opts,
@@ -79,27 +80,33 @@ void ProcessSequencesFast(const Options &opts,
                           const Taxonomy &taxonomy) {
   size_t processed_seq_ct = 0;
   size_t processed_ch_ct = 0;
-  BatchSequenceReader reader;
+  int fd = fileno(stdin);
+  StreamCursor cursor;
+  bool have_input = PrimeStream(fd, cursor);
+  if (!have_input) {
+    return;
+  }
 
 #pragma omp parallel
   {
-    Sequence sequence;
     MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask,
                              !opts.input_is_protein, opts.toggle_mask);
 
-    BatchSequenceReader reader_clone(reader);
+    FastReader reader;
     while (true) {
       // Declaration of "ok" and break need to be done outside of critical
       // section to conform with OpenMP spec.
       bool ok;
 #pragma omp critical(reader)
       {
-        ok = reader_clone.LoadBlock(opts.block_size);
+        ok = reader.LoadBlock(fd, cursor, opts.block_size);
       }
       if (!ok)
         break;
-      for (Sequence *sequence = reader_clone.NextSequence(); sequence != nullptr; sequence = reader_clone.NextSequence()) {
-        auto all_sequence_ids = ExtractNCBISequenceIDs(sequence->header);
+      reader.Parse();
+      for (size_t j = 0; j < reader.size(); j++) {
+        SeqView &seq = reader.at(j);
+        auto all_sequence_ids = ExtractNCBISequenceIDs(seq.header, seq.header_len);
         taxid_t taxid = 0;
         for (auto &seqid : all_sequence_ids) {
           if (ID_to_taxon_map.count(seqid) == 0 ||
@@ -111,14 +118,18 @@ void ProcessSequencesFast(const Options &opts,
         }
         if (taxid) {
           // Add terminator for protein sequences if not already there
-          if (opts.input_is_protein && sequence->seq.back() != '*')
-            sequence->seq.push_back('*');
-          ProcessSequenceFast(sequence->seq, taxid, kraken_index, taxonomy,
+          if (opts.input_is_protein && seq.seq_len > 0 && seq.seq[seq.seq_len - 1] != '*') {
+            // we can replace \n character in the buffer with *
+            char *s = seq.seq_mutable();
+            s[seq.seq_len] = '*';
+            seq.seq_len += 1;
+          }
+          ProcessSequenceFast(seq, taxid, kraken_index, taxonomy,
                               scanner, opts.min_clear_hash_value);
 #pragma omp atomic
           processed_seq_ct++;
 #pragma omp atomic
-          processed_ch_ct += sequence->seq.size();
+          processed_ch_ct += seq.seq_len;
         }
       }
       if (isatty(fileno(stderr))) {
@@ -145,12 +156,20 @@ void ProcessSequences(const Options &opts,
   size_t processed_seq_ct = 0;
   size_t processed_ch_ct = 0;
 
-  Sequence *sequence;
-  BatchSequenceReader reader;
+  int fd = fileno(stdin);
+  StreamCursor cursor;
+  bool have_input = PrimeStream(fd, cursor);
+  if (!have_input) {
+    return;
+  }
 
-  while (reader.LoadBlock(opts.block_size)) {
-    while ((sequence = reader.NextSequence()) != NULL) {
-      auto all_sequence_ids = ExtractNCBISequenceIDs(sequence->header);
+  FastReader reader;
+
+  while (reader.LoadBlock(fd, cursor, opts.block_size)) {
+    reader.Parse();
+    for (size_t j = 0; j < reader.size(); j++) {
+      SeqView &seq = reader.at(j);
+      auto all_sequence_ids = ExtractNCBISequenceIDs(seq.header, seq.header_len);
       taxid_t taxid = 0;
       int ext_taxid;
       for (auto &seqid : all_sequence_ids) {
@@ -164,11 +183,15 @@ void ProcessSequences(const Options &opts,
       }
       if (taxid) {
         // Add terminator for protein sequences if not already there
-        if (opts.input_is_protein && sequence->seq.back() != '*')
-          sequence->seq.push_back('*');
-        ProcessSequence(opts, sequence->seq, taxid, kraken_index, taxonomy);
+        if (opts.input_is_protein && seq.seq_len > 0 && seq.seq[seq.seq_len - 1] != '*') {
+          // we can replace \n character in the buffer with *
+          char *s = seq.seq_mutable();
+          s[seq.seq_len] = '*';
+          seq.seq_len += 1;
+        }
+        ProcessSequence(opts, seq, taxid, kraken_index, taxonomy);
         processed_seq_ct++;
-        processed_ch_ct += sequence->seq.size();
+        processed_ch_ct += seq.seq_len;
       }
     }
     if (isatty(fileno(stderr))) {
@@ -195,11 +218,11 @@ void SetMinimizerLCA(CompactHashTable<Cell> &hash, uint64_t minimizer, taxid_t t
 }
 
 template<typename Cell>
-void ProcessSequenceFast(const string &seq, taxid_t taxid,
+void ProcessSequenceFast(SeqView &seq, taxid_t taxid,
     CompactHashTable<Cell> &hash, const Taxonomy &tax, MinimizerScanner &scanner,
     uint64_t min_clear_hash_value)
 {
-  scanner.LoadSequence(seq);
+  scanner.LoadSequence(seq.seq, seq.seq_len);
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {
     if (scanner.is_ambiguous())
@@ -215,7 +238,7 @@ void ProcessSequenceFast(const string &seq, taxid_t taxid,
 }
 
 template<typename Cell>
-void ProcessSequence(const Options &opts, const string &seq, taxid_t taxid,
+void ProcessSequence(const Options &opts, SeqView &seq, taxid_t taxid,
     CompactHashTable<Cell> &hash, const Taxonomy &tax)
 {
   const int set_ct = 256;
@@ -223,13 +246,13 @@ void ProcessSequence(const Options &opts, const string &seq, taxid_t taxid,
   for (int i = 0; i < set_ct; i++)
     omp_init_lock(&locks[i]);
   // for each block in the sequence
-  for (size_t j = 0; j < seq.size(); j += opts.block_size) {
+  for (size_t j = 0; j < seq.seq_len; j += opts.block_size) {
     // block: fixed length subsequence of DNA/protein, handled in series,
     //   consecutive blocks overlap by k-1 characters
     size_t block_start = j;
     size_t block_finish = j + opts.block_size + opts.k - 1;
-    if (block_finish > seq.size())
-      block_finish = seq.size();
+    if (block_finish > seq.seq_len)
+      block_finish = seq.seq_len;
     std::set<uint64_t> minimizer_sets[set_ct];
 
     // for each subblock in the block, gather minimizers in parallel
@@ -242,7 +265,7 @@ void ProcessSequence(const Options &opts, const string &seq, taxid_t taxid,
       size_t subblock_finish = i + opts.subblock_size + opts.k - 1;
       if (subblock_finish > block_finish)
         subblock_finish = block_finish;
-      scanner.LoadSequence(seq, i, subblock_finish);
+      scanner.LoadSequence(seq.seq, seq.seq_len, i, subblock_finish);
       uint64_t *minimizer_ptr;
       while ((minimizer_ptr = scanner.NextMinimizer())) {
         if (scanner.is_ambiguous())

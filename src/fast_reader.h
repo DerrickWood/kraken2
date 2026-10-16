@@ -32,9 +32,11 @@
 #define KRAKEN2_FAST_READER_H_
 
 #include "kraken2_headers.h"
-#include "seqreader.h"
 
 namespace kraken2 {
+enum SequenceFormat { FORMAT_AUTO_DETECT,
+  FORMAT_FASTA,
+  FORMAT_FASTQ };
 
 // A record as pointers into the reader's own buffer, valid until the next load.
 // Avoids the four std::string copies a Sequence costs per record; the bases are

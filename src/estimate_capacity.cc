@@ -7,16 +7,15 @@
 #include "kraken2_headers.h"
 #include "kv_store.h"
 #include "mmscanner.h"
-#include "seqreader.h"
 #include "utilities.h"
+#include "fast_reader.h"
+
 #include <ios>
 #include <stdio.h>
 #include <unistd.h>
-#include "kseq.h"
 
 using std::string;
 using std::cout;
-using std::queue;
 using std::cerr;
 using std::endl;
 using std::ifstream;
@@ -31,6 +30,8 @@ using namespace kraken2;
 #define DEFAULT_N 4
 #define DEFAULT_BLOCK_SIZE (30 * 1024 * 1024)  // yes, 30 MB
 
+static const size_t INPUT_BLOCK_BYTES = 8 * 1024 * 1024;
+
 struct Options {
   size_t k, l, n;
   bool input_is_protein;
@@ -42,7 +43,7 @@ struct Options {
 
 void ParseCommandLine(int argc, char **argv, Options &opts);
 void usage(int exit_code = EX_USAGE);
-void ProcessSequence(string &seq, Options &opts,
+void ProcessSequence(SeqView *seq, Options &opts,
     vector<unordered_set<uint64_t>> &sets);
 void ProcessSequences(Options &opts);
 
@@ -66,22 +67,26 @@ int main(int argc, char **argv) {
 void ProcessSequences(Options& opts)
 {
   std::vector<vector<unordered_set<uint64_t>>> vector_of_sets(opts.threads);
-  BatchSequenceReader reader;
+  StreamCursor cursor;
+  bool have_input = PrimeStream(fileno(stdin), cursor);
+  if (!have_input) {
+    return;
+  }
 
 #pragma omp parallel for
   for (auto i = 0; i < opts.threads; i++) {
-    BatchSequenceReader reader_copy(reader);
+    FastReader reader;
     vector_of_sets[i].resize(opts.n);
     bool have_work = true;
-    Sequence sequence;
 
     while (have_work) {
 #pragma omp critical(batch_reading)
       {
-        have_work = reader_copy.NextSequence(sequence);
+        have_work = reader.LoadBlock(0, cursor, INPUT_BLOCK_BYTES);
       }
-      if (have_work) {
-        ProcessSequence(sequence.seq, opts, vector_of_sets[i]);
+      reader.Parse();
+      for (size_t j = 0; j < reader.size(); j++) {
+        ProcessSequence(&reader.at(j), opts, vector_of_sets[i]);
       }
     }
   }
@@ -182,14 +187,17 @@ void usage(int exit_code) {
   exit(exit_code);
 }
 
-void ProcessSequence(string &seq, Options &opts,
+void ProcessSequence(SeqView *seq, Options &opts,
     vector<unordered_set<uint64_t>> &sets)
 {
   MinimizerScanner scanner(opts.k, opts.l, opts.spaced_seed_mask, ! opts.input_is_protein, opts.toggle_mask);
   // Add terminator for protein sequences if not already there
-  if (opts.input_is_protein && seq.back() != '*')
-    seq.push_back('*');
-  scanner.LoadSequence(seq);
+  if (opts.input_is_protein && seq->seq_len > 0 && seq->seq[seq->seq_len - 1] != '*') {
+    char *s = seq->seq_mutable();
+    s[seq->seq_len] = '*';
+    seq->seq_len += 1;
+  }
+  scanner.LoadSequence(seq->seq, seq->seq_len);
   uint64_t *minimizer_ptr;
   while ((minimizer_ptr = scanner.NextMinimizer())) {
     if (scanner.is_ambiguous())
