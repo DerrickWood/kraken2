@@ -325,6 +325,19 @@ char *int_to_string(uint64_t x, char *out) {
         return &out[i];
 }
 
+// Writes one "taxid:count" entry.  A taxid carrying the unique-minimizer
+// tag (bit 31) is written as "*taxid", the form parse_hit_list reads back,
+// so that the tags survive an intermediate merge.
+void write_hit(int taxid, int count, char *itoa_buffer, FILE *f) {
+        if (taxid < 0) {
+                fputc('*', f);
+                taxid &= ~(1U << 31);
+        }
+        fputs(int_to_string(taxid, itoa_buffer), f);
+        fputc(':', f);
+        fputs(int_to_string(count, itoa_buffer), f);
+}
+
 void write_hit_list(vector<taxid_and_count> &hit_list, const char *border, FILE *f) {
         if (hit_list.empty()) {
                 return;
@@ -339,9 +352,7 @@ void write_hit_list(vector<taxid_and_count> &hit_list, const char *border, FILE 
                 int count = hit_list[i].count;
 
                 if (taxid == 0 && count == 0) {
-                        fputs(int_to_string(previous_taxid, itoa_buffer), f);
-                        fputc(':', f);
-                        fputs(int_to_string(previous_count, itoa_buffer), f);
+                        write_hit(previous_taxid, previous_count, itoa_buffer, f);
                         previous_taxid = taxid;
                         previous_count = count;
                 }
@@ -352,18 +363,14 @@ void write_hit_list(vector<taxid_and_count> &hit_list, const char *border, FILE 
                         previous_count = count;
                         previous_taxid = taxid;
                 } else {
-                        fputs(int_to_string(previous_taxid, itoa_buffer), f);
-                        fputc(':', f);
-                        fputs(int_to_string(previous_count, itoa_buffer), f);
+                        write_hit(previous_taxid, previous_count, itoa_buffer, f);
                         fputc(' ', f);
                         previous_taxid = taxid;
                         previous_count = count;
                 }
         }
 
-        fputs(int_to_string(previous_taxid, itoa_buffer), f);
-        fputc(':', f);
-        fputs(int_to_string(previous_count, itoa_buffer), f);
+        write_hit(previous_taxid, previous_count, itoa_buffer, f);
 }
 
 int resolve_tree(const kraken2::Taxonomy &taxonomy, kraken2::taxon_counts_t &hit_counts,
@@ -514,7 +521,6 @@ size_t merge_hit_lists(const kraken2::Taxonomy &taxonomy,
                 int final_count = 0;
                 int unique_minimizer_tag =
                     (tc1.taxid < 0 || tc2.taxid < 0) ? (1U << 31) : 0;
-                hit_groups += (unique_minimizer_tag != 0);
                 // We have either encountered a ambigous taxid
                 // or a pair or translated search delimiter.
                 // Do not bother running the LCA on those,
@@ -547,9 +553,15 @@ size_t merge_hit_lists(const kraken2::Taxonomy &taxonomy,
                 }
 
                 total_minimizers += final_count;
-                // TODO: keep the unique taxid indicators until the final merge.
-                // The wrapper will then indicate to use whether to keep it or
-                // not.
+                // classify run-length encodes only identical codes, so every
+                // position of a tagged run is the first k-mer of its own
+                // minimizer lookup, and "*X:2" stands for two hit groups.  A
+                // merged segment is tagged when either input is tagged over the
+                // same positions, so counting its positions counts each lookup
+                // once, however the runs of the two inputs are split.
+                if (unique_minimizer_tag) {
+                        hit_groups += final_count;
+                }
                 merged_hit_list.push_back({final_taxid | unique_minimizer_tag, final_count});
                 if (add_to_hit_counts) {
                         hit_counts[final_taxid] += final_count;
