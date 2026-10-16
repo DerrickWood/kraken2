@@ -45,7 +45,9 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
   still meet the accuracy thresholds.
 - **Classification.** Paired FASTQ, single FASTQ, FASTA, gzip (auto-detected and
   `--gzip-compressed`) and interleaved input. Each mode must produce the same calls as the
-  others. `--classified-out` and `--unclassified-out` must match the calls.
+  others. `--classified-out` and `--unclassified-out` must match the calls. With several
+  databases, `k2` writes these files itself, and they must equal the single-database files for
+  paired, gzip, interleaved and FASTA input and with `--minimum-base-quality 20`.
   `--memory-mapping` must not change output, and neither may 1, 2, 3, 4 or 8 threads.
   On a larger input built from the fixture reads (176,000 pairs, 5 input blocks), 4 threads
   with `--classified-out` and `--unclassified-out` must give the same Kraken output, report
