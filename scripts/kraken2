@@ -78,6 +78,11 @@ if (! defined $threads) {
   $threads = $ENV{"KRAKEN2_NUM_THREADS"} || 1;
 }
 
+if (defined $outfile && ! -f $outfile && ! -d dirname($outfile)) {
+  my $outdir = dirname($outfile);
+  die "$PROG: Output directory $outdir does not exist!\n";
+}
+
 if (! @ARGV) {
   print STDERR "Need to specify input filenames!\n";
   usage();
