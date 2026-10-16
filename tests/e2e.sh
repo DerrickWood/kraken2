@@ -462,6 +462,86 @@ check classify.thread_determinism threads_det
 check classify.memory_mapping.matches bash -c \
   "'$KRAKEN2' --db db --paired --memory-mapping --output mmap.out '$R1' '$R2' && cmp paired.out mmap.out"
 
+# With several threads, classify writes output blocks in input order, and a
+# block that finishes early (or whose thread finds another thread writing) is
+# spilled to a temporary file and appended later.  The fixture reads fit in
+# one 8 MB input block, so the spill checks repeat them 400 times (176,000
+# pairs, 5 blocks per mate) with a copy number in each read name.
+SPILL_COPIES=400
+for m in 1 2; do
+  awk -v n=$SPILL_COPIES '{ l[NR] = $0 }
+    END {
+      for (c = 0; c < n; c++)
+        for (i = 1; i < NR; i += 4) {
+          split(l[i], h, " "); id = h[1]; mate = substr(id, length(id) - 1)
+          print substr(id, 1, length(id) - 2) "#" c mate; print l[i + 1]; print "+"; print l[i + 3]
+        }
+    }' "$READS/sim_$m.fq" > spill_$m.fq
+done
+
+spill_classify() {
+  # spill_classify DIR THREADS [kraken2 args]  classifies the spill reads in
+  # DIR with sequence output.  A file size limit and a timeout stop runs that
+  # write without bound.
+  local dir=$1 threads=$2; shift 2
+  rm -rf "$dir"; mkdir -p "$dir"
+  ( cd "$dir" && ulimit -f 102400 &&
+      with_timeout 120 "$KRAKEN2" --db ../db --paired --threads "$threads" \
+        --report k.report --classified-out 'c#.fq' --unclassified-out 'u#.fq' \
+        "$@" ../spill_1.fq ../spill_2.fq )
+}
+
+spill_same() {
+  # spill_same DIR  compares the outputs in DIR with the single-threaded run
+  # and fails if any spill file is left in DIR or in spill_tmp.
+  local f left=()
+  for f in k.out k.report c_1.fq c_2.fq u_1.fq u_2.fq; do
+    same spill_p1/$f "$1/$f" || return 1
+  done
+  for f in "$1"/* "$1"/.[!.]* spill_tmp/* spill_tmp/.[!.]*; do
+    [ -e "$f" ] || continue
+    case ${f#"$1"/} in
+      k.out|k.report|[cu]_[12].fq) ;;
+      *) left+=("$f") ;;
+    esac
+  done
+  [ ${#left[@]} -eq 0 ] || { echo "files left behind:"; printf '%s\n' "${left[@]}"; return 1; }
+}
+
+spill_baseline() {
+  [ -s spill_p1/k.out ] || spill_classify spill_p1 1 --output k.out
+}
+
+# Which blocks spill depends on thread timing, and a run may spill none, so
+# each check repeats the multi-threaded run.
+SPILL_RUNS=3
+
+spill_to_file() {
+  spill_baseline || return 1
+  for _ in $(seq $SPILL_RUNS); do
+    spill_classify spill_p4 4 --output k.out || return 1
+    spill_same spill_p4 || return 1
+  done
+  echo "Kraken output, report and sequence files identical at --threads 1 and 4 in $SPILL_RUNS runs"
+}
+
+spill_to_stdout() {
+  # Kraken output on stdout puts spill files in TMPDIR.
+  spill_baseline || return 1
+  for _ in $(seq $SPILL_RUNS); do
+    rm -rf spill_tmp; mkdir spill_tmp
+    TMPDIR="$WORK/spill_tmp" spill_classify spill_p4_stdout 4 > spill_stdout.out || return 1
+    mv spill_stdout.out spill_p4_stdout/k.out
+    spill_same spill_p4_stdout || return 1
+  done
+  echo "Kraken output on stdout, report and sequence files identical at --threads 1 and 4 in $SPILL_RUNS runs"
+}
+mkdir -p spill_tmp
+check classify.spill.output_file_matches_one_thread spill_to_file
+check classify.spill.stdout_matches_one_thread spill_to_stdout
+# The spill inputs and outputs take about 270 MB; the logs keep any differences.
+rm -rf spill_1.fq spill_2.fq spill_p1 spill_p4 spill_p4_stdout spill_tmp
+
 self_classify() {
   # Each reference sequence should come back at its own taxid or an ancestor.
   "$KRAKEN2" --db db --output self.out lib.fa || return 1
