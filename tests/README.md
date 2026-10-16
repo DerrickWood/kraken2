@@ -68,7 +68,9 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
   single-database result, and for order independence. Three- and four-way splits, which
   spread the influenza A subtypes, the HIV types and the betacoronaviruses across databases,
   must also match the single-database output and report, including with `--confidence 0.5`
-  and, on `data/mhg_*.fq`, with `--minimum-hit-groups` 5 and 10.
+  and, on `data/mhg_*.fq`, with `--minimum-hit-groups` 5 and 10. With two databases,
+  `--use-names` and `--report-zero-counts` must match the single database, and `--quick` must
+  be rejected.
 - **Negative cases.** Each of these must fail with a clean non-zero exit, not a crash:
   - a missing database;
   - a missing read file or mate file;
