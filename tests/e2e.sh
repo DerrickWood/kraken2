@@ -763,8 +763,7 @@ else
   check k2.multi_db.four.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2db4d,k2db4b,k2db4a,k2db4c --paired --output multi4_r.out --report multi4_r.report '$R1' '$R2' &&
     cmp multi4.out multi4_r.out && cmp multi4.report multi4_r.report"
-  xfail_check k2.multi_db.three.confidence_matches_single_db "merge does not apply --confidence, so multi-database runs keep calls a single database drops (merge.cc)" \
-    matches_single "$DB3" multi3_c05 c05 --confidence 0.5
+  check k2.multi_db.three.confidence_matches_single_db matches_single "$DB3" multi3_c05 c05 --confidence 0.5
 
   # tests/data/mhg_*.fq hold read pairs whose calls at --minimum-hit-groups 5
   # and 10 differ between a single database and these splits when hit groups

@@ -127,7 +127,6 @@ A PR that intentionally changes output should include regenerated golden files
 | `build.orphan_taxid_reported` | `kraken2-build` silently drops sequences whose taxid is absent from `nodes.dmp` (`taxonomy.cc` `MarkNode`). `k2 build` reports them. |
 | `k2.build.cht_cell_40` | 40-bit cells with fewer than 129 taxa lose key bits in `int` shifts (`compact_hash.h` `CompactHashCell40::hashed_key`) |
 | `k2.multi_db.threads_without_openmp` | In a build without OpenMP, `merge -T 2` busy-waits forever (`merge.cc` `merge_classification_output_parallel`). Checked only in that build. |
-| `k2.multi_db.three.confidence_matches_single_db` | `merge` does not apply `--confidence`, so a multi-database run keeps calls that a single database drops (`merge.cc`) |
 
 ## How `data/mhg_*.fq` was made
 

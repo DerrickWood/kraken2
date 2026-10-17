@@ -374,7 +374,7 @@ void write_hit_list(vector<taxid_and_count> &hit_list, const char *border, FILE 
 }
 
 int resolve_tree(const kraken2::Taxonomy &taxonomy, kraken2::taxon_counts_t &hit_counts,
-                 size_t total_minimizers, float confidence_threshold)
+                 size_t total_minimizers, double confidence_threshold)
 {
         int max_taxon = 0;
         uint32_t max_score = 0;
@@ -552,7 +552,15 @@ size_t merge_hit_lists(const kraken2::Taxonomy &taxonomy,
                         final_count = tc1.count;
                 }
 
-                total_minimizers += final_count;
+                // The confidence denominator counts every k-mer position,
+                // including ambiguous spans and positions without a hit, but
+                // not the mate pair and reading frame separators, whose
+                // count field holds a sentinel value. This matches the
+                // total_kmers value that classify passes to ResolveTree.
+                if (final_taxid != MATE_PAIR_BORDER_TAXON &&
+                    final_taxid != READING_FRAME_BORDER_TAXON) {
+                        total_minimizers += final_count;
+                }
                 // classify run-length encodes only identical codes, so every
                 // position of a tagged run is the first k-mer of its own
                 // minimizer lookup, and "*X:2" stands for two hit groups.  A
@@ -605,7 +613,7 @@ void merge_taxon_counters(const std::string &tc1_filename, const std::string &tc
 std::tuple<size_t, size_t> merge_classification_output_parallel(
         const kraken2::Taxonomy &taxonomy, const char *ifn1, const char *ifn2,
         const char *ofn, const char *cfn, bool use_names,
-        kraken2::taxon_counters_t &counters, float confidence_threshold,
+        kraken2::taxon_counters_t &counters, double confidence_threshold,
         int minimum_hit_groups, size_t batch_size, bool accumulate_read_counts,
         bool flag_unique_minimizers) {
 
@@ -851,7 +859,7 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
 
 std::tuple<size_t, size_t> merge_classification_output(
         const kraken2::Taxonomy &taxonomy, const char *ifn1, const char *ifn2,
-        const char *ofn, float confidence_threshold,
+        const char *ofn, double confidence_threshold,
         kraken2::taxon_counters_t &counters,
         const char *classified_headers_filename, bool use_names,
         int minimum_hit_groups, bool accumulate_read_counts,
@@ -1048,7 +1056,7 @@ int main(int argc, char **argv) {
         bool report_zeros = false;
         bool load_read_counts = false;
         bool mpa_style = false;
-        float confidence_threshold = 0.0;
+        double confidence_threshold = 0.0;
         char *report_filename = nullptr;
         char *classified_headers_filename = nullptr;
         char *merged_taxon_filename = nullptr;
@@ -1065,7 +1073,7 @@ int main(int argc, char **argv) {
                         classified_headers_filename = optarg;
                         break;
                 case 'i':
-                        confidence_threshold = strtof(optarg, (char **)nullptr);
+                        confidence_threshold = strtod(optarg, (char **)nullptr);
                         break;
                 case 'n':
                         use_names = true;
