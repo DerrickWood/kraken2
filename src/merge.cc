@@ -1154,7 +1154,18 @@ int main(int argc, char **argv) {
 
         omp_set_num_threads(threads);
 
-        if (threads == 1) {
+        // The parallel path gives one thread the job of writing finished
+        // blocks in order, and that thread waits for the others to produce
+        // them. It therefore needs a team of at least two threads, which a
+        // build without OpenMP, or OMP_THREAD_LIMIT=1, does not provide.
+        int team_size = 0;
+#pragma omp parallel
+        {
+#pragma omp atomic
+                team_size++;
+        }
+
+        if (threads == 1 || team_size < 2) {
           std::tie(total_seqs, total_unclassified) =
               merge_classification_output(
                       taxonomy, input1, input2, merged_output_filename,
