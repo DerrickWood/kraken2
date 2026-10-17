@@ -691,14 +691,25 @@ else
   }
   check k2.multi_db.resolve_lca.golden multi_lca
   check k2.multi_db.resolve_lca.accuracy accuracy multi.out
+
+  # merge's parallel path needs at least two threads, because one of them
+  # only writes the blocks the others produce.  With a single thread, from a
+  # build without OpenMP or from OMP_THREAD_LIMIT=1, merge must fall back to
+  # its serial path rather than wait forever.
+  threads_one_team() (
+    # threads_one_team [NAME=VALUE]  runs in a subshell, with NAME exported
+    if [ $# -gt 0 ]; then export "${1?}"; fi
+    with_timeout 15 "$PYTHON" "$K2" classify --db k2dbA,k2dbB --paired --threads 2 \
+      --output multi_t2.out --report multi_t2.report "$R1" "$R2" &&
+      cmp multi.out multi_t2.out && cmp multi.report multi_t2.report
+  )
   check k2.multi_db.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2dbB,k2dbA --paired --output multi_ba.out --report multi_ba.report '$R1' '$R2' &&
     cmp multi.out multi_ba.out && cmp multi.report multi_ba.report"
   if [ $OPENMP = 0 ]; then
-    # merge's parallel path spins forever in the "single nowait" writer loop
-    # when OpenMP is stubbed out, because no other thread ever produces a block.
-    xfail_check k2.multi_db.threads_without_openmp "merge -T >1 busy-waits forever in builds without OpenMP (merge.cc merge_classification_output_parallel)" \
-      with_timeout 15 "$PYTHON" "$K2" classify --db k2dbA,k2dbB --paired --threads 2 --output multi_t2.out "$R1" "$R2"
+    check k2.multi_db.threads_without_openmp threads_one_team
+  else
+    check k2.multi_db.threads_with_thread_limit_1 threads_one_team OMP_THREAD_LIMIT=1
   fi
   # classify ends each hit list with a space and merge does not, so trailing
   # whitespace is not compared.
