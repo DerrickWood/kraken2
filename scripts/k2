@@ -4010,15 +4010,25 @@ def classify_multi_dbs(args, filenames=[]):
         )
         sys.exit(1)
 
+    # In quick mode each database stops at its own first qualifying hit and
+    # emits no hit list, so the per-database calls cannot be merged into the
+    # call a single combined database would make.
+    if "quick" in args and args.quick:
+        LOG.error(
+            "--quick cannot be used with more than one database or with a"
+            " partitioned database directory\n"
+        )
+        sys.exit(1)
+
     if "report" in args:
         report_filename, args.report = (args.report, None)
     output = args.output if "output" in args else None
 
     if "report_minimizer_data" in args:
         report_minimizer_data = True
-    if "report_zeroes" in args:
+    if "report_zero_counts" in args:
         report_zeroes = True
-        args.report_zeroes = None
+        args.report_zero_counts = None
     if "use_mpa_style" in args:
         mpa_style = True
         args.use_mpa_style = None

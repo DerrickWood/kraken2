@@ -468,6 +468,10 @@ void parse_hit_list(char *string, int len,
                 } else if (str_taxid[0] == '-') {
                         taxid = READING_FRAME_BORDER_TAXON;
                         count = READING_FRAME_BORDER_TAXON;
+                } else if (str_count[0] == 'Q') {
+                        // classify --quick prints "taxid:Q" in place of a
+                        // hit list, which carries no counts to merge.
+                        errx(1, "Cannot merge output produced with --quick");
                 } else {
                         int tag = (str_taxid[0] == '*') * (1U << 31);
                         int off = tag == (1U << 31);
@@ -645,7 +649,7 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                 std::unordered_map<uint64_t, taxid_t> lca_cache;
                 char *fields1[5];
                 char *fields2[5];
-                char scientific_name[500];
+                std::string scientific_name;
 
                 const char *status;
                 const char *taxid;
@@ -804,14 +808,18 @@ std::tuple<size_t, size_t> merge_classification_output_parallel(
                                 }
 
                                 if (use_names) {
-                                        const char *name =
-                                                taxonomy.name_data() +
-                                                taxonomy.nodes()[internal_call].name_offset;
-                                        if (!name) {
-                                                name = "unclassified";
-                                        }
-                                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
-                                        taxid = scientific_name;
+                                        // Match classify: taxid 0 is labeled
+                                        // "unclassified" rather than with
+                                        // the name of the root node.
+                                        const char *name = call
+                                                ? taxonomy.name_data() +
+                                                  taxonomy.nodes()[internal_call].name_offset
+                                                : "unclassified";
+                                        scientific_name.assign(name);
+                                        scientific_name += " (taxid ";
+                                        scientific_name += taxid;
+                                        scientific_name += ")";
+                                        taxid = scientific_name.c_str();
                                 }
                                 if (!merged_hit_list.empty()) {
                                         fprintf(out, "%s\t%s\t%s\t%s\t", status,
@@ -885,7 +893,7 @@ std::tuple<size_t, size_t> merge_classification_output(
 
         char *fields1[5];
         char *fields2[5];
-        char scientific_name[100];
+        std::string scientific_name;
 
         const char *status;
         const char *taxid;
@@ -963,14 +971,17 @@ std::tuple<size_t, size_t> merge_classification_output(
                 }
 
                 if (use_names) {
-                        const char *name =
-                            taxonomy.name_data() +
-                            taxonomy.nodes()[internal_call].name_offset;
-                        if (!name) {
-                                name = "unclassified";
-                        }
-                        sprintf(scientific_name, "%s (taxid %s)", name, taxid);
-                        taxid = scientific_name;
+                        // Match classify: taxid 0 is labeled "unclassified"
+                        // rather than with the name of the root node.
+                        const char *name = call
+                            ? taxonomy.name_data() +
+                              taxonomy.nodes()[internal_call].name_offset
+                            : "unclassified";
+                        scientific_name.assign(name);
+                        scientific_name += " (taxid ";
+                        scientific_name += taxid;
+                        scientific_name += ")";
+                        taxid = scientific_name.c_str();
                 }
                 if (!merged_hit_list.empty()) {
                         fprintf(out, "%s\t%s\t%s\t%s\t", status,
