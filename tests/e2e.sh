@@ -785,6 +785,40 @@ else
   check k2.multi_db.four.min_hit_groups_matches_single_db \
     mhg_matches_single "$DB4" mhg4
 
+  # With several databases, k2 writes --classified-out and --unclassified-out
+  # itself from the read names merge reports as classified, so the sequence
+  # files must equal those classify writes for the single database.
+  seqout_matches_single() {
+    # seqout_matches_single DBS NAME [k2 classify args and reads]
+    local dbs=$1 name=$2; shift 2
+    local a pat="" suffixes=("") s k
+    for a in "$@"; do
+      case $a in --paired|--interleaved) pat="#"; suffixes=(_1 _2) ;; esac
+    done
+    rm -f "$name".*
+    k2 classify --db k2db --output "$name.single.out" \
+      --classified-out "$name.single.cl$pat.seq" --unclassified-out "$name.single.un$pat.seq" "$@" &&
+    k2 classify --db "$dbs" --output "$name.out" \
+      --classified-out "$name.cl$pat.seq" --unclassified-out "$name.un$pat.seq" "$@" || return 1
+    for s in "${suffixes[@]}"; do
+      for k in cl un; do
+        [ -s "$name.single.$k$s.seq" ] || { echo "$name.single.$k$s.seq is empty"; return 1; }
+        same "$name.single.$k$s.seq" "$name.$k$s.seq" || return 1
+      done
+    done
+    echo "$(grep -c '^C' "$name.out") classified and $(grep -c '^U' "$name.out") unclassified reads match the single database"
+  }
+  check k2.multi_db.seqout.paired_matches_single_db \
+    seqout_matches_single k2dbA,k2dbB seqout_p --paired "$R1" "$R2"
+  check k2.multi_db.seqout.gzip_matches_single_db \
+    seqout_matches_single "$DB3" seqout_gz --paired r1.fq.gz r2.fq.gz
+  check k2.multi_db.seqout.interleaved_matches_single_db \
+    seqout_matches_single k2dbA,k2dbB seqout_i --interleaved interleaved.fq
+  check k2.multi_db.seqout.single_fasta_matches_single_db \
+    seqout_matches_single "$DB3" seqout_fa r1.fa
+  check k2.multi_db.seqout.min_base_quality_matches_single_db \
+    seqout_matches_single k2dbA,k2dbB seqout_mbq --paired --minimum-base-quality 20 "$R1" "$R2"
+
   k2_orphan() {
     rm -rf k2orph; new_db_dir k2orph
     k2 add-to-library --db k2orph --files orph.fa || return 1
