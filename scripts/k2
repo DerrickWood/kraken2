@@ -5262,6 +5262,13 @@ def make_merge_parser(subparsers):
         type=str,
         help="Filenames to be merged, supports bz2, gzip, and xz",
     )
+    # classify_multi_dbs passes minimum_hit_groups to every merge. The files
+    # given here come from k2 classify runs that have already applied the
+    # hit-group test, and their hit lists carry none of the unique-minimizer
+    # tags that merge counts as hit groups. merge's own test therefore only
+    # keeps unclassified the reads that every input left unclassified, for
+    # any value of at least 1; 2 matches the k2 classify default.
+    parser.set_defaults(minimum_hit_groups=2)
 
 
 class HelpAction(argparse._HelpAction):
