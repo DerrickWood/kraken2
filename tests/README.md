@@ -80,7 +80,10 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
   - a bad `--confidence`;
   - a truncated or oversized database file;
   - a `names.dmp` without the trailing delimiter;
-  - a taxid that is absent from `nodes.dmp`.
+  - a taxid that is absent from `nodes.dmp`;
+  - a `classify` or `merge` that fails under `k2 classify`, with one database, with gzip input
+    and with several databases. `k2` must name the failed binary, print no Python traceback
+    and leave no temporary files.
 
 ## Reading CI results
 

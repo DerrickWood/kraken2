@@ -7,6 +7,7 @@ import concurrent.futures
 import collections
 import csv
 import ctypes
+import errno
 import ftplib
 import functools
 import glob
@@ -2750,7 +2751,40 @@ def read_from_files(filename1, filename2=None):
                 yield (seq1, seq2)
 
 
-def write_to_fifo(filenames, fifo1, fifo2=None):
+def open_fifo_for_writing(pathname, reader_proc):
+    # A blocking open of a FIFO waits for a reader, and would wait forever if
+    # the reading process exits before opening it. Polling a nonblocking open
+    # lets the writer give up once the reader has exited. Returns None in
+    # that case.
+    while True:
+        try:
+            fd = os.open(pathname, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as e:
+            if e.errno != errno.ENXIO:
+                raise
+            if reader_proc.poll() is not None:
+                return None
+            time.sleep(0.05)
+            continue
+        os.set_blocking(fd, True)
+        return os.fdopen(fd, "wb")
+
+
+def write_to_fifo(filenames, fifo1, fifo2=None, reader_proc=None):
+    if reader_proc is not None:
+        # The reader's exit status is checked by the caller, so a reader that
+        # exits early only ends the writing here.
+        try:
+            file1 = open_fifo_for_writing(fifo1, reader_proc)
+            if file1 is None:
+                return
+            with file1:
+                for fn in filenames:
+                    for seq in read_from_files(fn):
+                        file1.write(seq)
+        except BrokenPipeError:
+            pass
+        return
     if fifo2 is not None:
         with open(fifo1, "wb") as file1, open(fifo2, "wb") as file2:
             for fn1, fn2 in zip(filenames[0::2], filenames[1::2]):
@@ -3641,7 +3675,7 @@ def classify_using_daemon(args, argv):
     if not alive:
         cleanup_fifos()
         LOG.info("Starting backgroud classifier process\n")
-        subprocess.call(argv)
+        exit_if_binary_failed(argv[0], subprocess.call(argv))
         wait_for_files(
             "/tmp/classify.pid", "/tmp/classify_stdin", "/tmp/classify_stdout"
         )
@@ -3878,6 +3912,36 @@ class Taxonomy:
         return child_taxids
 
 
+def describe_exit_status(returncode):
+    # subprocess reports death by signal N as a return code of -N.
+    if returncode < 0:
+        try:
+            signal_name = signal.Signals(-returncode).name
+        except ValueError:
+            signal_name = "signal {:d}".format(-returncode)
+        return "was terminated by {:s}".format(signal_name)
+    return "exited with status {:d}".format(returncode)
+
+
+def exit_if_binary_failed(binary, returncode, database=None, temp_pathnames=()):
+    if returncode == 0:
+        return
+    if database:
+        LOG.error(
+            "{:s} {:s} while classifying against database {:s}\n".format(
+                binary, describe_exit_status(returncode), database
+            )
+        )
+    else:
+        LOG.error("{:s} {:s}\n".format(binary, describe_exit_status(returncode)))
+    for pathname in temp_pathnames:
+        try:
+            os.remove(pathname)
+        except OSError:
+            pass
+    sys.exit(1)
+
+
 def merge_classification_output(
         threads, batch_size,
         taxonomy_pathname, in_filename1,
@@ -3885,7 +3949,7 @@ def merge_classification_output(
         classified_headers_filename,
         merge_minimizer_data, report_filename,
         report_zeroes, mpa_style, minimum_hit_groups,
-        flag_unique_minimizers, confidence_threshold=0.0
+        flag_unique_minimizers, confidence_threshold=0.0, temp_pathnames=()
 ):
     merge_binary = find_kraken2_binary("merge")
     argv = [
@@ -3915,7 +3979,9 @@ def merge_classification_output(
         argv.extend(["-i", repr(confidence_threshold)])
 
     argv.extend([in_filename1, in_filename2])
-    subprocess.call(argv)
+    exit_if_binary_failed(
+        merge_binary, subprocess.call(argv), temp_pathnames=temp_pathnames
+    )
 
     return out_filename
 
@@ -4043,6 +4109,10 @@ def classify_multi_dbs(args, filenames=[]):
     )
     LOG.info("Finished creating and loading merged taxonomy\n")
 
+    # Files removed if classify or merge fails, so that a failed run does not
+    # leave its intermediate output behind.
+    temp_pathnames = [seqid2taxid_map_pathname, taxonomy_pathname]
+
     if not filenames:
         # The confidence threshold is applied once, by the final merge, to
         # the combined hit list. Each database is searched with a threshold
@@ -4055,11 +4125,12 @@ def classify_multi_dbs(args, filenames=[]):
             args.db = db
             pathname = mktemp(prefix="k2_")
             classified_filenames.append(pathname)
+            temp_pathnames.extend([pathname, pathname + ".dump"])
             args.output = pathname
             setattr(args, "dump_taxon_counters", pathname + ".dump")
             setattr(args, "flag_unique_minimizers", True)
             LOG.info("Running classification job for database {}\n".format(db))
-            classify(args)
+            classify(args, temp_pathnames)
             LOG.info("Finished running classification job for database {}\n".format(db))
         delete_temps = True
     else:
@@ -4069,6 +4140,7 @@ def classify_multi_dbs(args, filenames=[]):
     # We need these classified headers for outputting stats and
     # also for saving classified and unclassified sequences.
     classified_headers_filename = mktemp(prefix="k2_")
+    temp_pathnames.append(classified_headers_filename)
 
     LOG.info("Merging output files\n")
     progress = ProgressBar(len(classified_filenames) - 1, 0)
@@ -4086,6 +4158,7 @@ def classify_multi_dbs(args, filenames=[]):
 
         filename1, filename2 = classified_filenames.pop(), classified_filenames.pop()
         out_filename = mktemp(prefix="k2_")
+        temp_pathnames.append(out_filename)
         merge_classification_output(
             args.threads, 100,
             taxonomy_pathname,
@@ -4100,7 +4173,8 @@ def classify_multi_dbs(args, filenames=[]):
             mpa_style if final else None,
             args.minimum_hit_groups,
             flag_unique_minimizers,
-            confidence_threshold if final else 0.0
+            confidence_threshold if final else 0.0,
+            temp_pathnames
         )
 
         progress.progress(1, relative=True)
@@ -4159,7 +4233,7 @@ def classify_multi_dbs(args, filenames=[]):
     os.remove(seqid2taxid_map_pathname)
 
 
-def classify(args):
+def classify(args, temp_pathnames=()):
     classify_bin = find_kraken2_binary("classify")
     database_path = find_database(args.db)
     if database_path is None:
@@ -4204,27 +4278,40 @@ def classify(args):
                 argv.extend([fifo1_pathname, fifo2_pathname])
             else:
                 argv.append(fifo1_pathname)
+            classify_proc = None
             if args.use_daemon:
                 thread = threading.Thread(
                     target=classify_using_daemon, args=(args, argv)
                 )
+                thread.start()
             else:
-                thread = threading.Thread(target=subprocess.call, args=(argv,))
-            thread.start()
+                classify_proc = subprocess.Popen(argv)
             if "-P" in argv:
                 writer_thread1 = threading.Thread(
-                    target=write_to_fifo, args=(args.filenames[0::2], fifo1_pathname)
+                    target=write_to_fifo,
+                    args=(args.filenames[0::2], fifo1_pathname),
+                    kwargs={"reader_proc": classify_proc},
                 )
                 writer_thread2 = threading.Thread(
-                    target=write_to_fifo, args=(args.filenames[1::2], fifo2_pathname)
+                    target=write_to_fifo,
+                    args=(args.filenames[1::2], fifo2_pathname),
+                    kwargs={"reader_proc": classify_proc},
                 )
                 writer_thread1.start()
                 writer_thread2.start()
                 writer_thread1.join()
                 writer_thread2.join()
             else:
-                write_to_fifo(args.filenames, fifo1_pathname)
-            thread.join()
+                write_to_fifo(
+                    args.filenames, fifo1_pathname, reader_proc=classify_proc
+                )
+            if classify_proc is None:
+                thread.join()
+            else:
+                exit_if_binary_failed(
+                    classify_bin, classify_proc.wait(), database_path,
+                    temp_pathnames
+                )
     else:
         for i, filename in enumerate(args.filenames):
             args.filenames[i] = os.path.abspath(filename)
@@ -4232,7 +4319,10 @@ def classify(args):
         if args.use_daemon:
             classify_using_daemon(args, argv)
         else:
-            subprocess.call(argv)
+            exit_if_binary_failed(
+                classify_bin, subprocess.call(argv), database_path,
+                temp_pathnames
+            )
 
 
 def inspect_db(args):

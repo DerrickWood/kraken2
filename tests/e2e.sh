@@ -734,6 +734,46 @@ else
   }
   check k2.multi_db.missing_seqid2taxid_fails multi_missing_map
 
+  # A classify or merge that fails must make k2 exit non-zero with a message
+  # naming the binary: not exit 0, raise a Python traceback, or wait forever
+  # on the FIFO that feeds compressed input to classify.  k2 must also remove
+  # its temporary files.  A database with a truncated hash.k2d makes classify
+  # fail, and a merge earlier in PATH that exits 3 makes merge fail.
+  k2_fails_cleanly() {
+    # k2_fails_cleanly [k2 classify args]
+    rm -rf k2fail_tmp; mkdir k2fail_tmp
+    local out rc left
+    out=$(TMPDIR="$WORK/k2fail_tmp" with_timeout 30 "$PYTHON" "$K2" classify "$@" 2>&1)
+    rc=$?
+    printf '%s\n' "$out" | tail -n 20
+    echo "exit status $rc"
+    left=$(ls -A k2fail_tmp)
+    [ -z "$left" ] || echo "temporary files left: $left"
+    [ $rc -ne 0 ] && [ $rc -ne 124 ] && { [ $rc -lt 129 ] || [ $rc -gt 159 ]; } &&
+      ! printf '%s\n' "$out" | grep -q Traceback &&
+      printf '%s\n' "$out" | grep -q -E '(classify|merge) (exited with status|was terminated by)' &&
+      [ -z "$left" ]
+  }
+  env_fails_cleanly() (
+    # env_fails_cleanly NAME=VALUE [k2 classify args]  runs k2_fails_cleanly
+    # in a subshell with one variable exported.
+    export "${1?}"; shift
+    k2_fails_cleanly "$@"
+  )
+  rm -rf k2db_trunc k2dbB_trunc k2fail_bin
+  cp -R k2db k2db_trunc; cp -R k2dbB k2dbB_trunc; mkdir k2fail_bin
+  head -c 4096 k2db/hash.k2d > k2db_trunc/hash.k2d
+  head -c 4096 k2dbB/hash.k2d > k2dbB_trunc/hash.k2d
+  printf '#!/bin/sh\nexit 3\n' > k2fail_bin/merge; chmod +x k2fail_bin/merge
+  check k2.classify.failed_classify_exits_nonzero \
+    k2_fails_cleanly --db k2db_trunc --paired --output fail.out "$R1" "$R2"
+  check k2.classify.gzip.failed_classify_exits_nonzero \
+    k2_fails_cleanly --db k2db_trunc --paired --output fail.out r1.fq.gz r2.fq.gz
+  check k2.multi_db.failed_classify_exits_nonzero \
+    k2_fails_cleanly --db k2dbA,k2dbB_trunc --paired --output fail.out "$R1" "$R2"
+  check k2.multi_db.failed_merge_exits_nonzero \
+    env_fails_cleanly PATH="$WORK/k2fail_bin:$PATH" --db k2dbA,k2dbB --paired --output fail.out "$R1" "$R2"
+
   # Three- and four-way splits.  The influenza A subtypes, the HIV types and
   # the betacoronaviruses are spread across databases, so many calls depend
   # on combining hits from several of them.  k2 merges the per-database
