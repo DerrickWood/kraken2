@@ -706,6 +706,40 @@ else
   check k2.multi_db.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2dbB,k2dbA --paired --output multi_ba.out --report multi_ba.report '$R1' '$R2' &&
     cmp multi.out multi_ba.out && cmp multi.report multi_ba.report"
+
+  # Quick mode prints no hit counts, so per-database quick calls cannot be
+  # merged, and k2 must refuse them before classifying.
+  multi_quick() {
+    rm -f multi_quick.out
+    local out
+    out=$(must_fail k2 classify --db k2dbA,k2dbB --paired --quick --output multi_quick.out "$R1" "$R2")
+    local rc=$?
+    printf '%s\n' "$out"
+    [ $rc -eq 0 ] && ! printf '%s\n' "$out" | grep -q Traceback &&
+      printf '%s\n' "$out" | grep -q -- --quick && [ ! -s multi_quick.out ]
+  }
+  check k2.multi_db.quick_rejected multi_quick
+  # merge labels reads itself with --use-names, so its labels must match
+  # classify's, including "unclassified" for taxid 0.
+  multi_names() {
+    k2 classify --db k2db --paired --use-names --output names_single.out "$R1" "$R2" &&
+      multi_classify multi_names --use-names &&
+      cmp <(sed 's/[[:space:]]*$//' names_single.out) <(sed 's/[[:space:]]*$//' multi_names.out)
+  }
+  check k2.multi_db.use_names_matches_single_db multi_names
+  # With only the first 20 pairs, some taxa get no reads, so the report
+  # differs from the default one only by its zero-count rows.
+  multi_zero() {
+    head -n 80 "$R1" > zero_1.fq; head -n 80 "$R2" > zero_2.fq
+    k2 classify --db k2db --paired --report-zero-counts --output zero_single.out \
+      --report zero_single.report zero_1.fq zero_2.fq &&
+    k2 classify --db k2dbA,k2dbB --paired --report-zero-counts --output multi_zero.out \
+      --report multi_zero.report zero_1.fq zero_2.fq &&
+    k2 classify --db k2db --paired --output /dev/null --report nozero.report zero_1.fq zero_2.fq || return 1
+    echo "rows: $(wc -l < nozero.report) without --report-zero-counts, $(wc -l < zero_single.report) with"
+    ! cmp -s nozero.report zero_single.report && same zero_single.report multi_zero.report
+  }
+  check k2.multi_db.report_zero_counts_matches_single_db multi_zero
   if [ $OPENMP = 0 ]; then
     check k2.multi_db.threads_without_openmp threads_one_team
   else
