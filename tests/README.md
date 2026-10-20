@@ -65,7 +65,9 @@ To build without OpenMP, set `KRAKEN2_SKIP_FOPENMP=` (empty). The suite detects 
   `--minimum-hit-groups 5`, `--quick`, `--minimum-base-quality 20` and `kraken2-inspect`.
   Each reference sequence must also classify to its own lineage.
 - **k2.** `k2 add-to-library`, `k2 build`, `k2 classify` and `k2 inspect` must agree with the
-  Perl front end. Multi-database classification uses two databases that split the
+  Perl front end. `k2 merge-classifications`, given the output of `k2 classify` for each
+  database of the three-way split below, must give the single-database output and report.
+  Multi-database classification uses two databases that split the
   references. It is checked against golden files for each `--merge-policy`, against the
   single-database result, and for order independence. `--threads 2` must give the same
   output when OpenMP provides only one thread (a build without OpenMP, or

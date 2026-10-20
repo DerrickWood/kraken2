@@ -845,6 +845,19 @@ else
   }
   check k2.multi_db.three.matches_single_db matches_single "$DB3" multi3 paired
   check k2.multi_db.four.matches_single_db matches_single "$DB4" multi4 paired
+
+  # k2 merge-classifications combines outputs that k2 classify wrote for each
+  # database separately.  With three inputs it also merges merged output.
+  merge_files_matches_single() {
+    local d files=()
+    for d in k2db3a k2db3b k2db3c; do
+      k2 classify --db "$d" --paired --output "mc_$d.out" "$R1" "$R2" || return 1
+      files+=("mc_$d.out")
+    done
+    k2 merge-classifications --db "$DB3" --output mc3.out --report mc3.report "${files[@]}" &&
+      same_ignoring_trailing_space paired.out mc3.out && cmp paired.report mc3.report
+  }
+  check k2.merge_classifications.three.matches_single_db merge_files_matches_single
   check k2.multi_db.four.order_independent bash -c "
     '$PYTHON' '$K2' classify --db k2db4d,k2db4b,k2db4a,k2db4c --paired --output multi4_r.out --report multi4_r.report '$R1' '$R2' &&
     cmp multi4.out multi4_r.out && cmp multi4.report multi4_r.report"
