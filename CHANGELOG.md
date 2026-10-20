@@ -1,4 +1,113 @@
 # Changelog
+## [2.18.0-RC1]
+### Major Performance Improvements
+
+Classification Speed
+
+• Batched minimizer lookups with software prefetching - Restructured classification into three phases to overlap memory access latencies, significantly improving performance on large databases (especially on aarch64/Graviton). Tunable via K2_PREFETCH_DIST environment variable (default: 8).
+* Parallel hash table loading - Load compact hash tables with parallel reads to saturate fast storage
+* Huge page support - Back compact hash table with huge pages where available
+* General classification speedup - Additional optimizations to classification pipeline
+
+Merge Performance
+
+* Speed up merging of multi-database classifications - Multiple optimizations to merge process
+* Speed up merging of classification files - General performance improvements
+
+### Added
+
+Network & Download
+
+* Proxy support - Added ability to download files over a proxy server
+* SSL/HTTPS improvements - Added SSL context to HTTPSConnection objects to address deprecation warnings
+
+Database Building
+
+* GTDB database building in parts - Added support for building gtdb_genome_reps in parts with directory creation fixes
+* Configurable CHT cell size - Added support for adjustable compact hash table cell sizes (32 and 40 bytes currently supported)
+
+Classification
+
+* New FASTA/FASTQ parser that Keeps parsing out of the input critical section for better parallelism
+* Multi-database classification activation - Automatically activate when database directory contains split databases
+* Verify pair order option - Added option to terminate classification if paired reads are not properly ordered
+* MPA-style reporting - Added support for MPA (Metagenomic Phylogenetic Analysis) style reporting
+* Partitioned database kmer data - Added support for --report-kmer-data when running multi-database classification
+* Partitioned database inspection - Added support for inspecting partitioned databases
+
+Documentation
+
+* ReadTheDocs support - Added initial Sphinx-based documentation build system with requirements and configuration
+
+### Fixed
+
+Classification
+
+* Fixed crash when classifying against sampled databases
+* Fixed issue causing minimizers to be undercounted
+* Fixed double-free of index data at classify exit
+* Fixed out-of-bounds error during multi-database classification
+* Fixed inaccurate kmer counts reported by merge process
+* Fixed crashes when classifying against more than two databases
+* Fixed issue causing classification to hang when processing compressed inputs (addresses v2.17.0 issue)
+* Fixed issue causing domain-level taxonomies to be reported as root (addresses v2.17.0 issue)
+
+Merge
+
+* Fixed issue causing merge to ignore minimum-hit-groups parameter
+* Fixed issue with merging even number of files
+* Fixed issues with daemon mode during merge
+* Fixed issues causing merge to crash or produce inaccurate results
+* Fixed an issue Convert merged HyperLogLog sketches from sparse to dense at the insert threshold
+* Fixed --quick, --use-names and --report-zero-counts in multi-database classification
+* Fixed multi-database --classified-out and --unclassified-out in k2
+* Fixed how --confidence is applied to the combined hit list in multi-database classification
+
+Build & Database
+
+* Fixed undefined behavior when using build_db with --fast-build option
+* Fixed issue causing taxonomy to be skipped when building standard database
+* Fixed directory creation issues when building GTDB databases
+* Fixed issue causing download from NCBI to fail
+* Fixed logging across sub-processes
+* Fixed error when installing kraken2
+* Fixed memory-related issues in blast_to_fasta program (addresses v2.17.0 issue)
+* Fixed syntax error in append_file function
+
+Input/Output
+
+* Fixed issue causing description field to be discarded when saving classified or unclassified inputs to file (addresses v2.17.0 issue)
+* Fixed issue causing space to be appended to FASTA/Q headers without comments
+* Fixed issue causing inspect command to error out when outputting to stdout
+* Close input files properly and report read failures
+* Match upstream's -C and -U headers for classified/unclassified output
+* Name the earliest malformed record rather than the first one seen
+* Stop clearing input buffers before reading over them
+* Do not hand out blocks of blank lines after the last record
+
+k2 Wrapper
+
+* Fixed issue causing k2 to error out while extracting files from GTDB tarball
+* Fix the processing speed of NCBI library files post download
+* Fix k2 merge-classifications failing with AttributeError
+* Fixed broken links when with NCBI API due to faulty quotiing
+* Fixed an issue causing --memory-mapping option to be dropped by k2
+* Increased the speed that accessions download links are fetched when using NCBI API
+
+
+### Code Refactoring & Improvements
+
+Core Components
+
+* Keep the minimizer window in a vector rather than a deque
+* Translate from a span rather than a string for better performance
+* Stricter FASTQ parser i.e. no empty records, missing quality strings, etc.
+* Refactor k2mask for faster masking
+
+Build System
+
+* Add support for CMake build system
+
 ## [2.17.1] - 2025-11-24
 
 ### Changed
