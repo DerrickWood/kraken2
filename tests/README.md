@@ -9,6 +9,7 @@ reference set in `data/`, which has 38 sequences, 40 taxa and a 420 KB hash tabl
 | `update_golden.sh INSTALL_DIR` | Regenerate `golden/` after an intended output change |
 | `pr_compare.py BASE HEAD WORK [BIG]` | Compare two installs read by read (used by the PR job) |
 | `k2db_check.py DB` | Header-only sanity check of a built database (load, bit budgets, orphans) |
+| `benchmarks/run_resolve_tree.py` | Compare production ResolveTree with the frozen original using std::chrono; see [benchmark notes](benchmarks/README.md) |
 | `data/sim_1.fq`, `data/sim_2.fq` | Frozen reads: 400 simulated pairs, 20 chimeric tie pairs, 20 random pairs |
 | `data/make_reads.sh` | How those reads were made (rerun only on purpose) |
 | `data/mhg_1.fq`, `data/mhg_2.fq` | 18 read pairs whose calls at `--minimum-hit-groups` 5 and 10 depend on combining hit groups across three or more databases |
