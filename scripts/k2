@@ -340,16 +340,27 @@ def wrap_with_globals(f, log_queue, log_level, script_pathname, *args):
 
 
 def make_https_connection(server):
-    if "https_proxy" in os.environ:
+    import base64
+    proxy_url=os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+    if proxy_url is not None:
         parts = urllib.parse.urlsplit(os.environ["https_proxy"])
-        hostname, port = parts.netloc.split(":")
-        port = int(port)
+        hostname = parts.hostname
+        port = parts.port
+        if hostname is none or port is None:
+            LOG.error(f'invalid proxy_url: {proxy_url}\n')
+            sys.exit(1)
+        #---- handle authenticated proxy
+        headers = {}
+        if parts.username:
+            user = urllib.parse.unquote(parts.username)
+            pwd = urllib.parse.unquote(parts.password or "")
+            token = base64.b64encode(f"{user}:{pwd}".encode()).decode()
+            headers["Proxy-Authorization"] = f"Basic {token}"
+
         conn = http.client.HTTPSConnection(hostname, port)
-        conn.set_tunnel(server)
+        conn.set_tunnel(server, headers=headers)
     else:
-        context = ssl.create_default_context()
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        conn = http.client.HTTPSConnection(server, context=context)
+        conn = http.client.HTTPSConnection(server)
 
     return conn
 
