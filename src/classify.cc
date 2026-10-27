@@ -92,17 +92,6 @@ static const taxid_t READING_FRAME_BORDER_TAXON = TAXID_MAX - 1;
 static const taxid_t AMBIGUOUS_SPAN_TAXON = TAXID_MAX - 2;
 static taxid_t UNIQUE_MINIMIZER_TAG = 0;
 
-// Token stream used to defer minimizer lookups in ClassifySequence so they can be
-// resolved in one prefetched batch. kind selects how replay rebuilds taxa[]/counts;
-// key_idx indexes the distinct-minimizer lookup arrays for TOK_LOOKUP. uint32_t is
-// ample: it counts distinct minimizers in a single read pair (far below 2^32).
-enum MinTokKind { TOK_LOOKUP, TOK_SKIP, TOK_REPEAT, TOK_AMBIG,
-                  TOK_BORDER_MATE, TOK_BORDER_FRAME };
-struct MinToken { uint8_t kind; uint32_t key_idx; };
-
-// template <typename Cell>
-// using IndexData = std::tuple<IndexOptions, Taxonomy, CompactHashTable<Cell> *>;
-
 struct IndexData {
   IndexOptions options;
   Taxonomy *taxonomy;
@@ -1142,18 +1131,21 @@ struct MinimizerLookups {
 
   MinimizerLookups(KeyValueStore *hash, std::vector<taxid_t> &taxa,
                    taxon_counters_t &counters, taxon_counts_t &hit_counts,
-                   int64_t &minimizer_hit_groups, bool write_minimizer_data)
+                   int64_t &minimizer_hit_groups, bool write_minimizer_data,
+                   bool quick_mode)
       : _hash(hash), _taxa(taxa), _taxon_counters(counters),
-        _hit_counts(hit_counts), total_kmers(0),
+        _hit_counts(hit_counts), _total_kmers(0),
         _minimizer_hit_groups(minimizer_hit_groups),
-        _write_minimizer_data(write_minimizer_data)
+        _write_minimizer_data(write_minimizer_data),
+        _quick_mode(quick_mode)
   {
-    lookup_keys.reserve(1024);
+    batch_size = _quick_mode ? 1 : 1024;
+    lookup_keys.reserve(batch_size);
   }
 
   inline void add_data(uint64_t minimizer, taxid_t taxid) {
     lookup_keys.push_back({minimizer, taxid});
-    if (lookup_keys.size() == 1024) {
+    if (lookup_keys.size() == batch_size) {
       get_batch();
     }
   }
@@ -1165,8 +1157,11 @@ struct MinimizerLookups {
     }
     _hash->GetBatch(lookup_keys);
     uint64_t previous_minimizer = UINT64_MAX;
-    taxid_t previous_taxid = _taxa.size() == 0 ? TAXID_MAX : _taxa[_taxa.size() - 2];
-    taxid_t count = _taxa.size() == 0 ? 1 : _taxa.back();
+    taxid_t previous_taxid = TAXID_MAX;
+    if (_taxa.size() > 0) {
+      previous_taxid = _taxa[_taxa.size() - 2];
+    }
+
     for (size_t i = 0; i < lookup_keys.size(); i++) {
       if (lookup_keys[i].key != UINT64_MAX && lookup_keys[i].value > 0) {
         _hit_counts[lookup_keys[i].value] += 1;
@@ -1182,12 +1177,14 @@ struct MinimizerLookups {
         previous_minimizer = lookup_keys[i].key;
       }
       taxid_t taxid = minimizer_tag | lookup_keys[i].value;
+      // RLE classified taxid's
       if (minimizer_tag != 0 || previous_taxid != taxid) {
-        _taxa.push_back(minimizer_tag | lookup_keys[i].value);
+        _taxa.push_back(taxid);
         _taxa.push_back(1);
       } else {
         _taxa.back() += 1;
       }
+      previous_taxid = taxid;
       minimizer_tag = 0;
     }
     lookup_keys.resize(0);
@@ -1198,9 +1195,11 @@ struct MinimizerLookups {
   taxon_counters_t &_taxon_counters;
   taxon_counts_t &_hit_counts;
   std::vector<LookupData> lookup_keys;
-  size_t total_kmers;
+  size_t _total_kmers;
   int64_t &_minimizer_hit_groups;
   bool _write_minimizer_data;
+  bool _quick_mode;
+  size_t batch_size;
 };
 
 taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &koss,
@@ -1218,22 +1217,14 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   hit_counts.clear();
   auto frame_ct = opts.use_translated_search ? 6 : 1;
   int64_t minimizer_hit_groups = 0;
+  size_t total_kmers = 0;
 
-  // Phase 1: scan minimizers for the read pair into a token stream, deferring
-  // the memory-latency-bound hash lookups. Lookup-vs-repeat-vs-ambiguous is
-  // decided purely from minimizer values (independent of taxon), exactly as the
-  // original consecutive-dedup did, so phase 3 reproduces identical
-  // taxa[]/counts. static thread_local std::vector<std::pair<uint64_t,
-  // uint32_t>> lookup_keys;
-  static thread_local MinimizerLookups lookup_keys(
+
+  static thread_local MinimizerLookups lookups(
       hash, taxa, curr_taxon_counts, hit_counts, minimizer_hit_groups,
-      opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty());
-  static thread_local std::vector<MinToken> tok_stream;
-  // lookup_keys.clear();
-  tok_stream.clear();
+      opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty(),
+      opts.quick_mode);
 
-  // lookup_keys.reserve(1024);
-  bool flush_lookup_keys = false;
   for (int mate_num = 0; mate_num < 2; mate_num++) {
     if (mate_num == 1 && ! opts.paired_end_processing)
       break;
@@ -1252,54 +1243,59 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
       }
 
       while ((minimizer_ptr = scanner.NextMinimizer()) != nullptr) {
-        taxid_t taxon = TAXID_MAX;
         if (scanner.is_ambiguous()) {
-          lookup_keys.add_data(UINT64_MAX, AMBIGUOUS_SPAN_TAXON);
+          lookups.add_data(UINT64_MAX, AMBIGUOUS_SPAN_TAXON);
         } else {
           if (idx_opts.minimum_acceptable_hash_value) {
             if (MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value) {
               *minimizer_ptr = UINT64_MAX;
             }
           }
-          lookup_keys.add_data(*minimizer_ptr, 0);
+          lookups.add_data(*minimizer_ptr, 0);
         }
-        //   if (taxon) {
-        //     if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
-        //       call = taxon;
-        //       goto finished_searching;  // need to break 3 loops here
-        //     }
-        //     hit_counts[taxon]++;
-        //   }
-        // }
-        // taxa.push_back(taxon);
+        if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
+          goto finished_searching;  // need to break 3 loops here
+        }
+        total_kmers += 1;
       }
-      lookup_keys.get_batch();
+      lookups.get_batch();
       if (opts.use_translated_search && frame_idx != 5)
-        lookup_keys.add_data(UINT64_MAX, READING_FRAME_BORDER_TAXON);
+        lookups.add_data(UINT64_MAX, READING_FRAME_BORDER_TAXON);
     }
     if (opts.paired_end_processing && mate_num == 0)
-      lookup_keys.add_data(UINT64_MAX, MATE_PAIR_BORDER_TAXON);
+      lookups.add_data(UINT64_MAX, MATE_PAIR_BORDER_TAXON);
   }
 
-  // finished_searching:
+  finished_searching:
 
-  auto total_kmers = taxa.size();
-  if (opts.paired_end_processing)
-    total_kmers--;  // account for the mate pair marker
-  if (opts.use_translated_search)  // account for reading frame markers
-    total_kmers -= opts.paired_end_processing ? 4 : 2;
   call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
   // Void a call made by too few minimizer groups
   if (call && minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
   else {
-    // The border and ambiguity markers occupy the top of the taxid range,
-    // so they already have the tag bit set and must keep it.
-    for (auto &taxid : taxa) {
-      if (taxid != MATE_PAIR_BORDER_TAXON && taxid != READING_FRAME_BORDER_TAXON &&
-          taxid != AMBIGUOUS_SPAN_TAXON)
-        taxid &= ~UNIQUE_MINIMIZER_TAG;
+    taxid_t prev = taxa[0] < AMBIGUOUS_SPAN_TAXON ? (taxa[0] & ~UNIQUE_MINIMIZER_TAG) : taxa[0];
+    uint32_t count = taxa[1];
+    size_t j = 0;
+    for (size_t i = 2; i < taxa.size(); i += 2) {
+      // The border and ambiguity markers occupy the top of the taxid range,
+      // so they already have the tag bit set and must keep it.
+      if (taxa[i] < AMBIGUOUS_SPAN_TAXON) {
+        taxa[i] &= ~UNIQUE_MINIMIZER_TAG;
+      }
+
+      if (taxa[i] == prev) {
+        count += taxa[i + 1];
+      } else {
+        taxa[j] = prev;
+        taxa[j + 1] = count;
+        prev = taxa[i];
+        count = taxa[i + 1];
+        j += 2;
+      }
     }
+    taxa[j] = prev;
+    taxa[j + 1] = count;
+    taxa.resize(j + 2);
   }
 
   if (call) {
@@ -1377,68 +1373,36 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
 void AddHitlistString(std::string &oss, vector<taxid_t> &taxa,
     Taxonomy &taxonomy)
 {
-  auto last_code = taxa[0];
-  auto code_count = 1;
   char buffer1[17];
   char buffer2[17];
 
   std::string unique_minimizer_indicator[2] = {"", "*"};
   auto umm_complement = ~UNIQUE_MINIMIZER_TAG;
 
-  for (size_t i = 1; i < taxa.size(); i++) {
+  for (size_t i = 0; i < taxa.size(); i += 2) {
     auto code = taxa[i];
-
-    if (code == last_code) {
-      code_count += 1;
-    } else {
-      char *v = int_to_string(code_count, buffer1);
-      if (last_code != MATE_PAIR_BORDER_TAXON && last_code != READING_FRAME_BORDER_TAXON) {
-        if (last_code == AMBIGUOUS_SPAN_TAXON) {
-          oss += "A:";
-          oss += v;
-          oss += " ";
-        }
-        else {
-          auto ext_code =
-              taxonomy.nodes()[last_code & umm_complement].external_id;
-          char *k = int_to_string(ext_code, buffer2);
-          std::string &indicator =
-              unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0];
-          oss += indicator;
-          oss += k;
-          oss += ":";
-          oss += v;
-          oss += " ";
-        }
+    auto count = taxa[i + 1];
+    char *v = int_to_string(count, buffer1);
+    if (code != MATE_PAIR_BORDER_TAXON && code != READING_FRAME_BORDER_TAXON) {
+      if (code == AMBIGUOUS_SPAN_TAXON) {
+        oss += "A:";
+        oss += v;
+        oss += " ";
+      } else {
+        auto ext_code =
+          taxonomy.nodes()[code & umm_complement].external_id;
+        char *k = int_to_string(ext_code, buffer2);
+        std::string &indicator =
+          unique_minimizer_indicator[(code & UNIQUE_MINIMIZER_TAG) > 0];
+        oss += indicator;
+        oss += k;
+        oss += ":";
+        oss += v;
+        oss += " ";
       }
-      else {  // mate pair/reading frame marker
-        oss += (last_code == MATE_PAIR_BORDER_TAXON ? "|:| " : "-:- ");
-      }
-      code_count = 1;
-      last_code = code;
+    } else {  // mate pair/reading frame marker
+      oss += (code == MATE_PAIR_BORDER_TAXON ? "|:| " : "-:- ");
     }
-  }
-  if (last_code != MATE_PAIR_BORDER_TAXON && last_code != READING_FRAME_BORDER_TAXON) {
-    if (last_code == AMBIGUOUS_SPAN_TAXON) {
-      oss += "A:";
-      char *count = int_to_string(code_count, buffer1);
-      oss += count;
-      oss += " ";
-    } else {
-      char *v = int_to_string(code_count, buffer1);
-      auto ext_code = taxonomy.nodes()[last_code & umm_complement].external_id;
-      char *k = int_to_string(ext_code, buffer2);
-      std::string &indicator =
-        unique_minimizer_indicator[(last_code & UNIQUE_MINIMIZER_TAG) > 0];
-      oss += indicator;
-      oss += k;
-      oss += ":";
-      oss += v;
-      oss += " ";
-    }
-  }
-  else {  // mate pair/reading frame marker
-    oss += (last_code == MATE_PAIR_BORDER_TAXON ? "|:|" : "-:-");
   }
 }
 
