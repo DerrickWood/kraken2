@@ -60,10 +60,10 @@ static void WriteSeqView(std::string &oss, const SeqView &v,
   oss += (v.format == FORMAT_FASTQ ? '@' : '>');
   oss.append(v.header, v.header_len);
   // oss += header_suffix;
-  // if (v.comment_len) {
-  //   oss += ' ';
-  //   oss += v.comment;
-  // }
+  if (v.comment_len) {
+    oss += ' ';
+    oss.append(v.comment, v.comment_len);
+  }
   oss += "\n";
   oss.append(v.seq, v.seq_len);
   oss += "\n";
@@ -721,6 +721,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
   size_t input_fault_count = 0;
   bool mates_differ = false;  // set only inside critical(seqread)
 
+  using ReaderFunc = std::function<bool(int, StreamCursor&)>;
   #pragma omp parallel
   {
     MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.spaced_seed_mask,
@@ -739,6 +740,13 @@ void ProcessFiles(const char *filename1, const char *filename2,
     OutputData out_data;
     taxon_counters_t thread_taxon_counters;
     std::vector<int> ready_blocks;
+    ReaderFunc Load =
+      IsRegularFile(fd1)
+      ? ReaderFunc([&reader1](int fd, StreamCursor &cur) mutable {
+        return reader1.LoadBlock(fd, cur, INPUT_BLOCK_BYTES); })
+      : ReaderFunc([&reader1](int fd, StreamCursor &cur) mutable {
+                return reader1.LoadRecords(fd, cur, 10000);
+      });
 
     while (true) {
       thread_stats.total_sequences = 0;
@@ -752,7 +760,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
         case InputLayout::SINGLE: {
           #pragma omp critical(seqread)
           {
-            ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+            ok_read = Load(fd1, cursor1);
             block_id = next_input_block_id++;
           }
           break;
@@ -762,7 +770,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
           // the second, so the two files stay in step.
           #pragma omp critical(seqread)
           {
-            ok_read = reader1.LoadBlock(fd1, cursor1, INPUT_BLOCK_BYTES);
+            ok_read = Load(fd1, cursor1);
             if (ok_read) {
               ok_read = reader2.LoadRecords(fd2, cursor2, reader1.RecordCount());
               // A second file that runs out first leaves first mates unpaired.
@@ -1401,6 +1409,9 @@ void AddHitlistString(std::string &oss, vector<taxid_t> &taxa,
     } else {  // mate pair/reading frame marker
       oss += (code == MATE_PAIR_BORDER_TAXON ? "|:| " : "-:- ");
     }
+  }
+  if (oss.back() == ' ') {
+    oss.pop_back();
   }
 }
 

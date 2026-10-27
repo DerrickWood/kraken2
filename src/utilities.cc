@@ -51,4 +51,13 @@ vector<string> SplitString
   return output;
 }
 
+bool IsRegularFile(int fd) {
+  struct stat sb;
+  if (fstat(fd, &sb) != 0) {
+    errx(1, "fstat");
+  }
+
+  return S_ISREG(sb.st_mode);
+}
+
 }

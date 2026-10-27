@@ -9,6 +9,7 @@
 
 #include "kraken2_headers.h"
 #include "fast_reader.h"
+#include <sys/stat.h>
 #include <vector>
 #include <inttypes.h>
 
@@ -23,6 +24,8 @@ void ExpandSpacedSeedMask(uint64_t &spaced_seed_mask, const int bit_expansion_fa
 
 std::vector<std::string> SplitString(const std::string &str,
   const std::string &delim = "\t", const size_t max_fields = (size_t) -1);
+
+bool IsRegularFile(int fd);
 
 class BitVec {
 public:
