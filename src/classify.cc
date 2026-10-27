@@ -5,6 +5,7 @@
  */
 
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <err.h>
 #include <functional>
@@ -1137,6 +1138,71 @@ char *int_to_string(uint64_t x, char *out) {
         return &out[i];
 }
 
+struct MinimizerLookups {
+
+  MinimizerLookups(KeyValueStore *hash, std::vector<taxid_t> &taxa,
+                   taxon_counters_t &counters, taxon_counts_t &hit_counts,
+                   int64_t &minimizer_hit_groups, bool write_minimizer_data)
+      : _hash(hash), _taxa(taxa), _taxon_counters(counters),
+        _hit_counts(hit_counts), total_kmers(0),
+        _minimizer_hit_groups(minimizer_hit_groups),
+        _write_minimizer_data(write_minimizer_data)
+  {
+    lookup_keys.reserve(1024);
+  }
+
+  inline void add_data(uint64_t minimizer, taxid_t taxid) {
+    lookup_keys.push_back({minimizer, taxid});
+    if (lookup_keys.size() == 1024) {
+      get_batch();
+    }
+  }
+
+  inline void get_batch() {
+    taxid_t minimizer_tag = 0;
+    if (lookup_keys.empty()) {
+      return;
+    }
+    _hash->GetBatch(lookup_keys);
+    uint64_t previous_minimizer = UINT64_MAX;
+    taxid_t previous_taxid = _taxa.size() == 0 ? TAXID_MAX : _taxa[_taxa.size() - 2];
+    taxid_t count = _taxa.size() == 0 ? 1 : _taxa.back();
+    for (size_t i = 0; i < lookup_keys.size(); i++) {
+      if (lookup_keys[i].key != UINT64_MAX && lookup_keys[i].value > 0) {
+        _hit_counts[lookup_keys[i].value] += 1;
+        if (lookup_keys[i].key != previous_minimizer) {
+          _minimizer_hit_groups += 1;
+          minimizer_tag = UNIQUE_MINIMIZER_TAG;
+          if (_write_minimizer_data) {
+            _taxon_counters[lookup_keys[i].value].add_kmer(lookup_keys[i].key);
+          }
+        } else {
+          _taxon_counters[lookup_keys[i].value].increaseKmerCount(1);
+        }
+        previous_minimizer = lookup_keys[i].key;
+      }
+      taxid_t taxid = minimizer_tag | lookup_keys[i].value;
+      if (minimizer_tag != 0 || previous_taxid != taxid) {
+        _taxa.push_back(minimizer_tag | lookup_keys[i].value);
+        _taxa.push_back(1);
+      } else {
+        _taxa.back() += 1;
+      }
+      minimizer_tag = 0;
+    }
+    lookup_keys.resize(0);
+  }
+
+  KeyValueStore *_hash;
+  std::vector<taxid_t> &_taxa;
+  taxon_counters_t &_taxon_counters;
+  taxon_counts_t &_hit_counts;
+  std::vector<LookupData> lookup_keys;
+  size_t total_kmers;
+  int64_t &_minimizer_hit_groups;
+  bool _write_minimizer_data;
+};
+
 taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &koss,
                          KeyValueStore *hash, Taxonomy &taxonomy,
                          IndexOptions &idx_opts, const Options &opts,
@@ -1153,15 +1219,21 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   auto frame_ct = opts.use_translated_search ? 6 : 1;
   int64_t minimizer_hit_groups = 0;
 
-  // Phase 1: scan minimizers for the read pair into a token stream, deferring the
-  // memory-latency-bound hash lookups. Lookup-vs-repeat-vs-ambiguous is decided
-  // purely from minimizer values (independent of taxon), exactly as the original
-  // consecutive-dedup did, so phase 3 reproduces identical taxa[]/counts.
-  static thread_local std::vector<uint64_t> lookup_keys;
+  // Phase 1: scan minimizers for the read pair into a token stream, deferring
+  // the memory-latency-bound hash lookups. Lookup-vs-repeat-vs-ambiguous is
+  // decided purely from minimizer values (independent of taxon), exactly as the
+  // original consecutive-dedup did, so phase 3 reproduces identical
+  // taxa[]/counts. static thread_local std::vector<std::pair<uint64_t,
+  // uint32_t>> lookup_keys;
+  static thread_local MinimizerLookups lookup_keys(
+      hash, taxa, curr_taxon_counts, hit_counts, minimizer_hit_groups,
+      opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty());
   static thread_local std::vector<MinToken> tok_stream;
-  lookup_keys.clear();
+  // lookup_keys.clear();
   tok_stream.clear();
 
+  // lookup_keys.reserve(1024);
+  bool flush_lookup_keys = false;
   for (int mate_num = 0; mate_num < 2; mate_num++) {
     if (mate_num == 1 && ! opts.paired_end_processing)
       break;
@@ -1178,101 +1250,38 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
       else {
         scanner.LoadSequence(mate.seq, mate.seq_len);
       }
-      uint64_t last_minimizer = UINT64_MAX;
+
       while ((minimizer_ptr = scanner.NextMinimizer()) != nullptr) {
+        taxid_t taxon = TAXID_MAX;
         if (scanner.is_ambiguous()) {
-          tok_stream.push_back({TOK_AMBIG, 0});
-        }
-        else if (*minimizer_ptr != last_minimizer) {
-          last_minimizer = *minimizer_ptr;
-          bool skip_lookup = idx_opts.minimum_acceptable_hash_value &&
-            MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value;
-          if (skip_lookup) {
-            tok_stream.push_back({TOK_SKIP, 0});
-          }
-          else {
-            tok_stream.push_back({TOK_LOOKUP, (uint32_t) lookup_keys.size()});
-            lookup_keys.push_back(*minimizer_ptr);
-          }
+          lookup_keys.add_data(UINT64_MAX, AMBIGUOUS_SPAN_TAXON);
         } else {
-          tok_stream.push_back({TOK_REPEAT, 0});
+          if (idx_opts.minimum_acceptable_hash_value) {
+            if (MurmurHash3(*minimizer_ptr) < idx_opts.minimum_acceptable_hash_value) {
+              *minimizer_ptr = UINT64_MAX;
+            }
+          }
+          lookup_keys.add_data(*minimizer_ptr, 0);
         }
+        //   if (taxon) {
+        //     if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
+        //       call = taxon;
+        //       goto finished_searching;  // need to break 3 loops here
+        //     }
+        //     hit_counts[taxon]++;
+        //   }
+        // }
+        // taxa.push_back(taxon);
       }
+      lookup_keys.get_batch();
       if (opts.use_translated_search && frame_idx != 5)
-        tok_stream.push_back({TOK_BORDER_FRAME, 0});
+        lookup_keys.add_data(UINT64_MAX, READING_FRAME_BORDER_TAXON);
     }
     if (opts.paired_end_processing && mate_num == 0)
-      tok_stream.push_back({TOK_BORDER_MATE, 0});
+      lookup_keys.add_data(UINT64_MAX, MATE_PAIR_BORDER_TAXON);
   }
 
-  // Phase 2: resolve all distinct minimizers in one prefetched batched pass.
-  static thread_local std::vector<hvalue_t> lookup_vals;
-  lookup_vals.resize(lookup_keys.size());
-  if (! lookup_keys.empty())
-    hash->GetBatch(lookup_keys.data(), lookup_vals.data(), lookup_keys.size());
-
-  // Phase 3: replay token stream, reproducing the original behavior exactly.
-  {
-    taxid_t last_taxon = 0;
-    taxid_t minimizer_tag = 0;
-    for (size_t ti = 0; ti < tok_stream.size(); ti++) {
-      const MinToken &tok = tok_stream[ti];
-      taxid_t taxon = 0;
-      switch (tok.kind) {
-      case TOK_AMBIG:
-        taxa.push_back(AMBIGUOUS_SPAN_TAXON);
-        continue;
-      case TOK_BORDER_FRAME:
-        taxa.push_back(READING_FRAME_BORDER_TAXON);
-        continue;
-      case TOK_BORDER_MATE:
-        taxa.push_back(MATE_PAIR_BORDER_TAXON);
-        continue;
-      case TOK_SKIP:
-        taxon = 0;
-        last_taxon = 0;
-        break;
-      case TOK_LOOKUP:
-        taxon = lookup_vals[tok.key_idx];
-        last_taxon = taxon;
-        if (taxon) {
-          minimizer_tag = UNIQUE_MINIMIZER_TAG;
-          minimizer_hit_groups++;
-          if (!opts.report_filename.empty() ||
-              !opts.taxon_counters_dump_filename.empty()) {
-            READCOUNTER &rc = curr_taxon_counts[taxon];
-            // Only --report-minimizer-data and a counters dump read
-            // kmerCount and distinctKmerCount back out; a plain report needs
-            // read counts, which incrementReadCount supplies.  The counter is
-            // still created either way, because KrakenReportDFS orders
-            // sibling taxa with a comparator that branches on whether a taxon
-            // is present in the map at all.
-            if (opts.report_kmer_data ||
-                !opts.taxon_counters_dump_filename.empty())
-              rc.add_kmer(lookup_keys[tok.key_idx]);
-          }
-        }
-        break;
-      default:  // TOK_REPEAT
-        taxon = last_taxon;
-        if (taxon) {
-          curr_taxon_counts[taxon].increaseKmerCount(1);
-        }
-        break;
-      }
-      taxa.push_back(minimizer_tag | taxon);
-      minimizer_tag = 0;
-      if (taxon) {
-        hit_counts[taxon]++;
-        if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
-          call = taxon;
-          goto finished_searching;
-        }
-      }
-    }
-  }
-
- finished_searching:
+  // finished_searching:
 
   auto total_kmers = taxa.size();
   if (opts.paired_end_processing)

@@ -23,10 +23,15 @@ enum CellType {
   Unknown,
 };
 
+struct LookupData {
+  hkey_t key;
+  hvalue_t value;
+};
+
 class KeyValueStore {
   public:
   virtual hvalue_t Get(hkey_t key) const = 0;
-  virtual void GetBatch(const hkey_t *keys, hvalue_t *out, size_t n) const = 0;
+  virtual void GetBatch(std::vector<LookupData> &data) const = 0;
   virtual ~KeyValueStore() {}
 
   // static CellType GetKVCellType(std::string &filename);

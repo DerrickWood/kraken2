@@ -24,7 +24,7 @@ struct IndexOptions {
   int db_type;  // To allow for future use of other data structures
 };
 
-typedef uint64_t taxid_t;
+typedef uint32_t taxid_t;
 const taxid_t TAXID_MAX = (taxid_t) -1;
 
 typedef std::unordered_map<taxid_t, uint64_t> taxon_counts_t;
