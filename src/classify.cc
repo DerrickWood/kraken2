@@ -1131,11 +1131,9 @@ struct MinimizerLookups {
 
   MinimizerLookups(KeyValueStore *hash, std::vector<taxid_t> &taxa,
                    taxon_counters_t &counters, taxon_counts_t &hit_counts,
-                   int64_t &minimizer_hit_groups, bool write_minimizer_data,
-                   bool quick_mode)
+                   bool write_minimizer_data, bool quick_mode)
       : _hash(hash), _taxa(taxa), _taxon_counters(counters),
         _hit_counts(hit_counts), _total_kmers(0),
-        _minimizer_hit_groups(minimizer_hit_groups),
         _write_minimizer_data(write_minimizer_data),
         _quick_mode(quick_mode)
   {
@@ -1196,7 +1194,7 @@ struct MinimizerLookups {
   taxon_counts_t &_hit_counts;
   std::vector<LookupData> lookup_keys;
   size_t _total_kmers;
-  int64_t &_minimizer_hit_groups;
+  int64_t _minimizer_hit_groups;
   bool _write_minimizer_data;
   bool _quick_mode;
   size_t batch_size;
@@ -1221,7 +1219,7 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
 
 
   static thread_local MinimizerLookups lookups(
-      hash, taxa, curr_taxon_counts, hit_counts, minimizer_hit_groups,
+      hash, taxa, curr_taxon_counts, hit_counts,
       opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty(),
       opts.quick_mode);
 
@@ -1270,7 +1268,7 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
 
   call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
   // Void a call made by too few minimizer groups
-  if (call && minimizer_hit_groups < opts.minimum_hit_groups)
+  if (call && lookups._minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
   else {
     taxid_t prev = taxa[0] < AMBIGUOUS_SPAN_TAXON ? (taxa[0] & ~UNIQUE_MINIMIZER_TAG) : taxa[0];
