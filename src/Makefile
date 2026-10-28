@@ -39,7 +39,7 @@ blast_defline.o: blast_defline.c
 blast_to_fasta.o: blast_to_fasta.c
 blast_utils.o: blast_utils.c
 
-build_db: build_db.o mmap_file.o compact_hash.o taxonomy.o mmscanner.o omp_hack.o utilities.o
+build_db: build_db.o mmap_file.o compact_hash.o fast_reader.o taxonomy.o mmscanner.o omp_hack.o utilities.o
 	$(CXX) $(CXXFLAGS) -o $@ build_db.o mmap_file.o compact_hash.o fast_reader.o taxonomy.o mmscanner.o omp_hack.o utilities.o $(LDFLAGS)
 
 classify: classify.o reports.o hyperloglogplus.o mmap_file.o compact_hash.o taxonomy.o mmscanner.o omp_hack.o aa_translate.o utilities.o fast_reader.o
