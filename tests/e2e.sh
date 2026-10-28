@@ -410,6 +410,21 @@ check classify.paired_gzip_flag.matches_plain bash -c \
 check classify.interleaved.matches_paired bash -c \
   "'$INST/classify' -H db/hash.k2d -t db/taxo.k2d -o db/opts.k2d -S -O interleaved.out interleaved.fq && cmp paired.out interleaved.out"
 
+# A first mate that is not a regular file is read 10,000 records at a time.
+# Here the last such block ends just before a trailing blank line, which must
+# not be taken for a block of its own: that reads as the second mate file
+# running out first.
+pipe_blank_line_after_last_block() {
+  awk '{ line[NR] = $0 } END { for (i = 0; i < 40000; i++) print line[i % NR + 1]; print "" }' "$R1" > r1_10k.fq &&
+    awk '{ line[NR] = $0 } END { for (i = 0; i < 40000; i++) print line[i % NR + 1] }' "$R2" > r2_10k.fq &&
+    "$INST/classify" -H db/hash.k2d -t db/taxo.k2d -o db/opts.k2d -P -O pipe_10k.out -R pipe_10k.report \
+      <(cat r1_10k.fq) r2_10k.fq &&
+    "$INST/classify" -H db/hash.k2d -t db/taxo.k2d -o db/opts.k2d -P -O file_10k.out -R file_10k.report \
+      r1_10k.fq r2_10k.fq &&
+    cmp pipe_10k.out file_10k.out && cmp pipe_10k.report file_10k.report
+}
+check classify.pipe.blank_line_after_last_block pipe_blank_line_after_last_block
+
 report_variants() {
   classify mm --paired "$R1" "$R2" --report-minimizer-data &&
     golden paired.minimizer.report mm.report &&

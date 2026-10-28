@@ -375,6 +375,10 @@ bool FastReader::LoadRecords(int fd, StreamCursor &cur, size_t records) {
     buf_.resize(keep);
     TruncateIndex(keep);
   }
+  // As in LoadBlock, blank or comment lines after the last record are not a
+  // block.
+  if (recs == 0)
+    buf_.clear();
   loaded_records_ = recs;
   return ! buf_.empty();
 }
