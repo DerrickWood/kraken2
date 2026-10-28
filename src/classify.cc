@@ -198,8 +198,6 @@ public:
     classified_out1_str.reserve(1024);
   }
 
-  bool valid() { return !kraken_str.empty(); }
-
   // Spill file layout: the byte lengths of the five sections (Kraken output,
   // classified mates 1 and 2, unclassified mates 1 and 2), each a uint64_t,
   // followed by the sections themselves in the same order.  Every length is
@@ -279,9 +277,6 @@ public:
     in_file.close();
     if (std::remove(filename.c_str()) != 0)
       err(EX_IOERR, "unable to remove temporary file %s", filename.c_str());
-  }
-
-  void write(ifstream &in, ofstream &out) {
   }
 
   void clear() {
@@ -667,11 +662,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
 {
   // The priority queue for output is designed to ensure fragment data
   // is output in the same order it was input
-  auto comparator = [](const OutputData &a, const OutputData &b) {
-    return a.block_id > b.block_id;
-  };
-  std::priority_queue<OutputData, vector<OutputData>, decltype(comparator)>
-      output_queue(comparator);
   std::priority_queue<int, vector<int>, std::greater<int>> file_queue;
   uint64_t next_input_block_id = 0;
   std::atomic<uint64_t> next_output_block_id{0};
@@ -686,7 +676,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
   if (filename2 && fd2 < 0)
     errx(EX_NOINPUT, "unable to open %s", filename2);
   StreamCursor cursor1, cursor2;
-  std::vector<OutputData> buffers(omp_get_max_threads() * 2);
 
   // The layout and the format are fixed for the whole file, so they are settled
   // here once, outside the input lock.
@@ -729,7 +718,6 @@ void ProcessFiles(const char *filename1, const char *filename2,
                              idx_opts.revcom_version);
     vector<taxid_t> taxa;
     taxon_counts_t hit_counts;
-    ostringstream kraken_oss, c1_oss, c2_oss, u1_oss, u2_oss;
     ClassificationStats thread_stats = {0, 0, 0};
     vector<string> translated_frames(6);
     SeqView *seq1 = nullptr, *seq2 = nullptr;
