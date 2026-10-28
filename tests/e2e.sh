@@ -431,6 +431,15 @@ variant() {
 }
 check classify.confidence_0.5.golden variant paired.conf0.5 c05 --confidence 0.5
 check classify.min_hit_groups_5.golden variant paired.mhg5 mhg5 --minimum-hit-groups 5
+
+# Every simulated pair clears --minimum-hit-groups 5, so a threshold that is
+# not applied goes unnoticed above.  tests/data/mhg_*.fq hold shorter pairs,
+# several of which fall short of 10 hit groups.
+mhg_reads() {
+  classify mhg10 --paired --minimum-hit-groups 10 "$READS/mhg_1.fq" "$READS/mhg_2.fq" &&
+    golden mhg10.out mhg10.out && golden mhg10.report mhg10.report
+}
+check classify.min_hit_groups_10.golden mhg_reads
 check classify.quick.golden variant paired.quick quick --quick
 check classify.min_base_quality_20.golden variant paired.mbq20 mbq --minimum-base-quality 20
 

@@ -1139,9 +1139,11 @@ struct MinimizerLookups {
 
   MinimizerLookups(KeyValueStore *hash, std::vector<taxid_t> &taxa,
                    taxon_counters_t &counters, taxon_counts_t &hit_counts,
+                   std::vector<LookupData> &lookup_buffer,
                    bool write_minimizer_data, bool quick_mode)
       : _hash(hash), _taxa(taxa), _taxon_counters(counters),
-        _hit_counts(hit_counts), _total_kmers(0),
+        _hit_counts(hit_counts), lookup_keys(lookup_buffer), _total_kmers(0),
+        _minimizer_hit_groups(0), _previous_minimizer(UINT64_MAX),
         _write_minimizer_data(write_minimizer_data),
         _quick_mode(quick_mode)
   {
@@ -1162,16 +1164,23 @@ struct MinimizerLookups {
       return;
     }
     _hash->GetBatch(lookup_keys);
-    uint64_t previous_minimizer = UINT64_MAX;
     taxid_t previous_taxid = TAXID_MAX;
     if (_taxa.size() > 0) {
       previous_taxid = _taxa[_taxa.size() - 2];
     }
 
     for (size_t i = 0; i < lookup_keys.size(); i++) {
+      bool repeat = lookup_keys[i].key == _previous_minimizer;
+      // A hit can repeat a minimizer that missed.  A border, or a minimizer
+      // the database sampled away, ends a run of repeats; an ambiguous span
+      // does not.
+      if (lookup_keys[i].key != UINT64_MAX)
+        _previous_minimizer = lookup_keys[i].key;
+      else if (lookup_keys[i].value != AMBIGUOUS_SPAN_TAXON)
+        _previous_minimizer = UINT64_MAX;
       if (lookup_keys[i].key != UINT64_MAX && lookup_keys[i].value > 0) {
         _hit_counts[lookup_keys[i].value] += 1;
-        if (lookup_keys[i].key != previous_minimizer) {
+        if (! repeat) {
           _minimizer_hit_groups += 1;
           minimizer_tag = UNIQUE_MINIMIZER_TAG;
           if (_write_minimizer_data) {
@@ -1180,7 +1189,6 @@ struct MinimizerLookups {
         } else {
           _taxon_counters[lookup_keys[i].value].increaseKmerCount(1);
         }
-        previous_minimizer = lookup_keys[i].key;
       }
       taxid_t taxid = minimizer_tag | lookup_keys[i].value;
       // RLE classified taxid's
@@ -1200,9 +1208,10 @@ struct MinimizerLookups {
   std::vector<taxid_t> &_taxa;
   taxon_counters_t &_taxon_counters;
   taxon_counts_t &_hit_counts;
-  std::vector<LookupData> lookup_keys;
+  std::vector<LookupData> &lookup_keys;
   size_t _total_kmers;
   int64_t _minimizer_hit_groups;
+  uint64_t _previous_minimizer;
   bool _write_minimizer_data;
   bool _quick_mode;
   size_t batch_size;
@@ -1226,8 +1235,10 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   size_t total_kmers = 0;
 
 
-  static thread_local MinimizerLookups lookups(
-      hash, taxa, curr_taxon_counts, hit_counts,
+  // Only the batch buffer outlives the read, so it is allocated once per thread.
+  static thread_local std::vector<LookupData> lookup_buffer;
+  MinimizerLookups lookups(
+      hash, taxa, curr_taxon_counts, hit_counts, lookup_buffer,
       opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty(),
       opts.quick_mode);
 
