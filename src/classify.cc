@@ -1186,7 +1186,7 @@ struct MinimizerLookups {
           if (_write_minimizer_data) {
             _taxon_counters[lookup_keys[i].value].add_kmer(lookup_keys[i].key);
           }
-        } else {
+        } else if (_write_minimizer_data) {
           _taxon_counters[lookup_keys[i].value].increaseKmerCount(1);
         }
       }
@@ -1286,6 +1286,13 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   }
 
   finished_searching:
+
+  // KrakenReportDFS orders sibling taxa by whether they have a counter, so
+  // every taxon with a hit needs one even when no k-mer data is kept.
+  if (! opts.report_filename.empty() && ! lookups._write_minimizer_data) {
+    for (auto &kv_pair : hit_counts)
+      curr_taxon_counts[kv_pair.first];
+  }
 
   call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
   // Void a call made by too few minimizer groups
