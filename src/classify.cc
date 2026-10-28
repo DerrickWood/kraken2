@@ -1291,7 +1291,7 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   // Void a call made by too few minimizer groups
   if (call && lookups._minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
-  else {
+  else if (! taxa.empty()) {  // empty for a read with no minimizers
     taxid_t prev = taxa[0] < AMBIGUOUS_SPAN_TAXON ? (taxa[0] & ~UNIQUE_MINIMIZER_TAG) : taxa[0];
     uint32_t count = taxa[1];
     size_t j = 0;

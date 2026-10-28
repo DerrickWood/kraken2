@@ -401,6 +401,16 @@ single_basic() {
 }
 check classify.single_fastq.golden single_basic
 check classify.single_fastq.accuracy accuracy single.out
+
+# A read shorter than k has no minimizers and an empty hit list.  It goes
+# first, so the only thread starts on it.
+short_first_read() {
+  { printf '@SHORT.1\nACGTACGTACGTACGTACGT\n+\nJJJJJJJJJJJJJJJJJJJJ\n'; cat "$R1"; } > short_first.fq &&
+    "$KRAKEN2" --db db --threads 1 --output short_first.out short_first.fq &&
+    [ "$(head -n 1 short_first.out)" = "$(printf 'U\tSHORT.1\t0\t20\t0:0')" ] &&
+    cmp <(tail -n +2 short_first.out) single.out
+}
+check classify.single_short_first_read short_first_read
 check classify.single_fasta.matches_fastq bash -c \
   "'$KRAKEN2' --db db --output single_fa.out r1.fa && cmp single.out single_fa.out"
 check classify.paired_gzip.matches_plain bash -c \
