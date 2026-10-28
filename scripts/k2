@@ -3727,8 +3727,8 @@ def read_sequence_records(filename):
                 line = in_file.readline()
                 continue
             marker = line[:1]
-            fields = line[1:].split(None, 1)
-            identifier = fields[0] if fields else b""
+            fields = line[1:]
+            identifier = fields if fields else b""
             if marker == b">":
                 sequence = []
                 line = in_file.readline()
@@ -3843,7 +3843,12 @@ def write_fasta_sequences(
         )
 
     for fragment in fragments:
-        name = fragment[0][0]
+        fragment_length = len(fragment[0][0])
+        name_length = fragment[0][0].find(b" ")
+        if name_length == -1:
+            name_length = fragment_length
+        name = fragment[0][0][:name_length]
+
         if paired:
             name = strip_mate_suffix(name)
         files = out_files[0] if name in classified_names else out_files[1]
@@ -3856,6 +3861,7 @@ def write_fasta_sequences(
         if files is not None:
             for out_file in files:
                 out_file.close()
+
 
 class TaxonomyStruct(ctypes.Structure):
     pass
