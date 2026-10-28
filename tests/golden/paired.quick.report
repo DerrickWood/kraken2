@@ -1,40 +1,40 @@
   4.55	20	20	U	0	unclassified
  95.45	420	0	R	1	root
- 95.45	420	9	D	10239	  Viruses
- 69.55	306	6	D1	2559587	    Riboviria
- 45.91	202	0	P	2497569	      Negarnaviricota
- 45.91	202	0	P1	2497571	        Polyploviricotina
- 45.91	202	0	C	2497577	          Insthoviricetes
- 45.91	202	0	O	2499411	            Articulavirales
- 45.91	202	2	F	11308	              Orthomyxoviridae
- 32.73	144	0	G	197911	                Alphainfluenzavirus
- 32.73	144	3	S	11320	                  Influenza A virus
- 11.36	50	0	S1	114727	                    H1N1 subtype
- 11.36	50	50	S2	211044	                      Influenza A virus (A/Puerto Rico/8/1934(H1N1))
- 10.45	46	0	S1	114729	                    H2N2 subtype
- 10.45	46	46	S2	488241	                      Influenza A virus (A/Korea/426/1968(H2N2))
- 10.23	45	0	S1	119210	                    H3N2 subtype
- 10.23	45	45	S2	335341	                      Influenza A virus (A/New York/392/2004(H3N2))
- 12.73	56	0	G	197912	                Betainfluenzavirus
- 12.73	56	0	S	11520	                  Influenza B virus
- 12.73	56	56	S1	518987	                    Influenza B virus (B/Lee/1940)
- 22.27	98	0	O	76804	      Nidovirales
- 22.27	98	0	O1	2499399	        Cornidovirineae
- 22.27	98	0	F	11118	          Coronaviridae
- 22.27	98	0	F1	2501931	            Orthocoronavirinae
- 22.27	98	0	G	694002	              Betacoronavirus
- 16.36	72	0	G1	2509511	                Sarbecovirus
- 16.36	72	34	S	694009	                  Severe acute respiratory syndrome-related coronavirus
-  8.64	38	38	S1	2697049	                    Severe acute respiratory syndrome coronavirus 2
+ 95.45	420	0	D	10239	  Viruses
+ 70.23	309	0	D1	2559587	    Riboviria
+ 47.50	209	0	P	2497569	      Negarnaviricota
+ 47.50	209	0	P1	2497571	        Polyploviricotina
+ 47.50	209	0	C	2497577	          Insthoviricetes
+ 47.50	209	0	O	2499411	            Articulavirales
+ 47.50	209	0	F	11308	              Orthomyxoviridae
+ 33.86	149	0	G	197911	                Alphainfluenzavirus
+ 33.86	149	11	S	11320	                  Influenza A virus
+ 10.91	48	0	S1	114727	                    H1N1 subtype
+ 10.91	48	48	S2	211044	                      Influenza A virus (A/Puerto Rico/8/1934(H1N1))
+ 10.91	48	0	S1	119210	                    H3N2 subtype
+ 10.91	48	48	S2	335341	                      Influenza A virus (A/New York/392/2004(H3N2))
+  9.55	42	0	S1	114729	                    H2N2 subtype
+  9.55	42	42	S2	488241	                      Influenza A virus (A/Korea/426/1968(H2N2))
+ 13.64	60	0	G	197912	                Betainfluenzavirus
+ 13.64	60	0	S	11520	                  Influenza B virus
+ 13.64	60	60	S1	518987	                    Influenza B virus (B/Lee/1940)
+ 22.73	100	0	O	76804	      Nidovirales
+ 22.73	100	0	O1	2499399	        Cornidovirineae
+ 22.73	100	0	F	11118	          Coronaviridae
+ 22.73	100	0	F1	2501931	            Orthocoronavirinae
+ 22.73	100	0	G	694002	              Betacoronavirus
+ 16.82	74	0	G1	2509511	                Sarbecovirus
+ 16.82	74	37	S	694009	                  Severe acute respiratory syndrome-related coronavirus
+  8.41	37	37	S1	2697049	                    Severe acute respiratory syndrome coronavirus 2
   5.91	26	0	G1	2509494	                Merbecovirus
   5.91	26	26	S	1335626	                  Middle East respiratory syndrome-related coronavirus
- 16.14	71	0	O	28883	    Caudovirales
- 16.14	71	0	F	10699	      Siphoviridae
- 16.14	71	0	G	186765	        Lambdavirus
- 16.14	71	71	S	10710	          Escherichia virus Lambda
-  7.73	34	0	O	2169561	    Ortervirales
-  7.73	34	0	F	11632	      Retroviridae
-  7.73	34	0	F1	327045	        Orthoretrovirinae
-  7.73	34	0	G	11646	          Lentivirus
-  5.68	25	25	S	11709	            Human immunodeficiency virus 2
-  2.05	9	9	S	11676	            Human immunodeficiency virus 1
+ 16.36	72	0	O	28883	    Caudovirales
+ 16.36	72	0	F	10699	      Siphoviridae
+ 16.36	72	0	G	186765	        Lambdavirus
+ 16.36	72	72	S	10710	          Escherichia virus Lambda
+  8.86	39	0	O	2169561	    Ortervirales
+  8.86	39	0	F	11632	      Retroviridae
+  8.86	39	0	F1	327045	        Orthoretrovirinae
+  8.86	39	0	G	11646	          Lentivirus
+  6.36	28	28	S	11709	            Human immunodeficiency virus 2
+  2.50	11	11	S	11676	            Human immunodeficiency virus 1

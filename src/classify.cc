@@ -1231,7 +1231,6 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   taxa.clear();
   hit_counts.clear();
   auto frame_ct = opts.use_translated_search ? 6 : 1;
-  int64_t minimizer_hit_groups = 0;
   size_t total_kmers = 0;
 
 
@@ -1270,10 +1269,13 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
           }
           lookups.add_data(*minimizer_ptr, 0);
         }
-        if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
+        total_kmers += 1;
+        // Quick mode resolves each minimizer as soon as it is added, so this
+        // first holds at the hit that brings the read to the threshold.
+        if (opts.quick_mode && ! hit_counts.empty() &&
+            lookups._minimizer_hit_groups >= opts.minimum_hit_groups) {
           goto finished_searching;  // need to break 3 loops here
         }
-        total_kmers += 1;
       }
       lookups.get_batch();
       if (opts.use_translated_search && frame_idx != 5)
