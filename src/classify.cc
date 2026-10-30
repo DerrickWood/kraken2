@@ -1008,17 +1008,42 @@ taxid_t ResolveTree(taxon_counts_t &hit_counts,
   taxid_t max_taxon = 0;
   uint32_t max_score = 0;
   uint32_t required_score = ceil(opts.confidence_threshold * total_minimizers);
+  const size_t hit_count = hit_counts.size();
 
-  // Sum each taxon's LTR path, find taxon with highest LTR score
+  // With one hit, every ancestor has exactly the same clade support. No
+  // parent walk or confidence scratch allocation can change the answer.
+  if (hit_count == 1) {
+    const auto &hit = *hit_counts.begin();
+    return hit.first && static_cast<uint32_t>(hit.second) >= required_score
+        ? hit.first : 0;
+  }
+
+  // Parents have smaller internal IDs. Stop a candidate's parent walk once
+  // it is below every hit ID. For two hits, one ancestor test per candidate
+  // avoids a hash lookup at each intervening parent on a long sparse chain.
+  taxid_t min_hit_taxon = TAXID_MAX;
+  if (hit_count > 2)
+    for (const auto &hit : hit_counts)
+      if (hit.first && hit.first < min_hit_taxon)
+        min_hit_taxon = hit.first;
+
+  // Sum direct hits on each candidate's parent chain instead of comparing
+  // every pair of hit taxa. Expected O(DH), with no extra scoring storage.
+  // Keep candidate iteration order and uint32_t score arithmetic unchanged.
   for (auto &kv_pair : hit_counts) {
     taxid_t taxon = kv_pair.first;
-    uint32_t score = 0;
-
-    for (auto &kv_pair2 : hit_counts) {
-      taxid_t taxon2 = kv_pair2.first;
-
-      if (taxonomy.IsAAncestorOfB(taxon2, taxon)) {
-        score += kv_pair2.second;
+    uint32_t score = taxon ? kv_pair.second : 0;
+    if (hit_count == 2) {
+      for (const auto &hit : hit_counts)
+        if (hit.first != taxon && taxonomy.IsAAncestorOfB(hit.first, taxon))
+          score += hit.second;
+    } else {
+      for (taxid_t ancestor = taxonomy.nodes()[taxon].parent_id;
+           ancestor && ancestor >= min_hit_taxon;
+           ancestor = taxonomy.nodes()[ancestor].parent_id) {
+        const auto hit = hit_counts.find(ancestor);
+        if (hit != hit_counts.end())
+          score += hit->second;
       }
     }
 
@@ -1033,27 +1058,65 @@ taxid_t ResolveTree(taxon_counts_t &hit_counts,
 
   // Reset max. score to be only hits at the called taxon
   max_score = hit_counts[max_taxon];
-  // We probably have a call w/o required support (unless LCA resolved tie)
-  while (max_taxon && max_score < required_score) {
-    max_score = 0;
-    for (auto &kv_pair : hit_counts) {
-      taxid_t taxon = kv_pair.first;
-      // Add to score if taxon in max_taxon's clade
-      if (taxonomy.IsAAncestorOfB(max_taxon, taxon)) {
-        max_score += kv_pair.second;
-      }
+  if (!max_taxon || max_score >= required_score)
+    return max_taxon;
+
+  // With two hits, support changes at no more than two intersections. Keep
+  // those on the stack instead of allocating a whole ancestor chain.
+  if (hit_count == 2) {
+    std::pair<taxid_t, uint32_t> junctions[2] = {};
+    size_t count = 0;
+    for (const auto &hit : hit_counts) {
+      // operator[] above may have inserted a third, zero-valued candidate.
+      if (hit.first && hit.second)
+        junctions[count++] = {taxonomy.LowestCommonAncestor(max_taxon, hit.first),
+                              static_cast<uint32_t>(hit.second)};
     }
-    // Score is now sum of hits at max_taxon and w/in max_taxon clade
-    if (max_score >= required_score)
-      // Kill loop and return, we've got enough support here
-      return max_taxon;
-    else
-      // Run up tree until confidence threshold is met
-      // Run off tree if required score isn't met
-      max_taxon = taxonomy.nodes()[max_taxon].parent_id;
+    if (count == 2 && junctions[0].first < junctions[1].first)
+      std::swap(junctions[0], junctions[1]);
+    if (count == 2 && junctions[0].first == junctions[1].first) {
+      junctions[0].second += junctions[1].second;
+      count = 1;
+    }
+    max_score = 0;
+    for (size_t i = 0; i < count; ++i) {
+      max_score += junctions[i].second;
+      if (max_score >= required_score)
+        return junctions[i].first;
+    }
+    return 0;
   }
 
-  return max_taxon;
+  // Only the called taxon's ancestor chain can be returned by confidence
+  // fallback. Bucket each hit at its first intersection with that chain:
+  // LCA(call, hit). A prefix sum then gives every ancestor's clade support.
+  // This avoids rescanning all hits at each ancestor: O(DH + H) time and
+  // O(H) temporary space, allocated only when confidence needs checking.
+  std::vector<std::pair<taxid_t, uint32_t>> lineage;
+  for (taxid_t ancestor = max_taxon; ancestor;
+       ancestor = taxonomy.nodes()[ancestor].parent_id)
+    lineage.emplace_back(ancestor, 0);
+
+  for (const auto &hit : hit_counts) {
+    if (!hit.first)
+      continue;  // 0 is not a taxon, despite LCA(x, 0) == x.
+    const taxid_t intersection = taxonomy.LowestCommonAncestor(max_taxon, hit.first);
+    // The lineage is strictly decreasing in internal ID.
+    const auto bucket = std::lower_bound(lineage.begin(), lineage.end(), intersection,
+        [](const std::pair<taxid_t, uint32_t> &entry, taxid_t id) {
+          return entry.first > id;
+        });
+    bucket->second += hit.second;
+  }
+
+  max_score = 0;
+  for (const auto &entry : lineage) {
+    max_score += entry.second;
+    if (max_score >= required_score)
+      return entry.first;
+  }
+
+  return 0;
 }
 
 std::string TrimPairInfo(std::string &id) {
