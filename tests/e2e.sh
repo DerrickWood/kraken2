@@ -401,6 +401,16 @@ single_basic() {
 }
 check classify.single_fastq.golden single_basic
 check classify.single_fastq.accuracy accuracy single.out
+
+# A read shorter than k has no minimizers and an empty hit list.  It goes
+# first, so the only thread starts on it.
+short_first_read() {
+  { printf '@SHORT.1\nACGTACGTACGTACGTACGT\n+\nJJJJJJJJJJJJJJJJJJJJ\n'; cat "$R1"; } > short_first.fq &&
+    "$KRAKEN2" --db db --threads 1 --output short_first.out short_first.fq &&
+    [ "$(head -n 1 short_first.out)" = "$(printf 'U\tSHORT.1\t0\t20\t0:0')" ] &&
+    cmp <(tail -n +2 short_first.out) single.out
+}
+check classify.single_short_first_read short_first_read
 check classify.single_fasta.matches_fastq bash -c \
   "'$KRAKEN2' --db db --output single_fa.out r1.fa && cmp single.out single_fa.out"
 check classify.paired_gzip.matches_plain bash -c \
@@ -431,6 +441,15 @@ variant() {
 }
 check classify.confidence_0.5.golden variant paired.conf0.5 c05 --confidence 0.5
 check classify.min_hit_groups_5.golden variant paired.mhg5 mhg5 --minimum-hit-groups 5
+
+# Every simulated pair clears --minimum-hit-groups 5, so a threshold that is
+# not applied goes unnoticed above.  tests/data/mhg_*.fq hold shorter pairs,
+# several of which fall short of 10 hit groups.
+mhg_reads() {
+  classify mhg10 --paired --minimum-hit-groups 10 "$READS/mhg_1.fq" "$READS/mhg_2.fq" &&
+    golden mhg10.out mhg10.out && golden mhg10.report mhg10.report
+}
+check classify.min_hit_groups_10.golden mhg_reads
 check classify.quick.golden variant paired.quick quick --quick
 check classify.min_base_quality_20.golden variant paired.mbq20 mbq --minimum-base-quality 20
 

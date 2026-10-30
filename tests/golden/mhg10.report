@@ -1,0 +1,23 @@
+ 27.78	5	5	U	0	unclassified
+ 72.22	13	0	R	1	root
+ 72.22	13	0	D	10239	  Viruses
+ 72.22	13	0	D1	2559587	    Riboviria
+ 38.89	7	0	P	2497569	      Negarnaviricota
+ 38.89	7	0	P1	2497571	        Polyploviricotina
+ 38.89	7	0	C	2497577	          Insthoviricetes
+ 38.89	7	0	O	2499411	            Articulavirales
+ 38.89	7	0	F	11308	              Orthomyxoviridae
+ 38.89	7	0	G	197911	                Alphainfluenzavirus
+ 38.89	7	0	S	11320	                  Influenza A virus
+ 27.78	5	0	S1	114727	                    H1N1 subtype
+ 27.78	5	5	S2	211044	                      Influenza A virus (A/Puerto Rico/8/1934(H1N1))
+ 11.11	2	0	S1	119210	                    H3N2 subtype
+ 11.11	2	2	S2	335341	                      Influenza A virus (A/New York/392/2004(H3N2))
+ 33.33	6	0	O	76804	      Nidovirales
+ 33.33	6	0	O1	2499399	        Cornidovirineae
+ 33.33	6	0	F	11118	          Coronaviridae
+ 33.33	6	0	F1	2501931	            Orthocoronavirinae
+ 33.33	6	0	G	694002	              Betacoronavirus
+ 33.33	6	0	G1	2509511	                Sarbecovirus
+ 33.33	6	0	S	694009	                  Severe acute respiratory syndrome-related coronavirus
+ 33.33	6	6	S1	2697049	                    Severe acute respiratory syndrome coronavirus 2

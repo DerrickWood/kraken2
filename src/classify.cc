@@ -1127,9 +1127,11 @@ struct MinimizerLookups {
 
   MinimizerLookups(KeyValueStore *hash, std::vector<taxid_t> &taxa,
                    taxon_counters_t &counters, taxon_counts_t &hit_counts,
+                   std::vector<LookupData> &lookup_buffer,
                    bool write_minimizer_data, bool quick_mode)
       : _hash(hash), _taxa(taxa), _taxon_counters(counters),
-        _hit_counts(hit_counts), _total_kmers(0),
+        _hit_counts(hit_counts), lookup_keys(lookup_buffer), _total_kmers(0),
+        _minimizer_hit_groups(0), _previous_minimizer(UINT64_MAX),
         _write_minimizer_data(write_minimizer_data),
         _quick_mode(quick_mode)
   {
@@ -1150,25 +1152,31 @@ struct MinimizerLookups {
       return;
     }
     _hash->GetBatch(lookup_keys);
-    uint64_t previous_minimizer = UINT64_MAX;
     taxid_t previous_taxid = TAXID_MAX;
     if (_taxa.size() > 0) {
       previous_taxid = _taxa[_taxa.size() - 2];
     }
 
     for (size_t i = 0; i < lookup_keys.size(); i++) {
+      bool repeat = lookup_keys[i].key == _previous_minimizer;
+      // A hit can repeat a minimizer that missed.  A border, or a minimizer
+      // the database sampled away, ends a run of repeats; an ambiguous span
+      // does not.
+      if (lookup_keys[i].key != UINT64_MAX)
+        _previous_minimizer = lookup_keys[i].key;
+      else if (lookup_keys[i].value != AMBIGUOUS_SPAN_TAXON)
+        _previous_minimizer = UINT64_MAX;
       if (lookup_keys[i].key != UINT64_MAX && lookup_keys[i].value > 0) {
         _hit_counts[lookup_keys[i].value] += 1;
-        if (lookup_keys[i].key != previous_minimizer) {
+        if (! repeat) {
           _minimizer_hit_groups += 1;
           minimizer_tag = UNIQUE_MINIMIZER_TAG;
           if (_write_minimizer_data) {
             _taxon_counters[lookup_keys[i].value].add_kmer(lookup_keys[i].key);
           }
-        } else {
+        } else if (_write_minimizer_data) {
           _taxon_counters[lookup_keys[i].value].increaseKmerCount(1);
         }
-        previous_minimizer = lookup_keys[i].key;
       }
       taxid_t taxid = minimizer_tag | lookup_keys[i].value;
       // RLE classified taxid's
@@ -1188,9 +1196,10 @@ struct MinimizerLookups {
   std::vector<taxid_t> &_taxa;
   taxon_counters_t &_taxon_counters;
   taxon_counts_t &_hit_counts;
-  std::vector<LookupData> lookup_keys;
+  std::vector<LookupData> &lookup_keys;
   size_t _total_kmers;
   int64_t _minimizer_hit_groups;
+  uint64_t _previous_minimizer;
   bool _write_minimizer_data;
   bool _quick_mode;
   size_t batch_size;
@@ -1210,12 +1219,13 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
   taxa.clear();
   hit_counts.clear();
   auto frame_ct = opts.use_translated_search ? 6 : 1;
-  int64_t minimizer_hit_groups = 0;
   size_t total_kmers = 0;
 
 
-  static thread_local MinimizerLookups lookups(
-      hash, taxa, curr_taxon_counts, hit_counts,
+  // Only the batch buffer outlives the read, so it is allocated once per thread.
+  static thread_local std::vector<LookupData> lookup_buffer;
+  MinimizerLookups lookups(
+      hash, taxa, curr_taxon_counts, hit_counts, lookup_buffer,
       opts.report_kmer_data || !opts.taxon_counters_dump_filename.empty(),
       opts.quick_mode);
 
@@ -1247,10 +1257,13 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
           }
           lookups.add_data(*minimizer_ptr, 0);
         }
-        if (opts.quick_mode && minimizer_hit_groups >= opts.minimum_hit_groups) {
+        total_kmers += 1;
+        // Quick mode resolves each minimizer as soon as it is added, so this
+        // first holds at the hit that brings the read to the threshold.
+        if (opts.quick_mode && ! hit_counts.empty() &&
+            lookups._minimizer_hit_groups >= opts.minimum_hit_groups) {
           goto finished_searching;  // need to break 3 loops here
         }
-        total_kmers += 1;
       }
       lookups.get_batch();
       if (opts.use_translated_search && frame_idx != 5)
@@ -1262,11 +1275,18 @@ taxid_t ClassifySequence(const SeqView &dna, const SeqView &dna2, std::string &k
 
   finished_searching:
 
+  // KrakenReportDFS orders sibling taxa by whether they have a counter, so
+  // every taxon with a hit needs one even when no k-mer data is kept.
+  if (! opts.report_filename.empty() && ! lookups._write_minimizer_data) {
+    for (auto &kv_pair : hit_counts)
+      curr_taxon_counts[kv_pair.first];
+  }
+
   call = ResolveTree(hit_counts, taxonomy, total_kmers, opts);
   // Void a call made by too few minimizer groups
   if (call && lookups._minimizer_hit_groups < opts.minimum_hit_groups)
     call = 0;
-  else {
+  else if (! taxa.empty()) {  // empty for a read with no minimizers
     taxid_t prev = taxa[0] < AMBIGUOUS_SPAN_TAXON ? (taxa[0] & ~UNIQUE_MINIMIZER_TAG) : taxa[0];
     uint32_t count = taxa[1];
     size_t j = 0;
