@@ -1,4 +1,38 @@
 # Changelog
+## [2.18.0-RC2]
+#### Performance Improvements
+
+- **ResolveTree Optimization** (sleepinlava): Optimized path scoring and confidence fallback in ResolveTree, improving classification accuracy and performance
+- **Memory Usage Reduction** (Rone Charles): Significant reduction in classify's memory usage through improved data structure handling
+- **MinimizerLookups Construction** (tfenne): Construct MinimizerLookups per read for better memory locality and cache efficiency
+- **Hit-list Compaction** (tfenne): Skip hit-list compaction for reads with no minimizers, saving unnecessary processing
+- **Report Counters** (tfenne): Create report counters once per read rather than per hit, reducing redundant computations
+- **Spill Files** (rcharles): Write out-of-order classification output (spill files) to TMPDIR environment variable (default: /tmp)
+
+#### Bug Fixes
+
+**Classification**
+- Fixed issue that can cause classify to hang when reading from FIFOs (Rone Charles)
+- Fixed quick mode so that classification stops when the hit count reaches --minimum-hit-groups threshold (tfenne)
+- Fixed issues in quick mode outputs and reports (Rone Charles)
+- Fixed an issue causing quick mode to behave
+
+**Multi-database Classification**
+- Fixed an issue causing k2 to not output entire sequence header when outputting (--classify-out/--unclassified-out) raw sequences
+
+**Build System**
+- Add fast_reader.h dependency to estimate_capacity.o and build_db.o (tfenne, Rone Charles)
+
+**Input/Output**
+- Hand out no block of blank lines from LoadRecords (tfenne)
+- Remove output buffers and queue left unused by spill-file output (tfenne)
+- Remove trailing whitespace from classification output (Rone Charles)
+
+**k2 Wrapper**
+- Fix an issue that causes the number of files in a directory to affect how quickly kraken2 binaries are found (Rone Charles)
+- Handle password-authenticated network proxies (Eirc Deveaud)
+
+
 ## [2.18.0-RC1]
 ### Major Performance Improvements
 
