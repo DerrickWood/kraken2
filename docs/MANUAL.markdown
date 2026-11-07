@@ -641,7 +641,9 @@ The `kraken2` program allows several different options:
     and `--unclassified-out` switches, respectively.
 
 * **Output redirection**: Output can be directed using standard shell
-    redirection (`|` or `>`), or using the `--output` switch.
+    redirection (`|` or `>`), or using the `--output` switch.  When the
+    output is not a regular file, multithreaded runs may write
+    temporary files to `TMPDIR` (see [Kraken 2 Environment Variables]).
 
 * **Compressed input**: Kraken 2 can handle gzip and bzip2 compressed
     files as input by specifying the proper switch of `--gzip-compressed`
@@ -1208,3 +1210,27 @@ environment variables to help in reducing command line lengths:
         kraken2 sequences.fa
 
     will use `/data/kraken_dbs/mainDB` to classify `sequences.fa`.
+
+* **`TMPDIR`**: when `kraken2` classifies with more than one thread, it
+    keeps its output in input order by writing any block of results
+    that cannot go to the output straight away (because an earlier
+    block is still being classified, or another thread is writing) to
+    a temporary spill file, and copying it to the output later.  If
+    the Kraken output (`--output`) is a regular file, spill files are
+    written in the same directory as that file; otherwise (standard
+    output, a pipe or a device) they are written to the directory named
+    by `TMPDIR`, or to `/tmp` if `TMPDIR` is not set.  They are named
+    `kraken2_spill.PID.N`, hold the block's Kraken output and any
+    `--classified-out` or `--unclassified-out` sequences, and are
+    removed once copied; a run that is killed can leave them behind.
+
+    Spill files usually need little space, but when the output is read
+    more slowly than reads are classified, for example when it is piped
+    to a slow program, they can grow to nearly the size of the output.
+    `kraken2` exits with status 73 if it cannot create a spill file
+    (for example, because the directory does not exist), and with
+    status 74 if it cannot write, read or remove one (for example,
+    because the disk is full).
+
+    `k2` also writes its temporary files to `TMPDIR`, for instance when
+    classifying against multiple databases or reading compressed input.
