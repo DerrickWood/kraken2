@@ -1215,10 +1215,10 @@ struct MinimizerLookups {
       return;
     }
     _hash->GetBatch(lookup_keys);
-    taxid_t previous_taxid = TAXID_MAX;
-    if (_taxa.size() > 0) {
-      previous_taxid = _taxa[_taxa.size() - 2];
-    }
+    // An empty list has no previous run, even for a token equal to TAXID_MAX
+    // (the mate-pair border after a first mate with no k-mer).
+    bool have_previous = _taxa.size() > 0;
+    taxid_t previous_taxid = have_previous ? _taxa[_taxa.size() - 2] : 0;
 
     for (size_t i = 0; i < lookup_keys.size(); i++) {
       bool repeat = lookup_keys[i].key == _previous_minimizer;
@@ -1243,9 +1243,10 @@ struct MinimizerLookups {
       }
       taxid_t taxid = minimizer_tag | lookup_keys[i].value;
       // RLE classified taxid's
-      if (minimizer_tag != 0 || previous_taxid != taxid) {
+      if (! have_previous || minimizer_tag != 0 || previous_taxid != taxid) {
         _taxa.push_back(taxid);
         _taxa.push_back(1);
+        have_previous = true;
       } else {
         _taxa.back() += 1;
       }
