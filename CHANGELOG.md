@@ -1,4 +1,9 @@
 # Changelog
+## [Unreleased]
+#### New Features
+
+- **Chunked hash-table loading**: `--chunk-size GB` (`-Z` in classify) loads the hash table a slice at a time, so a database larger than the available memory can be used without rebuilding it; results are unchanged
+
 ## [2.18.0-RC2]
 #### Performance Improvements
 

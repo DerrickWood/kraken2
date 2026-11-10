@@ -34,6 +34,7 @@ my $min_hits = 1;
 my $db_prefix;
 my $threads;
 my $memory_mapping = 0;
+my $chunk_size;
 my $gunzip = 0;
 my $bunzip2 = 0;
 my $paired = 0;
@@ -61,6 +62,7 @@ GetOptions(
   "output=s" => \$outfile,
   "confidence=f" => \$confidence_threshold,
   "memory-mapping" => \$memory_mapping,
+  "chunk-size=f" => \$chunk_size,
   "paired" => \$paired,
   "use-names" => \$names_in_output,
   "gzip-compressed" => \$gunzip,
@@ -138,6 +140,7 @@ push @flags, "-R", $report_filename if defined $report_filename;
 push @flags, "-m" if $use_mpa_style;
 push @flags, "-z" if $report_zero_counts;
 push @flags, "-M" if $memory_mapping;
+push @flags, "-Z", $chunk_size if defined $chunk_size;
 push @flags, "-g", $minimum_hit_groups;
 push @flags, "-K" if $report_minimizer_data;
 
@@ -208,6 +211,9 @@ Options:
   --report-minimizer-data With --report, report minimizer and distinct minimizer
                           count information in addition to normal Kraken report
   --memory-mapping        Avoids loading database into RAM
+  --chunk-size NUM        Load the hash table NUM GB at a time; results are
+                          unchanged. Input that cannot be read twice is copied
+                          to TMPDIR first (DNA databases only)
   --paired                The filenames provided have paired-end reads
   --use-names             Print scientific names instead of just taxids
   --gzip-compressed       Input files are compressed with gzip
