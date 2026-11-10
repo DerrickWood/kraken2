@@ -77,6 +77,10 @@ System Requirements
     (as of Jan. 2018), and you will need slightly more than that in
     RAM if you want to build the default database.
 
+    To classify with less memory than the hash table, `--chunk-size GB`
+    loads the table that many gigabytes at a time.  Results are the same
+    as with the whole table loaded (see [Classifying with less memory]).
+
 * **Dependencies**: Kraken 2 currently makes extensive use of Linux
     utilities such as sed, find, and wget.  Many scripts are written
     using the Bash shell, and the main scripts are written using Perl.
@@ -325,7 +329,7 @@ usage: k2 classify [-h] --db PATHNAME [--threads INT] [--quick]
                    [--minimum-base-quality INT] [--report REPORT]
                    [--use-mpa-style] [--report-zero-counts]
                    [--report-minimizer-data] [--memory-mapping]
-                   [--paired | --interleaved] [--use-names]
+                   [--chunk-size GB] [--paired | --interleaved] [--use-names]
                    [--minimum-hit-groups INT] [--log FILENAME]
                    filenames [filenames ...]
 
@@ -360,6 +364,9 @@ optional arguments:
                         With --report, report minimizer and distinct minimizer
                         count information in addition to normal Kraken report
   --memory-mapping      Avoids loading entire database into RAM
+  --chunk-size GB       Load the hash table GB at a time; results are
+                        unchanged. Input that cannot be read twice is copied
+                        to TMPDIR first (DNA databases only)
   --paired              The filenames provided have paired-end reads
   --interleaved         The filenames provided have paired-end reads
   --use-names           Print scientific names instead of just taxids
@@ -369,6 +376,27 @@ optional arguments:
                         (default 2)
   --log FILENAME        Specify a log filename (default: stderr)
 ```
+
+#### Classifying with less memory
+
+`--chunk-size GB` classifies against a database whose hash table is larger
+than the memory available.  Instead of loading the whole table, `classify`:
+
+1. reads the input once and collects every minimizer it holds;
+2. reads the hash table GB at a time, and looks each minimizer up in the
+   slice holding its first probe position.  The table uses linear probing,
+   so each slice is read together with the cells after it up to the first
+   empty one, and every lookup returns what it would with the whole table;
+3. classifies the input as usual against those lookups.
+
+Output, reports and classified/unclassified sequences are the same as without
+`--chunk-size`.  Memory is about one slice plus 12 bytes per distinct
+minimizer in the input, and at least about 35 bytes per distinct minimizer
+however small the slice.  The input is read twice, so standard input, pipes
+and compressed files are first copied to a temporary file in `TMPDIR`
+(default `/tmp`).  Chunked loading works with DNA databases (32- and 40-bit
+cells), unpaired, paired and interleaved input, and is not available with
+`--use-daemon` or protein databases.
 
 `classify` can read input files compressed with `gzip`, `bzip`, and `xz`. `zstd` is not yet supported since it not yet included in the Python
 standard library.

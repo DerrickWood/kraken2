@@ -25,6 +25,7 @@
 #include "aa_translate.h"
 #include "reports.h"
 #include "utilities.h"
+#include <thread>
 using namespace kraken2;
 
 using std::cerr;
@@ -137,6 +138,7 @@ struct Options {
   bool daemon_mode;
   bool check_pair_order;
   bool flag_unique_minimizers;
+  double chunk_gb;  // > 0: load the hash table in slices of this many GB (chunked mode)
 
   void reset() {
     quick_mode = false;
@@ -155,6 +157,7 @@ struct Options {
     daemon_mode = false;
     check_pair_order = false;
     flag_unique_minimizers = false;
+    chunk_gb = 0;
 
     index_filename.clear();
     taxonomy_filename.clear();
@@ -583,12 +586,18 @@ void ClassifyDaemon(Options opts) {
   }
 }
 
+void ClassifyChunked(Options &opts);
+
 int main(int argc, char **argv) {
   Options opts;
   opts.reset();
   ParseCommandLine(argc, argv, opts);
+  if (opts.daemon_mode && opts.chunk_gb > 0)
+    errx(EX_USAGE, "chunked mode (-Z) is not available in daemon mode");
   if (opts.daemon_mode) {
     ClassifyDaemon(opts);
+  } else if (opts.chunk_gb > 0) {
+    ClassifyChunked(opts);
   } else {
     IndexData *index_data = load_index(opts);
     classify(opts, index_data);
@@ -1557,7 +1566,7 @@ void InitializeOutputs(const Options &opts, OutputStreamData &outputs, SequenceF
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:d:nmzqPSMKDcF")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:d:Z:nmzqPSMKDcF")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -1634,6 +1643,11 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
       case 'd':
         opts.taxon_counters_dump_filename = optarg;
         break;
+      case 'Z':
+        opts.chunk_gb = std::stod(optarg);
+        if (opts.chunk_gb <= 0)
+          errx(EX_USAGE, "chunk size must be > 0 GB");
+        break;
       case 'F':
         taxid_t bit = 1;
         UNIQUE_MINIMIZER_TAG = (bit << (sizeof(taxid_t) * 8 - 1));
@@ -1690,6 +1704,516 @@ void usage(int exit_code) {
        << "  -K               In comb. w/ -R, provide minimizer information in report" << endl
        << "  -D               Start a daemon, this options is intended to be used with wrappers" << std::endl
        << "  -d filename      Dump taxon counters to filename." << endl
-       << "  -F               Add an asterisks in front of taxids associated with unique minimizers" << std::endl;
+       << "  -F               Add an asterisks in front of taxids associated with unique minimizers" << std::endl
+       << "  -Z NUM           Load the hash table NUM GB at a time (DNA databases)" << std::endl;
   exit(exit_code);
+}
+
+// ---------------------------------------------------------------------------
+// Chunked mode (-Z): the hash table is never held whole.
+//
+// 1. The input is scanned once for every minimizer it holds (a superset of the
+//    keys ClassifySequence looks up).
+// 2. The table is read one slice at a time and each distinct key is resolved in
+//    the slice holding its home cell. Linear probing keeps a probe run inside
+//    the slice plus the cells after it up to the first empty cell, so each key
+//    gets the value a full-table lookup returns.
+// 3. The input is classified again, normally, against the resolved keys.
+//
+// Input that cannot be read twice (standard input, pipes, FIFOs) is copied to a
+// temporary file in TMPDIR (default /tmp) while it is scanned.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+double ChunkNow() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return tv.tv_sec + tv.tv_usec / 1e6;
+}
+
+// The distinct keys and their resolved values. keys/vals are filled during the
+// slice pass; BuildTable then moves them into an open-addressing table keyed by
+// each key's hash, with key and value in one 16-byte slot, so a lookup reads one
+// slot (minimizer values cluster, so ranges of them do not index evenly).
+// GetBatch prefetches the slots of keys further down the batch.
+class ResolvedStore : public KeyValueStore {
+  public:
+  struct alignas(16) Slot { uint64_t key; hvalue_t val; uint32_t pad; };
+  static const uint64_t EMPTY = UINT64_MAX;  // never a minimizer (it marks borders)
+  vector<uint64_t> keys;
+  vector<hvalue_t> vals;
+  vector<Slot> table;
+  size_t nslots = 0;
+
+  static size_t Index(uint64_t key, size_t n) {
+    return (size_t) (((unsigned __int128) MurmurHash3(key) * n) >> 64);
+  }
+  void BuildTable() {
+    size_t n = keys.size();
+    nslots = n + n / 3 + 1;
+    table.assign(nslots, Slot{EMPTY, 0, 0});
+    Slot *t = table.data();
+    #pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n; i++) {
+      size_t s = Index(keys[i], nslots);
+      while (true) {
+        uint64_t expected = EMPTY;
+        if (__atomic_compare_exchange_n(&t[s].key, &expected, keys[i], false,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+          t[s].val = vals[i];
+          break;
+        }
+        if (++s == nslots) s = 0;
+      }
+    }
+    vector<uint64_t>().swap(keys);
+    vector<hvalue_t>().swap(vals);
+  }
+  hvalue_t Get(hkey_t key) const {
+    size_t s = Index(key, nslots);
+    while (true) {
+      const Slot &e = table[s];
+      if (e.key == key)
+        return e.val;
+      if (e.key == EMPTY)
+        errx(EX_SOFTWARE, "chunked mode: key not collected");
+      if (++s == nslots) s = 0;
+    }
+  }
+  void GetBatch(std::vector<LookupData> &data) const {
+    const size_t D = 16;
+    size_t n = data.size();
+    for (size_t i = 0; i < n; i++) {
+      if (i + D < n && data[i + D].key != UINT64_MAX)
+        __builtin_prefetch(&table[Index(data[i + D].key, nslots)], 0, 1);
+      if (data[i].key != UINT64_MAX)
+        data[i].value = Get(data[i].key);
+    }
+  }
+};
+
+struct TableHeader {
+  size_t capacity, size, key_bits, value_bits;
+  off_t table_off;
+};
+
+TableHeader ReadTableHeader(const string &filename) {
+  TableHeader h;
+  int fd = open(filename.c_str(), O_RDONLY);
+  if (fd < 0)
+    errx(EX_OSERR, "unable to open %s", filename.c_str());
+  read_fully(fd, &h.capacity, sizeof(h.capacity), filename.c_str());
+  read_fully(fd, &h.size, sizeof(h.size), filename.c_str());
+  read_fully(fd, &h.key_bits, sizeof(h.key_bits), filename.c_str());
+  read_fully(fd, &h.value_bits, sizeof(h.value_bits), filename.c_str());
+  h.table_off = 4 * sizeof(size_t);
+  close(fd);
+  return h;
+}
+
+// Resolve store.keys against the table, slice by slice. A parallel counting pass
+// reorders the keys by the slice holding their home cell, so each slice's keys
+// are contiguous and vals follows the same order.
+template <typename Cell>
+void ResolveKeys(const string &filename, const TableHeader &h, size_t chunk_cells,
+                 ResolvedStore &store, double &io_s, double &probe_s, size_t &slices_read)
+{
+  size_t n = store.keys.size();
+  size_t ns = (h.capacity + chunk_cells - 1) / chunk_cells;
+  vector<uint32_t> sl(n);
+  int T = omp_get_max_threads();
+  vector<vector<size_t>> cnt(T, vector<size_t>(ns, 0));
+  #pragma omp parallel num_threads(T)
+  {
+    int t = omp_get_thread_num();
+    #pragma omp for schedule(static)
+    for (size_t i = 0; i < n; i++) {
+      sl[i] = (uint32_t) ((MurmurHash3(store.keys[i]) % h.capacity) / chunk_cells);
+      cnt[t][sl[i]]++;
+    }
+  }
+  vector<size_t> slice_begin(ns + 1, 0);
+  {
+    size_t run = 0;
+    for (size_t c = 0; c < ns; c++) {
+      slice_begin[c] = run;
+      for (int t = 0; t < T; t++) {
+        size_t k = cnt[t][c];
+        cnt[t][c] = run;  // becomes this thread's write offset
+        run += k;
+      }
+    }
+    slice_begin[ns] = run;
+  }
+  {
+    vector<uint64_t> by_slice(n);
+    #pragma omp parallel num_threads(T)
+    {
+      int t = omp_get_thread_num();
+      #pragma omp for schedule(static)
+      for (size_t i = 0; i < n; i++)
+        by_slice[cnt[t][sl[i]]++] = store.keys[i];
+    }
+    store.keys.swap(by_slice);
+  }
+  vector<uint32_t>().swap(sl);
+  store.vals.assign(n, 0);
+
+  int fd = open(filename.c_str(), O_RDONLY);
+  if (fd < 0)
+    errx(EX_OSERR, "unable to open %s", filename.c_str());
+  const size_t CS = sizeof(Cell);
+  const size_t EXT = 1 << 16;
+  size_t cap = chunk_cells + (1 << 20);
+  // 2 MB-aligned, huge pages, not zero-filled (as LoadTable).
+  Cell *buf = nullptr;
+  if (posix_memalign((void **) &buf, (size_t) 1 << 21, cap * CS) != 0)
+    errx(EX_OSERR, "unable to allocate slice buffer");
+#ifdef MADV_HUGEPAGE
+  madvise(buf, cap * CS, MADV_HUGEPAGE);
+#endif
+  for (size_t c = 0; c < ns; c++) {
+    size_t lo = c * chunk_cells, hi = std::min(lo + chunk_cells, h.capacity);
+    size_t first = slice_begin[c], pos = slice_begin[c + 1];
+    if (pos == first)
+      continue;  // no key homes here
+    double t0 = ChunkNow();
+    size_t used = hi - lo;
+    pread_parallel(fd, buf, used * CS, h.table_off + (off_t) (lo * CS), db_read_threads(), filename.c_str());
+    // Spill-over: cells after hi (wrapping past the table end) up to the first empty one.
+    size_t next = hi % h.capacity;
+    while (true) {
+      size_t len = std::min(EXT, h.capacity - next);
+      if (used + len > cap) {
+        cap = used + len + (1 << 20);
+        Cell *bigger = (Cell *) realloc(buf, cap * CS);
+        if (! bigger)
+          errx(EX_OSERR, "unable to grow slice buffer");
+        buf = bigger;
+      }
+      pread_parallel(fd, buf + used, len * CS, h.table_off + (off_t) (next * CS), 1, filename.c_str());
+      size_t end = used + len;
+      bool empty_found = false;
+      for (size_t i = used; i < end; i++)
+        if (! buf[i].value(h.value_bits)) { used = i + 1; empty_found = true; break; }
+      if (empty_found)
+        break;
+      used = end;
+      next = (next + len) % h.capacity;
+    }
+    posix_fadvise(fd, h.table_off + (off_t) (lo * CS), (hi - lo) * CS, POSIX_FADV_DONTNEED);
+    double t1 = ChunkNow();
+    io_s += t1 - t0;
+    slices_read++;
+    #pragma omp parallel for schedule(static)
+    for (size_t r = first; r < pos; r++) {
+      uint64_t hc = MurmurHash3(store.keys[r]);
+      uint64_t ck = hc >> (64 - h.key_bits);
+      size_t idx = hc % h.capacity - lo;
+      hvalue_t v = 0;
+      while (true) {
+        hvalue_t cv = buf[idx].value(h.value_bits);
+        if (! cv)
+          break;
+        if (buf[idx].hashed_key(h.value_bits) == ck) { v = cv; break; }
+        idx++;
+      }
+      store.vals[r] = v;
+    }
+    probe_s += ChunkNow() - t1;
+  }
+  free(buf);
+  close(fd);
+}
+
+// The distinct keys of the input, gathered while scanning. Keys are split into
+// partitions by the top bits of their hash, shared by all threads; each
+// partition is an open-addressing set, so a key is stored once whichever thread
+// sees it, and nothing is ever sorted. Threads stage keys per partition and
+// insert a staged batch under that partition's lock.
+class KeySet {
+  public:
+  static const int PBITS = 12;
+  static const size_t P = (size_t) 1 << PBITS;
+  static const size_t STAGE = 256;
+  static const uint64_t EMPTY = UINT64_MAX;  // never a minimizer
+  struct Part {
+    omp_lock_t lock;
+    vector<uint64_t> slots;
+    size_t count = 0;
+  };
+  vector<Part> parts;
+
+  KeySet() : parts(P) {
+    for (auto &p : parts) {
+      omp_init_lock(&p.lock);
+      p.slots.assign(1024, EMPTY);
+    }
+  }
+  ~KeySet() {
+    for (auto &p : parts)
+      omp_destroy_lock(&p.lock);
+  }
+  static size_t PartOf(uint64_t hc) { return hc >> (64 - PBITS); }
+
+  void Flush(size_t pi, vector<uint64_t> &stage) {
+    Part &p = parts[pi];
+    omp_set_lock(&p.lock);
+    for (uint64_t k : stage) {
+      if ((p.count + 1) * 4 > p.slots.size() * 3)
+        Grow(p);
+      Insert(p, k);
+    }
+    omp_unset_lock(&p.lock);
+    stage.clear();
+  }
+  size_t size() const {
+    size_t n = 0;
+    for (auto &p : parts) n += p.count;
+    return n;
+  }
+  // Moves every key into out, freeing each partition as it goes.
+  void Extract(vector<uint64_t> &out) {
+    vector<size_t> start(P + 1, 0);
+    for (size_t i = 0; i < P; i++)
+      start[i + 1] = start[i] + parts[i].count;
+    out.resize(start[P]);
+    #pragma omp parallel for schedule(dynamic, 16)
+    for (size_t i = 0; i < P; i++) {
+      size_t o = start[i];
+      for (uint64_t k : parts[i].slots)
+        if (k != EMPTY)
+          out[o++] = k;
+      vector<uint64_t>().swap(parts[i].slots);
+      parts[i].count = 0;
+    }
+  }
+
+  private:
+  static void Insert(Part &p, uint64_t key) {
+    size_t mask = p.slots.size() - 1;
+    size_t s = MurmurHash3(key) & mask;
+    while (true) {
+      uint64_t k = p.slots[s];
+      if (k == key)
+        return;
+      if (k == EMPTY) {
+        p.slots[s] = key;
+        p.count++;
+        return;
+      }
+      s = (s + 1) & mask;
+    }
+  }
+  static void Grow(Part &p) {
+    vector<uint64_t> old;
+    old.swap(p.slots);
+    p.slots.assign(old.size() * 2, EMPTY);
+    p.count = 0;
+    for (uint64_t k : old)
+      if (k != EMPTY)
+        Insert(p, k);
+  }
+};
+
+// Every minimizer ClassifySequence could look up in one input: each record is
+// scanned on its own (mates and interleaved pairs alike), so the set holds every
+// key the classify pass asks for. Quality masking only turns windows ambiguous,
+// so scanning the unmasked bases gives a superset too. A small per-thread cache
+// skips keys seen moments before.
+void ScanKeys(int fd, bool regular, const char *what, IndexOptions &idx_opts, KeySet &keys) {
+  StreamCursor cursor;
+  bool have_input = PrimeStream(fd, cursor);
+  if (! cursor.error.empty())
+    errx(EX_IOERR, "%s (%s)", cursor.error.c_str(), what);
+  if (! have_input)
+    return;
+  #pragma omp parallel
+  {
+    FastReader reader;
+    MinimizerScanner scanner(idx_opts.k, idx_opts.l, idx_opts.spaced_seed_mask,
+                             idx_opts.dna_db, idx_opts.toggle_mask, idx_opts.revcom_version);
+    vector<vector<uint64_t>> stage(KeySet::P);
+    vector<uint64_t> recent(1 << 16, KeySet::EMPTY);
+    while (true) {
+      bool ok;
+      #pragma omp critical(chunk_scan_read)
+      ok = regular ? reader.LoadBlock(fd, cursor, INPUT_BLOCK_BYTES) : reader.LoadRecords(fd, cursor, 10000);
+      if (! ok)
+        break;
+      reader.Parse();
+      for (size_t i = 0; i < reader.size(); i++) {
+        const SeqView &r = reader.at(i);
+        scanner.LoadSequence(r.seq, r.seq_len);
+        uint64_t last = UINT64_MAX, *m;
+        while ((m = scanner.NextMinimizer()) != nullptr) {
+          if (scanner.is_ambiguous() || *m == last)
+            continue;
+          last = *m;
+          uint64_t hc = MurmurHash3(*m);
+          if (idx_opts.minimum_acceptable_hash_value && hc < idx_opts.minimum_acceptable_hash_value)
+            continue;
+          uint64_t &c = recent[hc & 0xFFFF];
+          if (c == *m)
+            continue;
+          c = *m;
+          size_t pi = KeySet::PartOf(hc);
+          stage[pi].push_back(*m);
+          if (stage[pi].size() == KeySet::STAGE)
+            keys.Flush(pi, stage[pi]);
+        }
+      }
+    }
+    for (size_t pi = 0; pi < KeySet::P; pi++)
+      if (! stage[pi].empty())
+        keys.Flush(pi, stage[pi]);
+  }
+}
+
+// Temporary copies of the input, removed at exit, including exits through errx.
+vector<string> chunk_temps;
+void RemoveChunkTemps() {
+  for (auto &t : chunk_temps)
+    std::remove(t.c_str());
+  chunk_temps.clear();
+}
+
+// Input that cannot be read twice: one thread copies it to a temporary file and
+// into a pipe, and the minimizer scan reads the pipe, so copying and scanning
+// overlap. Returns the temporary file's name.
+string TeeAndScan(int fd, const string &what, IndexOptions &idx_opts, KeySet &keys) {
+  const char *tmpdir = getenv("TMPDIR");
+  string dir = (tmpdir && *tmpdir) ? tmpdir : "/tmp";
+  string pattern = dir + "/kraken2_chunk.XXXXXX";
+  vector<char> name(pattern.begin(), pattern.end());
+  name.push_back('\0');
+  int out = mkstemp(name.data());
+  if (out < 0)
+    err(EX_CANTCREAT, "unable to create temporary file in %s", dir.c_str());
+  chunk_temps.push_back(name.data());
+  int pfd[2];
+  if (pipe(pfd) != 0)
+    err(EX_OSERR, "unable to create pipe");
+#ifdef F_SETPIPE_SZ
+  fcntl(pfd[1], F_SETPIPE_SZ, 1 << 20);
+#endif
+  std::thread tee([&]() {
+    vector<char> buf(1 << 20);
+    auto write_all = [&](int to, const char *p, ssize_t n, const char *target) {
+      for (ssize_t off = 0; off < n; ) {
+        ssize_t w = write(to, p + off, n - off);
+        if (w < 0) {
+          if (errno == EINTR) continue;
+          err(EX_IOERR, "error writing %s", target);
+        }
+        off += w;
+      }
+    };
+    while (true) {
+      ssize_t r = read(fd, buf.data(), buf.size());
+      if (r < 0) {
+        if (errno == EINTR) continue;
+        err(EX_IOERR, "error reading %s", what.c_str());
+      }
+      if (r == 0)
+        break;
+      write_all(out, buf.data(), r, name.data());
+      write_all(pfd[1], buf.data(), r, "pipe");
+    }
+    close(out);
+    close(pfd[1]);
+  });
+  ScanKeys(pfd[0], false, what.c_str(), idx_opts, keys);
+  // If the scan stopped early (bad input), drain the pipe so the copy finishes.
+  vector<char> sink(1 << 16);
+  while (read(pfd[0], sink.data(), sink.size()) > 0) { }
+  tee.join();
+  close(pfd[0]);
+  return string(name.data());
+}
+
+}  // namespace
+
+void ClassifyChunked(Options &opts) {
+#ifndef LINEAR_PROBING
+  errx(EX_SOFTWARE, "chunked mode (-Z) needs a build with LINEAR_PROBING");
+#endif
+  cerr << "Loading database information (chunked)...";
+  IndexData *index_data = new IndexData();
+  IndexOptions idx_opts = {0};
+  {
+    ifstream idx_opt_fs(opts.options_filename);
+    struct stat sb;
+    if (stat(opts.options_filename.c_str(), &sb) < 0)
+      errx(EX_OSERR, "unable to get filesize of %s", opts.options_filename.c_str());
+    idx_opt_fs.read((char *) &idx_opts, sb.st_size);
+  }
+  if (! idx_opts.dna_db)
+    errx(EX_USAGE, "chunked mode (-Z) supports DNA databases only");
+  index_data->options = idx_opts;
+  index_data->taxonomy = new Taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
+  index_data->cht = nullptr;
+  CellType cell_type = GetKVStoreCellType(opts.index_filename);
+  if (cell_type == Unknown)
+    errx(1, "Unable to determine width of compact hash cell\n");
+  TableHeader h = ReadTableHeader(opts.index_filename);
+  size_t cell_bytes = cell_type == CompactHash32 ? sizeof(CompactHashCell) : sizeof(CompactHashCell40);
+  size_t chunk_cells = (size_t) (opts.chunk_gb * 1e9 / cell_bytes);
+  if (chunk_cells < (1u << 20))
+    chunk_cells = 1u << 20;
+  cerr << " done." << endl;
+
+  omp_set_num_threads(opts.num_threads);
+  double t0 = ChunkNow();
+
+  // 1. collect every minimizer the input holds; input that cannot be read twice
+  //    is copied to a temporary file as it is scanned
+  atexit(RemoveChunkTemps);
+  KeySet scanned;
+  vector<string> names;
+  if (opts.filenames.empty()) {
+    names.push_back(TeeAndScan(fileno(stdin), "standard input", idx_opts, scanned));
+  } else {
+    for (char *f : opts.filenames) {
+      int fd = open(f, O_RDONLY);
+      if (fd < 0)
+        errx(EX_NOINPUT, "unable to open %s", f);
+      if (IsRegularFile(fd)) {
+        ScanKeys(fd, true, f, idx_opts, scanned);
+        names.push_back(f);
+      } else {
+        names.push_back(TeeAndScan(fd, f, idx_opts, scanned));
+      }
+      close(fd);
+    }
+  }
+  opts.filenames.clear();
+  for (auto &n : names)
+    opts.filenames.push_back(&n[0]);
+  ResolvedStore *store = new ResolvedStore();
+  if (scanned.size() >= UINT32_MAX)
+    errx(EX_SOFTWARE, "chunked mode: too many distinct minimizers; split the input");
+  scanned.Extract(store->keys);
+  double t1 = ChunkNow();
+
+  // 2. resolve the keys slice by slice
+  double io_s = 0, probe_s = 0;
+  size_t slices_read = 0;
+  if (cell_type == CompactHash32)
+    ResolveKeys<CompactHashCell>(opts.index_filename, h, chunk_cells, *store, io_s, probe_s, slices_read);
+  else
+    ResolveKeys<CompactHashCell40>(opts.index_filename, h, chunk_cells, *store, io_s, probe_s, slices_read);
+  size_t ndistinct = store->keys.size();
+  store->BuildTable();
+  double t2 = ChunkNow();
+  fprintf(stderr, "Chunked: %zu distinct minimizers scanned in %.1fs (including any copy of the input); %zu slices of up to %.2f GB read in %.1fs "
+          "(table %.1fs, probe %.1fs)\n", ndistinct, t1 - t0, slices_read, chunk_cells * cell_bytes / 1e9,
+          t2 - t1, io_s, probe_s);
+
+  // 3. classify normally against the resolved keys
+  index_data->cht = store;
+  classify(opts, index_data);
+  delete index_data;  // frees the store and the taxonomy
+  RemoveChunkTemps();
 }

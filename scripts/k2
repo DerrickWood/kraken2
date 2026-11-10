@@ -89,6 +89,7 @@ WRAPPER_ARGS_TO_BIN_ARGS = {
     "cht_cell_size": "-C",
     "dump_taxon_counters": "-d",
     "flag_unique_minimizers": "-F",
+    "chunk_size": "-Z",
 }
 
 
@@ -5115,6 +5116,14 @@ def make_classify_parser(subparsers):
         action="store_true",
         default=argparse.SUPPRESS,
         help="Avoids loading entire database into RAM",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=float,
+        metavar="GB",
+        default=argparse.SUPPRESS,
+        help="Load the hash table GB at a time; results are unchanged. Input that "
+        "cannot be read twice is copied to TMPDIR first (DNA databases only)",
     )
     paired_group = parser.add_mutually_exclusive_group()
     paired_group.add_argument(
